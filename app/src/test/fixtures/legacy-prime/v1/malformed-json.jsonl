@@ -1,0 +1,2 @@
+{"type":"agent_start","fixtureId":"evt-malformed-head"}
+{"type":"message_update","fixtureId":"evt-malformed-tail",}

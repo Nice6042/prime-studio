@@ -1,0 +1,55 @@
+{
+  "name": "prime-studio",
+  "private": true,
+  "version": "0.1.0",
+  "description": "A Windows-first Tauri and React development snapshot exploring a desktop interface for a separately installed prime-agent runtime.",
+  "author": "Prime Studio Contributors",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.12.0 <23"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "branding:icons": "tauri icon ../assets/branding/prime-studio-mark.svg && node scripts/canonicalize-icns.mjs src-tauri/icons/icon.icns && node scripts/normalize-branding-icons.mjs src-tauri/icons",
+    "check": "node src/reducer.check.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:browser-shell:config": "node --test e2e/browser-shell.config.test.mjs",
+    "test:browser-shell": "npm run test:browser-shell:strict",
+    "test:browser-shell:strict": "npm run test:browser-shell:config && node e2e/run-browser-shell.mjs strict",
+    "test:browser-shell:baseline": "npm run test:browser-shell:config && node e2e/run-browser-shell.mjs baseline",
+    "install:browser-shell-chromium": "playwright install chromium",
+    "test:bundle": "node --test scripts/measure-bundle.node.mjs",
+    "test:dependency-policy": "node --test scripts/dependency-policy.node.mjs",
+    "check:dependencies": "node scripts/check-dependency-policy.mjs",
+    "preview": "vite preview",
+    "measure:bundle": "node scripts/measure-bundle.mjs",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-opener": "^2",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-markdown": "^10.1.0",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.12.1",
+    "@playwright/test": "1.62.0",
+    "@tauri-apps/cli": "^2",
+    "@testing-library/jest-dom": "^7.0.0",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.3",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.6.0",
+    "jsdom": "28.1.0",
+    "typescript": "~5.8.3",
+    "vite": "^7.0.4",
+    "vitest": "^4.1.10"
+  }
+}

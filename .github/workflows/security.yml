@@ -1,0 +1,97 @@
+name: Security
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  npm-audit:
+    name: npm audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Audit locked npm dependency graph
+        working-directory: app
+        run: npm audit --audit-level=moderate
+
+  cargo-audit:
+    name: Locked dependency policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch, pinned 2026-08-10
+        with:
+          toolchain: 1.97.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install locked npm dependencies
+        working-directory: app
+        run: npm ci
+
+      - name: Install locked dependency auditors
+        run: |
+          cargo install cargo-deny --version 0.20.2 --locked
+          cargo install cargo-audit --version 0.22.2 --locked
+
+      - name: Check out the pinned RustSec database
+        shell: bash
+        run: |
+          git clone --filter=blob:none https://github.com/RustSec/advisory-db "$RUNNER_TEMP/rustsec-advisory-db"
+          git -C "$RUNNER_TEMP/rustsec-advisory-db" checkout --detach 565436d86a136c840d01ad4a7851fc7391295404
+          echo "RUSTSEC_ADVISORY_DB=$RUNNER_TEMP/rustsec-advisory-db" >> "$GITHUB_ENV"
+
+      - name: Enforce locked dependency policy
+        working-directory: app
+        run: npm run check:dependencies
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: moderate
+          comment-summary-in-pr: never

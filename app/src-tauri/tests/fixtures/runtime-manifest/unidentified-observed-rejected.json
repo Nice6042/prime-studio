@@ -1,0 +1,62 @@
+{
+  "schemaVersion": "prime-studio.runtime-compatibility/v1",
+  "manifestId": "synthetic-unidentified-runtime-rejected",
+  "runtime": {
+    "ownership": "unidentified",
+    "product": "prime-agent",
+    "packageVersion": "0.0.0-synthetic",
+    "sourceRevision": null,
+    "buildRevision": null,
+    "sourceAttested": false,
+    "dirty": false
+  },
+  "artifactClosure": {
+    "complete": false,
+    "sha256": "f09c2b9eba8e954571324f13d84c344b22e0bbcb980c616cd02157331af263ad",
+    "artifacts": [
+      {
+        "path": "bundle/cli.js",
+        "role": "prime-cli-entry",
+        "size": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "node.exe",
+        "role": "node-runtime",
+        "size": 3,
+        "sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+      }
+    ]
+  },
+  "protocol": null,
+  "capabilitySet": {
+    "complete": false,
+    "sha256": "7286f9532d35af69fb4e6fd17b13e168b4c456937d2c49aa3c2e6776c85cf87d",
+    "capabilities": [
+      {
+        "id": "prime.extension-ui.method-count",
+        "state": "present",
+        "value": "0"
+      },
+      {
+        "id": "prime.rpc.headless-daemon",
+        "state": "absent"
+      },
+      {
+        "id": "prime.rpc.legacy.command-count",
+        "state": "present",
+        "value": "0"
+      },
+      {
+        "id": "prime.rpc.outbound-variant-count",
+        "state": "present",
+        "value": "0"
+      },
+      {
+        "id": "prime.rpc.rate-limits",
+        "state": "absent"
+      }
+    ]
+  },
+  "executionAllowed": false
+}

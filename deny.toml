@@ -1,0 +1,73 @@
+[graph]
+targets = ["x86_64-pc-windows-msvc"]
+all-features = false
+no-default-features = false
+
+[output]
+feature-depth = 1
+
+[advisories]
+db-path = "$PRIME_STUDIO_ADVISORY_ROOT"
+db-urls = ["https://github.com/RustSec/advisory-db"]
+unmaintained = "all"
+unsound = "all"
+yanked = "deny"
+unused-ignored-advisory = "deny"
+maximum-db-staleness = "P45D"
+ignore = [
+  { id = "RUSTSEC-2025-0075", reason = "Exact expiring disposition in dependency-policy.json; review by 2026-09-10." },
+  { id = "RUSTSEC-2025-0080", reason = "Exact expiring disposition in dependency-policy.json; review by 2026-09-10." },
+  { id = "RUSTSEC-2025-0081", reason = "Exact expiring disposition in dependency-policy.json; review by 2026-09-10." },
+  { id = "RUSTSEC-2025-0098", reason = "Exact expiring disposition in dependency-policy.json; review by 2026-09-10." },
+  { id = "RUSTSEC-2025-0100", reason = "Exact expiring disposition in dependency-policy.json; review by 2026-09-10." },
+]
+
+[licenses]
+allow = [
+  "0BSD",
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "CC0-1.0",
+  "ISC",
+  "MIT",
+  "MIT-0",
+  "MPL-2.0",
+  "Unicode-3.0",
+  "Unlicense",
+  "Zlib",
+]
+confidence-threshold = 0.93
+
+[licenses.private]
+ignore = true
+registries = []
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "simplest-path"
+workspace-default-features = "allow"
+external-default-features = "allow"
+allow = []
+allow-workspace = true
+deny = [
+  { crate = "git2", reason = "Do not add an embedded Git implementation without supply-chain review." },
+  { crate = "libgit2-sys", reason = "Do not add an embedded Git implementation without supply-chain review." },
+  { crate = "native-tls", reason = "TLS backend changes require explicit platform and trust-store review." },
+  { crate = "openssl", reason = "Do not add a second TLS implementation without explicit review." },
+  { crate = "openssl-sys", reason = "Do not add native OpenSSL binaries without explicit review." },
+]
+skip = []
+skip-tree = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+
+[sources.allow-org]
+github = []
+gitlab = []
+bitbucket = []

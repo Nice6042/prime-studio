@@ -1,0 +1,226 @@
+{
+  "schema": "./readiness-oracle-record.schema.json",
+  "positive": {
+    "id": "implemented-enforced-account-removal",
+    "record": {
+      "schemaVersion": "1",
+      "recordId": "ror-account-removal-enforced-fixture",
+      "status": "implemented",
+      "readiness": "enforced",
+      "testId": "test-account-removal-enforced-fixture",
+      "effectId": "effect-account-removal",
+      "oracleId": "oracle-account-removal-independent-watcher",
+      "fixtureId": "fixture-account-removal-windows",
+      "expectedEffect": {
+        "effectId": "effect-account-removal",
+        "operation": "remove-account-profile",
+        "target": "validated-account-owned-profile",
+        "kind": "account_profile_removal",
+        "sideEffect": "remove the validated account-owned profile",
+        "result": "completed",
+        "details": "Synthetic schema fixture; not product release evidence.",
+        "observationId": "observation-account-removal-expected"
+      },
+      "observedEffect": {
+        "effectId": "effect-account-removal",
+        "operation": "remove-account-profile",
+        "target": "validated-account-owned-profile",
+        "kind": "account_profile_removal",
+        "sideEffect": "remove the validated account-owned profile",
+        "result": "completed",
+        "details": "Synthetic schema fixture; independent watcher evidence is represented below.",
+        "observationId": "observation-account-removal-observed"
+      },
+      "sourceIdentity": {
+        "repository": "prime-studio",
+        "commit": "1111111111111111111111111111111111111111",
+        "path": "app/src-tauri/src/accounts/delete.rs",
+        "revision": "account-removal-fixture-revision-1",
+        "digest": "C69134937A2346CC948B5EA43EB6E69EE98225734EEBD70F1103EDA72BEAC64A"
+      },
+      "closureIdentity": {
+        "studio": "studio-source-synthetic",
+        "prime": "prime-agent-0.7.1",
+        "protocolProfile": "rpc-profile-0.7.1",
+        "securityEpoch": "fixture-security-1",
+        "brokerEpoch": "fixture-broker-1",
+        "executorEpoch": "fixture-executor-1",
+        "artifactDigest": "97489373B7399AB9C9455FF8158C065FA352EC40E3182AC9F4541CC832548B18"
+      },
+      "epochs": {
+        "policy": "fixture-policy-1",
+        "broker": "fixture-broker-1",
+        "session": "fixture-session-1",
+        "worker": "fixture-executor-1"
+      },
+      "epochEvidence": {
+        "policy": {
+          "value": "fixture-policy-1",
+          "observationId": "observation-policy-epoch"
+        },
+        "broker": {
+          "value": "fixture-broker-1",
+          "observationId": "observation-broker-epoch"
+        },
+        "session": {
+          "value": "fixture-session-1",
+          "observationId": "observation-session-epoch"
+        },
+        "worker": {
+          "value": "fixture-executor-1",
+          "observationId": "observation-worker-epoch"
+        }
+      },
+      "environmentBoundaryOracle": {
+        "boundaryId": "boundary-account-profile-root",
+        "boundaryType": "filesystem_root",
+        "positiveControlId": "fixture-account-removal-positive-control",
+        "independentObserver": {
+          "observerId": "observer-filesystem-watcher",
+          "sourceIdentity": {
+            "repository": "prime-studio",
+            "commit": "1111111111111111111111111111111111111111",
+            "path": "app/src-tauri/tests/account_delete_transaction_windows.rs",
+            "revision": "account-removal-watcher-fixture-revision-1",
+            "digest": "A9AFF39B36942A581BB2D98D2A1C4663282F251B2B2677BD648A4A3544B509A8"
+          },
+          "closureIdentity": {
+            "component": "account-removal-test-watcher",
+            "artifactDigest": "A9AFF39B36942A581BB2D98D2A1C4663282F251B2B2677BD648A4A3544B509A8"
+          }
+        },
+        "assertion": "The independent watcher observes only the validated account-owned target transition.",
+        "status": "implemented",
+        "observed": {
+          "observationId": "observation-account-removal-boundary",
+          "result": "completed",
+          "details": "Synthetic schema fixture observation; not product release evidence."
+        }
+      },
+      "terminalState": "completed",
+      "environment": {
+        "os": "windows",
+        "architecture": "x86_64",
+        "buildId": "fixture-build-2026-08-09",
+        "webview": "fixture-webview"
+      },
+      "notes": "Synthetic positive fixture only. It cannot authorize an effect or promote a release capability."
+    }
+  },
+  "negative": [
+    {
+      "id": "unknown-closure-identity",
+      "patches": [
+        { "op": "replace", "path": "/closureIdentity/prime", "value": "unknown" }
+      ]
+    },
+    {
+      "id": "invalid-source-sha256",
+      "patches": [
+        { "op": "replace", "path": "/sourceIdentity/digest", "value": "not-a-sha256" }
+      ]
+    },
+    {
+      "id": "invalid-closure-sha256",
+      "patches": [
+        { "op": "replace", "path": "/closureIdentity/artifactDigest", "value": "1234" }
+      ]
+    },
+    {
+      "id": "missing-build-environment",
+      "patches": [
+        { "op": "remove", "path": "/environment" }
+      ]
+    },
+    {
+      "id": "missing-independent-observation",
+      "patches": [
+        { "op": "remove", "path": "/environmentBoundaryOracle/observed" }
+      ]
+    },
+    {
+      "id": "failed-boundary-marked-enforced",
+      "patches": [
+        { "op": "replace", "path": "/environmentBoundaryOracle/observed/result", "value": "failed" }
+      ]
+    },
+    {
+      "id": "blocked-terminal-marked-enforced",
+      "patches": [
+        { "op": "replace", "path": "/terminalState", "value": "blocked_before_action" },
+        { "op": "replace", "path": "/observedEffect/result", "value": "none" }
+      ]
+    },
+    {
+      "id": "blocked-status-marked-enforced",
+      "patches": [
+        { "op": "replace", "path": "/status", "value": "blocked" }
+      ]
+    },
+    {
+      "id": "empty-epoch-values",
+      "patches": [
+        { "op": "replace", "path": "/epochs/policy", "value": "" },
+        { "op": "replace", "path": "/epochs/broker", "value": "" },
+        { "op": "replace", "path": "/epochs/session", "value": "" },
+        { "op": "replace", "path": "/epochs/worker", "value": "" }
+      ]
+    },
+    {
+      "id": "unknown-epoch-value",
+      "patches": [
+        { "op": "replace", "path": "/epochs/policy", "value": "unknown" },
+        { "op": "replace", "path": "/epochEvidence/policy/value", "value": "unknown" }
+      ]
+    },
+    {
+      "id": "record-closure-epoch-mismatch",
+      "patches": [
+        { "op": "replace", "path": "/epochs/policy", "value": "fixture-policy-2" },
+        { "op": "replace", "path": "/epochs/broker", "value": "fixture-broker-2" },
+        { "op": "replace", "path": "/epochs/session", "value": "fixture-session-2" },
+        { "op": "replace", "path": "/epochs/worker", "value": "fixture-executor-2" }
+      ]
+    },
+    {
+      "id": "studio-self-observer",
+      "patches": [
+        {
+          "op": "replace",
+          "path": "/environmentBoundaryOracle/independentObserver/sourceIdentity",
+          "value": {
+            "repository": "prime-studio",
+            "commit": "1111111111111111111111111111111111111111",
+            "path": "app/src-tauri/src/accounts/delete.rs",
+            "revision": "account-removal-fixture-revision-1",
+            "digest": "C69134937A2346CC948B5EA43EB6E69EE98225734EEBD70F1103EDA72BEAC64A"
+          }
+        },
+        {
+          "op": "replace",
+          "path": "/environmentBoundaryOracle/independentObserver/closureIdentity/component",
+          "value": "studio-source-synthetic"
+        },
+        {
+          "op": "replace",
+          "path": "/environmentBoundaryOracle/independentObserver/closureIdentity/artifactDigest",
+          "value": "97489373B7399AB9C9455FF8158C065FA352EC40E3182AC9F4541CC832548B18"
+        }
+      ]
+    },
+    {
+      "id": "expected-observed-effect-identity-mismatch",
+      "patches": [
+        { "op": "replace", "path": "/observedEffect/effectId", "value": "effect-project-tree-removal" },
+        { "op": "replace", "path": "/observedEffect/operation", "value": "remove-project-tree" },
+        { "op": "replace", "path": "/observedEffect/target", "value": "different-project-owned-tree" }
+      ]
+    },
+    {
+      "id": "uppercase-unknown-closure-identity",
+      "patches": [
+        { "op": "replace", "path": "/closureIdentity/prime", "value": "UNKNOWN" }
+      ]
+    }
+  ]
+}

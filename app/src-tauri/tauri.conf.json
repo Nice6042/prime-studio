@@ -1,0 +1,62 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Prime Studio",
+  "version": "0.1.0",
+  "identifier": "dev.primestudio.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "create": false,
+        "title": "Prime Studio",
+        "width": 1280,
+        "height": 840
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data: blob: asset: http://asset.localhost; media-src 'self' data: blob: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost",
+      "devCsp": "default-src 'self'; img-src 'self' data: blob: asset: http://asset.localhost; media-src 'self' data: blob: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' ipc: http://ipc.localhost ws://localhost:1420 http://localhost:1420"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["msi", "nsis"],
+    "createUpdaterArtifacts": false,
+    "publisher": "Prime Studio Contributors",
+    "copyright": "Copyright (c) 2026 Prime Studio Contributors",
+    "license": "MIT",
+    "licenseFile": "../../LICENSE",
+    "category": "DeveloperTool",
+    "shortDescription": "A Windows-first Tauri and React development snapshot exploring a desktop interface for a separately installed prime-agent runtime.",
+    "longDescription": "Prime Studio is a development snapshot exploring a desktop interface for a separately installed prime-agent runtime. It is not a supported product or release candidate, and elevated runtime effects remain unavailable by default.",
+    "windows": {
+      "allowDowngrades": false,
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "wix": {
+        "upgradeCode": "876b9e7d-e060-59f1-acc2-629b8f60957a",
+        "enableElevatedUpdateTask": false
+      },
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/64x64.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

@@ -1,0 +1,18 @@
+{"type":"agent_start","fixtureId":"evt-core-001"}
+{"type":"turn_start","fixtureId":"evt-core-002"}
+{"type":"message_start","fixtureId":"evt-core-003","message":{"role":"assistant","content":[],"model":"synthetic-model","provider":"synthetic-provider"}}
+{"type":"message_update","fixtureId":"evt-core-004","message":{"role":"assistant","content":[{"type":"text","text":"Synthetic reply"}]}}
+{"type":"message_end","fixtureId":"evt-core-005","message":{"role":"assistant","content":[{"type":"text","text":"Synthetic reply"}],"usage":{"input":3,"output":5,"cacheRead":0,"cacheWrite":0,"cost":{"total":0.001}}}}
+{"type":"tool_execution_start","fixtureId":"evt-core-006","toolCallId":"tool-synthetic-001","toolName":"ipython","args":{"code":"print('synthetic')"}}
+{"type":"tool_execution_update","fixtureId":"evt-core-007","toolCallId":"tool-synthetic-001","toolName":"ipython","args":{"code":"print('synthetic')"},"partialResult":{"content":[{"type":"text","text":"synthetic"}]}}
+{"type":"tool_execution_end","fixtureId":"evt-core-008","toolCallId":"tool-synthetic-001","toolName":"ipython","result":{"content":[{"type":"text","text":"synthetic\\n"}]},"isError":false}
+{"type":"turn_end","fixtureId":"evt-core-009"}
+{"id":"rpc-synthetic-001","type":"response","command":"get_state","success":true,"data":{"sessionId":"session-synthetic-001","sessionFile":"C:\\synthetic\\prime\\sessions\\session-synthetic-001.jsonl"}}
+{"type":"error","fixtureId":"evt-core-011","message":"Synthetic diagnostic"}
+{"type":"extension_ui_request","fixtureId":"evt-extension-001","requestId":"ui-synthetic-001","method":"confirm","title":"Synthetic confirmation","message":"Synthetic request","timeout":5000}
+{"type":"extension_ui_response","fixtureId":"evt-extension-002","requestId":"ui-synthetic-001","result":{"confirmed":true}}
+{"type":"rlm_child_update","fixtureId":"evt-extension-003","child":{"id":"child-synthetic-001","sessionName":"synthetic-child","model":"synthetic-model","sessionDir":"C:\\synthetic\\prime\\sessions\\child-synthetic-001","status":"queued"}}
+{"type":"child_usage_attributed","fixtureId":"evt-extension-004","childId":"child-synthetic-001","childUsage":{"cost":{"total":0.002}}}
+{"type":"rate_limits","fixtureId":"evt-extension-005","utilization":0.25,"representativeWindow":"synthetic-window"}
+{"type":"session_info_changed","fixtureId":"evt-extension-006","sessionName":"synthetic-session"}
+{"type":"agent_end","fixtureId":"evt-core-010","messages":[]}

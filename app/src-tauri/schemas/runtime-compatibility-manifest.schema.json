@@ -1,0 +1,477 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://prime-studio.invalid/schemas/runtime-compatibility-manifest-v1.json",
+  "title": "Prime Studio runtime compatibility manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "manifestId",
+    "runtime",
+    "artifactClosure",
+    "protocol",
+    "capabilitySet"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "prime-studio.runtime-compatibility/v1"
+    },
+    "manifestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "runtime": {
+      "$ref": "#/$defs/runtimeIdentity"
+    },
+    "artifactClosure": {
+      "$ref": "#/$defs/artifactClosure"
+    },
+    "protocol": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/protocolBinding"
+        }
+      ]
+    },
+    "capabilitySet": {
+      "$ref": "#/$defs/capabilitySet"
+    },
+    "executionAllowed": {
+      "type": "boolean",
+      "const": false,
+      "default": false,
+      "description": "Phase 0 is non-activating. A future signed schema version must define execution activation."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "runtime": {
+            "properties": {
+              "ownership": {
+                "enum": [
+                  "managed",
+                  "external"
+                ]
+              }
+            },
+            "required": [
+              "ownership"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "runtime": {
+            "properties": {
+              "buildRevision": {
+                "type": "string",
+                "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+              },
+              "dirty": {
+                "const": false
+              },
+              "packageVersion": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^[ -~]+$"
+              },
+              "sourceAttested": {
+                "const": true
+              },
+              "sourceRevision": {
+                "type": "string",
+                "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+              }
+            }
+          },
+          "artifactClosure": {
+            "properties": {
+              "complete": {
+                "const": true
+              }
+            }
+          },
+          "protocol": {
+            "$ref": "#/$defs/protocolBinding"
+          },
+          "capabilitySet": {
+            "properties": {
+              "capabilities": {
+                "minItems": 1
+              },
+              "complete": {
+                "const": true
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "revision": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        }
+      ]
+    },
+    "runtimeIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ownership",
+        "product",
+        "packageVersion",
+        "sourceRevision",
+        "buildRevision",
+        "sourceAttested",
+        "dirty"
+      ],
+      "properties": {
+        "ownership": {
+          "enum": [
+            "managed",
+            "external",
+            "unidentified"
+          ]
+        },
+        "product": {
+          "const": "prime-agent"
+        },
+        "packageVersion": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "^[ -~]+$"
+            }
+          ]
+        },
+        "sourceRevision": {
+          "$ref": "#/$defs/revision"
+        },
+        "buildRevision": {
+          "$ref": "#/$defs/revision"
+        },
+        "sourceAttested": {
+          "type": "boolean"
+        },
+        "dirty": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "sourceAttested": {
+                "const": true
+              }
+            },
+            "required": [
+              "sourceAttested"
+            ]
+          },
+          "then": {
+            "properties": {
+              "sourceRevision": {
+                "type": "string",
+                "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+              },
+              "dirty": {
+                "const": false
+              }
+            }
+          }
+        }
+      ]
+    },
+    "artifactClosure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "complete",
+        "sha256",
+        "artifacts"
+      ],
+      "properties": {
+        "complete": {
+          "type": "boolean"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "artifacts": {
+          "type": "array",
+          "maxItems": 16384,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/artifactBinding"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "complete": {
+                "const": true
+              }
+            },
+            "required": [
+              "complete"
+            ]
+          },
+          "then": {
+            "properties": {
+              "artifacts": {
+                "allOf": [
+                  {
+                    "contains": {
+                      "properties": {
+                        "role": {
+                          "const": "prime-cli-entry"
+                        }
+                      },
+                      "required": [
+                        "role"
+                      ]
+                    },
+                    "minContains": 1,
+                    "maxContains": 1
+                  },
+                  {
+                    "contains": {
+                      "properties": {
+                        "role": {
+                          "const": "node-runtime"
+                        }
+                      },
+                      "required": [
+                        "role"
+                      ]
+                    },
+                    "minContains": 1,
+                    "maxContains": 1
+                  },
+                  {
+                    "contains": {
+                      "properties": {
+                        "role": {
+                          "const": "protocol-schema"
+                        }
+                      },
+                      "required": [
+                        "role"
+                      ]
+                    },
+                    "minContains": 1
+                  },
+                  {
+                    "contains": {
+                      "properties": {
+                        "role": {
+                          "const": "protocol-validator"
+                        }
+                      },
+                      "required": [
+                        "role"
+                      ]
+                    },
+                    "minContains": 1
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "artifactBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "role",
+        "size",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": "^(?!/)(?!.*\\\\)(?!.*:)[ -~]+$",
+          "description": "Canonical ASCII bundle-relative path. Rust additionally rejects dot segments, empty segments, Windows device names, reserved characters, and trailing dots/spaces."
+        },
+        "role": {
+          "enum": [
+            "prime-cli-entry",
+            "node-runtime",
+            "protocol-schema",
+            "protocol-validator",
+            "security-extension",
+            "native-worker",
+            "runtime-dependency",
+            "runtime-asset"
+          ]
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967296
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "protocolBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "schema",
+        "schemaArtifact",
+        "schemaSha256"
+      ],
+      "properties": {
+        "profile": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[a-z0-9][a-z0-9._/-]*$"
+        },
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[a-z0-9][a-z0-9._/-]*$"
+        },
+        "schemaArtifact": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": "^(?!/)(?!.*\\\\)(?!.*:)[ -~]+$"
+        },
+        "schemaSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "capabilitySet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "complete",
+        "sha256",
+        "capabilities"
+      ],
+      "properties": {
+        "complete": {
+          "type": "boolean"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "capabilities": {
+          "type": "array",
+          "maxItems": 4096,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/capabilityBinding"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "complete": {
+                "const": true
+              }
+            },
+            "required": [
+              "complete"
+            ]
+          },
+          "then": {
+            "properties": {
+              "capabilities": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "capabilityBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "state"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[a-z0-9][a-z0-9.-]*$"
+        },
+        "state": {
+          "enum": [
+            "present",
+            "absent"
+          ]
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[ -~]+$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "absent"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "value"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

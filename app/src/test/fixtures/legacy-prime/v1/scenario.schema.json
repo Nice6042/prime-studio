@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://prime-studio.test/fixtures/legacy-prime/v1/scenario.schema.json",
+  "title": "Synthetic legacy Prime JSONL scenario corpus v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schemaVersion", "fixtureSet", "lineByteLimit", "scenarios"],
+  "properties": {
+    "$schema": { "const": "./scenario.schema.json" },
+    "schemaVersion": { "const": 1 },
+    "fixtureSet": { "const": "synthetic-legacy-prime-jsonl" },
+    "lineByteLimit": { "type": "integer", "minimum": 1 },
+    "scenarios": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/scenario" }
+    }
+  },
+  "$defs": {
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "file", "expected"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+        "file": { "type": "string", "pattern": "^[a-z0-9-]+\\.jsonl$" },
+        "expected": { "$ref": "#/$defs/expectation" }
+      }
+    },
+    "expectation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["records", "issues", "observations"],
+      "properties": {
+        "records": { "type": "array", "items": { "$ref": "#/$defs/record" } },
+        "issues": { "type": "array", "items": { "$ref": "#/$defs/issue" } },
+        "observations": { "type": "array", "items": { "$ref": "#/$defs/observation" } }
+      }
+    },
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["line", "type", "classification"],
+      "properties": {
+        "line": { "type": "integer", "minimum": 1 },
+        "type": { "type": ["string", "null"] },
+        "classification": { "enum": ["core", "extension", "unknown"] }
+      }
+    },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["line", "kind"],
+      "properties": {
+        "line": { "type": "integer", "minimum": 1 },
+        "kind": { "enum": ["invalid_utf8", "malformed_json", "truncated_json", "oversize_line"] },
+        "byteLength": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "line", "relatedLine", "fixtureId"],
+      "properties": {
+        "kind": { "enum": ["duplicate", "conflict", "late", "out_of_order"] },
+        "line": { "type": "integer", "minimum": 1 },
+        "relatedLine": { "type": "integer", "minimum": 1 },
+        "fixtureId": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

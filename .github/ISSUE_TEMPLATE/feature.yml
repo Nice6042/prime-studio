@@ -1,0 +1,46 @@
+name: Feature proposal
+description: Propose a scoped change without implying that unavailable capabilities already work.
+title: "proposal: "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the user problem and trust boundary. Prime Studio has no supported release and live Prime/provider effects are currently unavailable.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user problem should be solved, without including private or account data?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Proposed outcome
+      description: Describe observable behavior, unavailable states, and what remains out of scope.
+    validations:
+      required: true
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Security and privacy boundaries
+      description: Identify effects, local data, external processes, and failure behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification
+      description: Explain how the behavior could be tested with deterministic synthetic data.
+    validations:
+      required: true
+  - type: checkboxes
+    id: acknowledgements
+    attributes:
+      label: Acknowledgements
+      options:
+        - label: I understand that a UI or protocol type alone does not activate a production capability.
+          required: true
+        - label: I did not include credentials, personal data, private identifiers, or real account/session content.
+          required: true

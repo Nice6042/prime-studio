@@ -1,0 +1,4 @@
+{"type":"message_start","fixtureId":"evt-duplicate","message":{"role":"assistant","content":[]}}
+{"type":"message_start","fixtureId":"evt-duplicate","message":{"role":"assistant","content":[]}}
+{"type":"message_update","fixtureId":"evt-conflict","message":{"role":"assistant","content":[{"type":"text","text":"first"}]}}
+{"type":"message_update","fixtureId":"evt-conflict","message":{"role":"assistant","content":[{"type":"text","text":"second"}]}}

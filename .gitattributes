@@ -1,0 +1,37 @@
+# Normalize line endings in the repo; check out native.
+* text=auto
+
+*.rs      text eol=lf
+*.ts      text eol=lf
+*.tsx     text eol=lf
+*.mjs     text eol=lf
+*.js      text eol=lf
+*.json    text eol=lf
+*.css     text eol=lf
+*.html    text eol=lf
+*.md      text eol=lf
+*.yml     text eol=lf
+*.toml    text eol=lf
+*.py      text eol=lf
+
+# PowerShell is happiest with CRLF on Windows.
+*.ps1     text eol=crlf
+
+# Tauri regenerates Android resource XML with LF. Pin that representation so
+# byte-for-byte branding checks behave identically under Windows autocrlf.
+app/src-tauri/icons/android/**/*.xml text eol=lf
+
+# Synthetic reducer replay fixtures are byte-exact and never converted.
+dev/rpc-raw.log      -text
+dev/rpc-shapes.json  -text
+
+# Synthetic framing fixtures include an intentional CRLF stream and LF-only peers.
+app/src/test/fixtures/legacy-prime/v1/*.jsonl text eol=lf
+app/src/test/fixtures/legacy-prime/v1/crlf-framing.jsonl -text !eol whitespace=cr-at-eol
+
+# Supply-chain fixtures are hashed byte-for-byte by Rust tests.
+app/src-tauri/tests/fixtures/runtime-manifest/runtime/** -text -eol
+
+*.png     binary
+*.ico     binary
+*.icns    binary

@@ -1,0 +1,134 @@
+{
+  "$schema": "./scenario.schema.json",
+  "schemaVersion": 1,
+  "fixtureSet": "synthetic-legacy-prime-jsonl",
+  "lineByteLimit": 256,
+  "scenarios": [
+    {
+      "id": "known-core-and-extension-envelopes",
+      "file": "known-core-and-extension-envelopes.jsonl",
+      "expected": {
+        "records": [
+          { "line": 1, "type": "agent_start", "classification": "core" },
+          { "line": 2, "type": "turn_start", "classification": "core" },
+          { "line": 3, "type": "message_start", "classification": "core" },
+          { "line": 4, "type": "message_update", "classification": "core" },
+          { "line": 5, "type": "message_end", "classification": "core" },
+          { "line": 6, "type": "tool_execution_start", "classification": "core" },
+          { "line": 7, "type": "tool_execution_update", "classification": "core" },
+          { "line": 8, "type": "tool_execution_end", "classification": "core" },
+          { "line": 9, "type": "turn_end", "classification": "core" },
+          { "line": 10, "type": "response", "classification": "core" },
+          { "line": 11, "type": "error", "classification": "core" },
+          { "line": 12, "type": "extension_ui_request", "classification": "extension" },
+          { "line": 13, "type": "extension_ui_response", "classification": "extension" },
+          { "line": 14, "type": "rlm_child_update", "classification": "extension" },
+          { "line": 15, "type": "child_usage_attributed", "classification": "extension" },
+          { "line": 16, "type": "rate_limits", "classification": "extension" },
+          { "line": 17, "type": "session_info_changed", "classification": "extension" },
+          { "line": 18, "type": "agent_end", "classification": "core" }
+        ],
+        "issues": [],
+        "observations": []
+      }
+    },
+    {
+      "id": "unknown-envelope",
+      "file": "unknown-envelope.jsonl",
+      "expected": {
+        "records": [
+          { "line": 1, "type": null, "classification": "unknown" },
+          { "line": 2, "type": "future_extension", "classification": "unknown" }
+        ],
+        "issues": [],
+        "observations": []
+      }
+    },
+    {
+      "id": "malformed-json",
+      "file": "malformed-json.jsonl",
+      "expected": {
+        "records": [{ "line": 1, "type": "agent_start", "classification": "core" }],
+        "issues": [{ "line": 2, "kind": "malformed_json" }],
+        "observations": []
+      }
+    },
+    {
+      "id": "truncated-json",
+      "file": "truncated-json.jsonl",
+      "expected": {
+        "records": [{ "line": 1, "type": "agent_start", "classification": "core" }],
+        "issues": [{ "line": 2, "kind": "truncated_json" }],
+        "observations": []
+      }
+    },
+    {
+      "id": "duplicate-and-conflicting-events",
+      "file": "duplicate-and-conflicting-events.jsonl",
+      "expected": {
+        "records": [
+          { "line": 1, "type": "message_start", "classification": "core" },
+          { "line": 2, "type": "message_start", "classification": "core" },
+          { "line": 3, "type": "message_update", "classification": "core" },
+          { "line": 4, "type": "message_update", "classification": "core" }
+        ],
+        "issues": [],
+        "observations": [
+          { "kind": "duplicate", "line": 2, "relatedLine": 1, "fixtureId": "evt-duplicate" },
+          { "kind": "conflict", "line": 4, "relatedLine": 3, "fixtureId": "evt-conflict" }
+        ]
+      }
+    },
+    {
+      "id": "late-and-out-of-order-events",
+      "file": "late-and-out-of-order-events.jsonl",
+      "expected": {
+        "records": [
+          { "line": 1, "type": "agent_start", "classification": "core" },
+          { "line": 2, "type": "message_start", "classification": "core" },
+          { "line": 3, "type": "message_update", "classification": "core" },
+          { "line": 4, "type": "agent_end", "classification": "core" },
+          { "line": 5, "type": "message_end", "classification": "core" }
+        ],
+        "issues": [],
+        "observations": [
+          { "kind": "out_of_order", "line": 3, "relatedLine": 2, "fixtureId": "evt-sequence-2" },
+          { "kind": "late", "line": 5, "relatedLine": 4, "fixtureId": "evt-late-after-end" }
+        ]
+      }
+    },
+    {
+      "id": "utf8-and-lf-only-framing",
+      "file": "utf8-and-lf-only-framing.jsonl",
+      "expected": {
+        "records": [
+          { "line": 1, "type": "message_update", "classification": "core" },
+          { "line": 2, "type": "agent_end", "classification": "core" }
+        ],
+        "issues": [],
+        "observations": []
+      }
+    },
+    {
+      "id": "crlf-framing",
+      "file": "crlf-framing.jsonl",
+      "expected": {
+        "records": [
+          { "line": 1, "type": "agent_start", "classification": "core" },
+          { "line": 2, "type": "agent_end", "classification": "core" }
+        ],
+        "issues": [],
+        "observations": []
+      }
+    },
+    {
+      "id": "oversize-boundary",
+      "file": "oversize-boundary.jsonl",
+      "expected": {
+        "records": [{ "line": 1, "type": "agent_start", "classification": "core" }],
+        "issues": [{ "line": 2, "kind": "oversize_line", "byteLength": 257 }],
+        "observations": []
+      }
+    }
+  ]
+}

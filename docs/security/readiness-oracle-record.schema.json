@@ -1,0 +1,593 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:prime-studio:security:readiness-oracle-record:1",
+  "title": "Prime Studio readiness and negative-oracle record",
+  "description": "Machine-readable evidence record for one effect class. A record describes evidence; it does not grant authority.",
+  "$comment": "Cross-field equality and observer-independence constraints are normative and are enforced by validate-readiness-oracle-records.py because portable Draft 2020-12 JSON Schema cannot compare sibling instance values.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "recordId",
+    "status",
+    "readiness",
+    "effectId",
+    "oracleId",
+    "fixtureId",
+    "expectedEffect",
+    "observedEffect",
+    "sourceIdentity",
+    "closureIdentity",
+    "epochs",
+    "environmentBoundaryOracle",
+    "terminalState"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1"
+    },
+    "recordId": {
+      "type": "string",
+      "pattern": "^ror-[a-z0-9][a-z0-9._-]*$"
+    },
+    "testId": {
+      "type": "string",
+      "pattern": "^test-[a-z0-9][a-z0-9._-]*$"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["implemented", "planned", "blocked"]
+    },
+    "readiness": {
+      "type": "string",
+      "enum": ["unavailable", "admission_only", "enforced"]
+    },
+    "effectId": {
+      "type": "string",
+      "pattern": "^effect-[a-z0-9][a-z0-9._-]*$"
+    },
+    "oracleId": {
+      "type": "string",
+      "pattern": "^oracle-[a-z0-9][a-z0-9._-]*$"
+    },
+    "fixtureId": {
+      "type": "string",
+      "pattern": "^fixture-[a-z0-9][a-z0-9._-]*$"
+    },
+    "expectedEffect": {
+      "$ref": "#/$defs/effectObservation"
+    },
+    "observedEffect": {
+      "$ref": "#/$defs/effectObservation"
+    },
+    "sourceIdentity": {
+      "$ref": "#/$defs/sourceIdentity"
+    },
+    "closureIdentity": {
+      "$ref": "#/$defs/closureIdentity"
+    },
+    "epochs": {
+      "$ref": "#/$defs/epochs"
+    },
+    "epochEvidence": {
+      "$ref": "#/$defs/epochEvidence"
+    },
+    "environmentBoundaryOracle": {
+      "$ref": "#/$defs/environmentBoundaryOracle"
+    },
+    "terminalState": {
+      "type": "string",
+      "enum": [
+        "requested",
+        "awaiting_approval",
+        "blocked_before_action",
+        "leased",
+        "started",
+        "completed",
+        "failed",
+        "cancelled",
+        "outcome_unknown",
+        "revocation_pending",
+        "takeover_pending",
+        "guardrail_exhausted"
+      ]
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os", "architecture", "buildId"],
+      "properties": {
+        "os": { "type": "string" },
+        "architecture": { "type": "string" },
+        "buildId": { "type": "string" },
+        "webview": { "type": "string" }
+      }
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["status"],
+        "properties": {
+          "status": { "const": "implemented" }
+        }
+      },
+      "then": {
+        "required": ["testId", "environment", "epochEvidence"],
+        "properties": {
+          "testId": { "$ref": "#/$defs/testId" },
+          "environment": { "$ref": "#/$defs/verifiedEnvironment" },
+          "expectedEffect": { "$ref": "#/$defs/evidenceEffectObservation" },
+          "observedEffect": { "$ref": "#/$defs/evidenceEffectObservation" },
+          "sourceIdentity": { "$ref": "#/$defs/verifiedSourceIdentity" },
+          "closureIdentity": { "$ref": "#/$defs/verifiedClosureIdentity" },
+          "epochs": { "$ref": "#/$defs/verifiedEpochs" },
+          "epochEvidence": { "$ref": "#/$defs/verifiedEpochEvidence" },
+          "environmentBoundaryOracle": {
+            "$ref": "#/$defs/verifiedEnvironmentBoundaryOracle"
+          },
+          "terminalState": {
+            "enum": ["started", "completed", "failed", "cancelled", "outcome_unknown"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["readiness"],
+        "properties": {
+          "readiness": { "const": "enforced" }
+        }
+      },
+      "then": {
+        "required": ["status", "testId", "environment", "epochEvidence"],
+        "properties": {
+          "status": { "const": "implemented" },
+          "testId": { "$ref": "#/$defs/testId" },
+          "environment": { "$ref": "#/$defs/verifiedEnvironment" },
+          "expectedEffect": {
+            "allOf": [
+              { "$ref": "#/$defs/evidenceEffectObservation" },
+              { "properties": { "result": { "const": "completed" } } }
+            ]
+          },
+          "observedEffect": {
+            "allOf": [
+              { "$ref": "#/$defs/evidenceEffectObservation" },
+              { "properties": { "result": { "const": "completed" } } }
+            ]
+          },
+          "sourceIdentity": { "$ref": "#/$defs/verifiedSourceIdentity" },
+          "closureIdentity": { "$ref": "#/$defs/verifiedClosureIdentity" },
+          "epochs": { "$ref": "#/$defs/verifiedEpochs" },
+          "epochEvidence": { "$ref": "#/$defs/verifiedEpochEvidence" },
+          "environmentBoundaryOracle": {
+            "$ref": "#/$defs/verifiedEnvironmentBoundaryOracle"
+          },
+          "terminalState": { "const": "completed" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "observedEffect": {
+            "properties": { "result": { "const": "completed" } }
+          }
+        }
+      },
+      "then": {
+        "properties": { "terminalState": { "const": "completed" } }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "observedEffect": {
+            "properties": { "result": { "const": "failed" } }
+          }
+        }
+      },
+      "then": {
+        "properties": { "terminalState": { "const": "failed" } }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "observedEffect": {
+            "properties": { "result": { "const": "outcome_unknown" } }
+          }
+        }
+      },
+      "then": {
+        "properties": { "terminalState": { "const": "outcome_unknown" } }
+      }
+    }
+  ],
+  "$defs": {
+    "effectObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["effectId", "operation", "target", "kind", "sideEffect", "result"],
+      "properties": {
+        "effectId": {
+          "type": "string",
+          "pattern": "^effect-[a-z0-9][a-z0-9._-]*$"
+        },
+        "operation": { "type": "string" },
+        "target": { "type": "string" },
+        "kind": { "type": "string" },
+        "sideEffect": { "type": "string" },
+        "result": {
+          "type": "string",
+          "enum": ["none", "requested", "started", "completed", "failed", "outcome_unknown"]
+        },
+        "details": { "type": "string" },
+        "observationId": { "type": "string" }
+      }
+    },
+    "sourceIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "commit", "path", "revision"],
+      "properties": {
+        "repository": { "type": "string" },
+        "commit": { "type": "string" },
+        "path": { "type": "string" },
+        "revision": { "type": "string" },
+        "digest": { "type": "string" }
+      }
+    },
+    "closureIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "studio",
+        "prime",
+        "protocolProfile",
+        "securityEpoch",
+        "brokerEpoch",
+        "executorEpoch",
+        "artifactDigest"
+      ],
+      "properties": {
+        "studio": { "type": "string" },
+        "prime": { "type": "string" },
+        "protocolProfile": { "type": "string" },
+        "securityEpoch": { "type": "string" },
+        "brokerEpoch": { "type": "string" },
+        "executorEpoch": { "type": "string" },
+        "artifactDigest": { "type": "string" }
+      }
+    },
+    "epochs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy", "broker", "session", "worker"],
+      "properties": {
+        "policy": { "type": "string" },
+        "broker": { "type": "string" },
+        "session": { "type": "string" },
+        "worker": { "type": "string" }
+      }
+    },
+    "epochEvidenceEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "observationId"],
+      "properties": {
+        "value": { "type": "string" },
+        "observationId": { "type": "string" }
+      }
+    },
+    "epochEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy", "broker", "session", "worker"],
+      "properties": {
+        "policy": { "$ref": "#/$defs/epochEvidenceEntry" },
+        "broker": { "$ref": "#/$defs/epochEvidenceEntry" },
+        "session": { "$ref": "#/$defs/epochEvidenceEntry" },
+        "worker": { "$ref": "#/$defs/epochEvidenceEntry" }
+      }
+    },
+    "environmentBoundaryOracle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "boundaryId",
+        "boundaryType",
+        "positiveControlId",
+        "independentObserver",
+        "assertion",
+        "status"
+      ],
+      "properties": {
+        "boundaryId": {
+          "type": "string",
+          "pattern": "^boundary-[a-z0-9][a-z0-9._-]*$"
+        },
+        "boundaryType": {
+          "type": "string",
+          "enum": [
+            "process",
+            "appcontainer",
+            "job_object",
+            "filesystem_root",
+            "network_proxy",
+            "browser_profile",
+            "desktop_app",
+            "release_verifier",
+            "other"
+          ]
+        },
+        "positiveControlId": { "type": "string" },
+        "independentObserver": { "$ref": "#/$defs/observerIdentity" },
+        "assertion": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["implemented", "planned", "blocked"]
+        },
+        "observed": { "$ref": "#/$defs/observedBoundaryEvidence" }
+      }
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[A-Fa-f0-9]{64}$"
+    },
+    "knownString": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^\\S(?:.*\\S)?$",
+      "not": {
+        "anyOf": [
+          { "pattern": "^[Uu][Nn][Kk][Nn][Oo][Ww][Nn]$" },
+          { "pattern": "^[Uu][Nn][Vv][Ee][Rr][Ii][Ff][Ii][Ee][Dd]$" },
+          { "pattern": "^[Nn][Oo][Tt][-_ ][Gg][Ee][Nn][Ee][Rr][Aa][Tt][Ee][Dd]$" },
+          { "pattern": "^[Nn][Oo][Tt][-_ ][Aa][Tt][Tt][Ee][Ss][Tt][Ee][Dd]$" },
+          { "pattern": "^[Bb][Ll][Oo][Cc][Kk][Ee][Dd]$" }
+        ]
+      }
+    },
+    "knownEpoch": {
+      "allOf": [
+        { "$ref": "#/$defs/knownString" },
+        {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._:-]*$"
+        }
+      ]
+    },
+    "testId": {
+      "type": "string",
+      "pattern": "^test-[a-z0-9][a-z0-9._-]*$"
+    },
+    "gitCommit": {
+      "type": "string",
+      "pattern": "^[A-Fa-f0-9]{40}$"
+    },
+    "evidenceEffectObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "effectId",
+        "operation",
+        "target",
+        "kind",
+        "sideEffect",
+        "result",
+        "details",
+        "observationId"
+      ],
+      "properties": {
+        "effectId": {
+          "type": "string",
+          "pattern": "^effect-[a-z0-9][a-z0-9._-]*$"
+        },
+        "operation": { "$ref": "#/$defs/knownString" },
+        "target": { "$ref": "#/$defs/knownString" },
+        "kind": { "$ref": "#/$defs/knownString" },
+        "sideEffect": { "$ref": "#/$defs/knownString" },
+        "result": {
+          "type": "string",
+          "enum": ["started", "completed", "failed", "outcome_unknown"]
+        },
+        "details": { "$ref": "#/$defs/knownString" },
+        "observationId": {
+          "type": "string",
+          "pattern": "^observation-[a-z0-9][a-z0-9._-]*$"
+        }
+      }
+    },
+    "observedBoundaryEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observationId", "result", "details"],
+      "properties": {
+        "observationId": {
+          "type": "string",
+          "pattern": "^observation-[a-z0-9][a-z0-9._-]*$"
+        },
+        "result": {
+          "type": "string",
+          "enum": ["none", "completed", "failed"]
+        },
+        "details": { "$ref": "#/$defs/knownString" }
+      }
+    },
+    "verifiedSourceIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "commit", "path", "revision", "digest"],
+      "properties": {
+        "repository": { "$ref": "#/$defs/knownString" },
+        "commit": { "$ref": "#/$defs/gitCommit" },
+        "path": { "$ref": "#/$defs/knownString" },
+        "revision": { "$ref": "#/$defs/knownString" },
+        "digest": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "verifiedClosureIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "studio",
+        "prime",
+        "protocolProfile",
+        "securityEpoch",
+        "brokerEpoch",
+        "executorEpoch",
+        "artifactDigest"
+      ],
+      "properties": {
+        "studio": { "$ref": "#/$defs/knownString" },
+        "prime": { "$ref": "#/$defs/knownString" },
+        "protocolProfile": { "$ref": "#/$defs/knownString" },
+        "securityEpoch": { "$ref": "#/$defs/knownString" },
+        "brokerEpoch": { "$ref": "#/$defs/knownString" },
+        "executorEpoch": { "$ref": "#/$defs/knownString" },
+        "artifactDigest": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "verifiedEpochs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy", "broker", "session", "worker"],
+      "properties": {
+        "policy": { "$ref": "#/$defs/knownEpoch" },
+        "broker": { "$ref": "#/$defs/knownEpoch" },
+        "session": { "$ref": "#/$defs/knownEpoch" },
+        "worker": { "$ref": "#/$defs/knownEpoch" }
+      }
+    },
+    "verifiedEpochEvidenceEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "observationId"],
+      "properties": {
+        "value": { "$ref": "#/$defs/knownEpoch" },
+        "observationId": {
+          "type": "string",
+          "pattern": "^observation-[a-z0-9][a-z0-9._-]*$"
+        }
+      }
+    },
+    "verifiedEpochEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy", "broker", "session", "worker"],
+      "properties": {
+        "policy": { "$ref": "#/$defs/verifiedEpochEvidenceEntry" },
+        "broker": { "$ref": "#/$defs/verifiedEpochEvidenceEntry" },
+        "session": { "$ref": "#/$defs/verifiedEpochEvidenceEntry" },
+        "worker": { "$ref": "#/$defs/verifiedEpochEvidenceEntry" }
+      }
+    },
+    "observerClosureIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["component", "artifactDigest"],
+      "properties": {
+        "component": { "type": "string" },
+        "artifactDigest": { "type": "string" }
+      }
+    },
+    "observerIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observerId", "sourceIdentity", "closureIdentity"],
+      "properties": {
+        "observerId": {
+          "type": "string",
+          "pattern": "^observer-[a-z0-9][a-z0-9._-]*$"
+        },
+        "sourceIdentity": { "$ref": "#/$defs/sourceIdentity" },
+        "closureIdentity": { "$ref": "#/$defs/observerClosureIdentity" }
+      }
+    },
+    "verifiedObserverClosureIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["component", "artifactDigest"],
+      "properties": {
+        "component": { "$ref": "#/$defs/knownString" },
+        "artifactDigest": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "verifiedObserverIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observerId", "sourceIdentity", "closureIdentity"],
+      "properties": {
+        "observerId": {
+          "type": "string",
+          "pattern": "^observer-[a-z0-9][a-z0-9._-]*$"
+        },
+        "sourceIdentity": { "$ref": "#/$defs/verifiedSourceIdentity" },
+        "closureIdentity": { "$ref": "#/$defs/verifiedObserverClosureIdentity" }
+      }
+    },
+    "verifiedEnvironment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os", "architecture", "buildId"],
+      "properties": {
+        "os": { "const": "windows" },
+        "architecture": { "$ref": "#/$defs/knownString" },
+        "buildId": { "$ref": "#/$defs/knownString" },
+        "webview": { "$ref": "#/$defs/knownString" }
+      }
+    },
+    "verifiedEnvironmentBoundaryOracle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "boundaryId",
+        "boundaryType",
+        "positiveControlId",
+        "independentObserver",
+        "assertion",
+        "status",
+        "observed"
+      ],
+      "properties": {
+        "boundaryId": {
+          "type": "string",
+          "pattern": "^boundary-[a-z0-9][a-z0-9._-]*$"
+        },
+        "boundaryType": {
+          "type": "string",
+          "enum": [
+            "process",
+            "appcontainer",
+            "job_object",
+            "filesystem_root",
+            "network_proxy",
+            "browser_profile",
+            "desktop_app",
+            "release_verifier",
+            "other"
+          ]
+        },
+        "positiveControlId": {
+          "type": "string",
+          "pattern": "^fixture-[a-z0-9][a-z0-9._-]*$"
+        },
+        "independentObserver": { "$ref": "#/$defs/verifiedObserverIdentity" },
+        "assertion": { "$ref": "#/$defs/knownString" },
+        "status": { "const": "implemented" },
+        "observed": {
+          "allOf": [
+            { "$ref": "#/$defs/observedBoundaryEvidence" },
+            { "properties": { "result": { "const": "completed" } } }
+          ]
+        }
+      }
+    }
+  }
+}

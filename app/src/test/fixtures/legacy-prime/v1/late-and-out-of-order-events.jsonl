@@ -1,0 +1,5 @@
+{"type":"agent_start","fixtureId":"evt-sequence-1","fixtureSequence":1}
+{"type":"message_start","fixtureId":"evt-sequence-3","fixtureSequence":3,"message":{"role":"assistant","content":[]}}
+{"type":"message_update","fixtureId":"evt-sequence-2","fixtureSequence":2,"message":{"role":"assistant","content":[{"type":"text","text":"out of order"}]}}
+{"type":"agent_end","fixtureId":"evt-sequence-4","fixtureSequence":4,"messages":[]}
+{"type":"message_end","fixtureId":"evt-late-after-end","fixtureSequence":5,"message":{"role":"assistant","content":[{"type":"text","text":"late"}]}}

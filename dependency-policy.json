@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "supportedCargoTarget": "x86_64-pc-windows-msvc",
+  "cargoDenyVersion": "0.20.2",
+  "cargoAuditVersion": "0.22.2",
+  "cargoDenyAdvisoryDirectory": "advisory-db-3157b0e258782691",
+  "rustSecAdvisoryDatabase": {
+    "url": "https://github.com/RustSec/advisory-db",
+    "revision": "565436d86a136c840d01ad4a7851fc7391295404"
+  },
+  "informationalExceptions": [
+    {
+      "advisory": "RUSTSEC-2025-0081",
+      "category": "unmaintained",
+      "crate": "unic-char-property",
+      "version": "0.9.0",
+      "ownerRole": "Release manager (currently vacant)",
+      "reviewBy": "2026-09-10",
+      "reason": "Locked transitive dependency of Tauri through tauri-utils, urlpattern, and unic-ucd-ident; no direct maintained replacement is available in this graph."
+    },
+    {
+      "advisory": "RUSTSEC-2025-0075",
+      "category": "unmaintained",
+      "crate": "unic-char-range",
+      "version": "0.9.0",
+      "ownerRole": "Release manager (currently vacant)",
+      "reviewBy": "2026-09-10",
+      "reason": "Locked transitive dependency of Tauri through tauri-utils, urlpattern, and unic-ucd-ident; no direct maintained replacement is available in this graph."
+    },
+    {
+      "advisory": "RUSTSEC-2025-0080",
+      "category": "unmaintained",
+      "crate": "unic-common",
+      "version": "0.9.0",
+      "ownerRole": "Release manager (currently vacant)",
+      "reviewBy": "2026-09-10",
+      "reason": "Locked transitive dependency of Tauri through tauri-utils, urlpattern, and unic-ucd-ident; no direct maintained replacement is available in this graph."
+    },
+    {
+      "advisory": "RUSTSEC-2025-0100",
+      "category": "unmaintained",
+      "crate": "unic-ucd-ident",
+      "version": "0.9.0",
+      "ownerRole": "Release manager (currently vacant)",
+      "reviewBy": "2026-09-10",
+      "reason": "Locked transitive dependency of Tauri through tauri-utils and urlpattern; no direct maintained replacement is available in this graph."
+    },
+    {
+      "advisory": "RUSTSEC-2025-0098",
+      "category": "unmaintained",
+      "crate": "unic-ucd-version",
+      "version": "0.9.0",
+      "ownerRole": "Release manager (currently vacant)",
+      "reviewBy": "2026-09-10",
+      "reason": "Locked transitive dependency of Tauri through tauri-utils, urlpattern, and unic-ucd-ident; no direct maintained replacement is available in this graph."
+    }
+  ]
+}

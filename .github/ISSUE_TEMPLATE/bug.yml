@@ -1,0 +1,60 @@
+name: Bug report
+description: Report a reproducible, non-sensitive source or development problem.
+title: "bug: "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Prime Studio is an unsupported development snapshot. Do not include vulnerabilities, credentials, personal data, account data, session content, private identifiers, or local absolute paths. Read SECURITY.md before continuing.
+  - type: input
+    id: revision
+    attributes:
+      label: Commit
+      description: Full commit identifier that shows the problem.
+      placeholder: 40-character commit identifier
+    validations:
+      required: true
+  - type: dropdown
+    id: boundary
+    attributes:
+      label: Affected boundary
+      options:
+        - Frontend unit or component test
+        - Mocked browser shell
+        - Rust backend
+        - Local Tauri development window
+        - Documentation
+        - Build tooling
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Windows version, Node.js version, Rust toolchain, and exact command. Remove usernames and private paths.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Synthetic reproduction
+      description: Minimal steps and synthetic fixture data only.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Expected and observed result
+      description: Include a minimal sanitized error excerpt when useful.
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I confirm this report contains no security-sensitive or personal data and uses no real account or session content.
+          required: true
+        - label: I confirmed the capability is not listed as unavailable in README.md.
+          required: true

@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 3,
+  "policyId": "prime-studio-open-source-release-readiness",
+  "scope": "source-only-bootstrap",
+  "sourcePublication": {
+    "authorization": "user-requested",
+    "status": "conditional",
+    "requiredHistoryShape": {
+      "rootCommits": 1,
+      "totalCommits": 1,
+      "defaultBranch": "main",
+      "tags": 0,
+      "remotesBeforePush": 0,
+      "sharedObjectStores": false
+    },
+    "requiredChecks": [
+      "privacy-and-secret-scan",
+      "provenance-and-license",
+      "locked-dependencies",
+      "frontend-and-browser",
+      "rust",
+      "github-controls"
+    ],
+    "contributionIntake": "closed-until-maintainers-appointed",
+    "issues": "disabled-until-maintainers-appointed",
+    "discussions": "disabled",
+    "pages": "disabled"
+  },
+  "distribution": {
+    "releases": "blocked",
+    "packages": "blocked",
+    "workflowArtifacts": "blocked",
+    "executables": "blocked",
+    "installers": "blocked",
+    "updaterPayloads": "blocked",
+    "signing": "not-configured"
+  },
+  "security": {
+    "privateDevelopmentHistory": "excluded",
+    "privateHistoryEvidence": "stored-outside-public-git",
+    "twoFactorAuthentication": "required",
+    "secretScanning": "required",
+    "pushProtection": "required",
+    "dependabotAlerts": "required",
+    "privateVulnerabilityReporting": "required"
+  },
+  "provenance": {
+    "project": {
+      "id": "prime-studio",
+      "licenseExpression": "MIT",
+      "copyrightNotice": "Copyright (c) 2026 Prime Studio Contributors"
+    },
+    "thirdPartyNotices": "THIRD_PARTY_NOTICES.md",
+    "sbom": "sbom/prime-studio-windows-x86_64.spdx.json",
+    "literalReuseDefault": "not-approved"
+  }
+}

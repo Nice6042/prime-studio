@@ -1,0 +1,69 @@
+{
+  "schemaVersion": "prime-studio.runtime-compatibility/v1",
+  "manifestId": "fixture-managed-read-export",
+  "runtime": {
+    "ownership": "managed",
+    "product": "prime-agent",
+    "packageVersion": "0.0.0-fixture",
+    "sourceRevision": "1111111111111111111111111111111111111111",
+    "buildRevision": "2222222222222222222222222222222222222222",
+    "sourceAttested": true,
+    "dirty": false
+  },
+  "artifactClosure": {
+    "complete": true,
+    "sha256": "2d0d9d39f03f81a1336fde2d132a36a30aab648b4ef8b948c76ccd6c99f1d3f8",
+    "artifacts": [
+      {
+        "path": "bin/node.exe",
+        "role": "node-runtime",
+        "size": 31,
+        "sha256": "2539ac380c9774526fa8ba7107b34acc645936f1e8f27f0262d568735616d79f"
+      },
+      {
+        "path": "bundle/cli.js",
+        "role": "prime-cli-entry",
+        "size": 42,
+        "sha256": "c93b12dee18cc3b434d69bf0ebb1ddff7af9d9fbde7d995dde199a665eb5fc24"
+      },
+      {
+        "path": "schemas/legacy.schema.json",
+        "role": "protocol-schema",
+        "size": 27,
+        "sha256": "55e3f749c31fe0190124fc0da6667912f01370f94544bbdb49618ac5154a6a4b"
+      },
+      {
+        "path": "validators/legacy-validator.wasm",
+        "role": "protocol-validator",
+        "size": 28,
+        "sha256": "6f2779d531aaaca3939d13a063846c349af8edd2b35fa7185be5440df10dcfb7"
+      }
+    ]
+  },
+  "protocol": {
+    "profile": "prime-rpc-fixture",
+    "schema": "prime-rpc-fixture/v1",
+    "schemaArtifact": "schemas/legacy.schema.json",
+    "schemaSha256": "55e3f749c31fe0190124fc0da6667912f01370f94544bbdb49618ac5154a6a4b"
+  },
+  "capabilitySet": {
+    "complete": true,
+    "sha256": "ff03cf77896f47fb591ac3af82887f2e8808ed4d4d940c3a6592110f4d718235",
+    "capabilities": [
+      {
+        "id": "prime.extension-ui.method-count",
+        "state": "present",
+        "value": "9"
+      },
+      {
+        "id": "prime.rpc.legacy.command-count",
+        "state": "present",
+        "value": "45"
+      },
+      {
+        "id": "prime.rpc.rate-limits",
+        "state": "absent"
+      }
+    ]
+  }
+}

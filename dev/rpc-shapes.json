@@ -1,0 +1,75 @@
+{
+  "fixture": "prime-studio-synthetic",
+  "description": "Synthetic-only deterministic reducer replay shape.",
+  "agent_end": {
+    "type": "agent_end",
+    "messages": [
+      {
+        "role": "user",
+        "content": [{ "type": "text", "text": "Create a file fixture.txt containing OK, then say done." }],
+        "timestamp": 946684800000
+      },
+      {
+        "role": "assistant",
+        "content": [
+          { "type": "text", "text": "I'll create the file." },
+          {
+            "type": "toolCall",
+            "id": "tool-synthetic-1",
+            "name": "ipython",
+            "arguments": {
+              "code": "from pathlib import Path\np = Path(\"fixture.txt\")\np.write_text(\"OK\\n\")\nprint(p.exists(), repr(p.read_text()))"
+            }
+          }
+        ],
+        "api": "synthetic-api",
+        "provider": "synthetic-provider",
+        "model": "synthetic-model",
+        "usage": {
+          "input": 10,
+          "output": 20,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 30,
+          "cost": { "input": 0.001, "output": 0.002, "cacheRead": 0, "cacheWrite": 0, "total": 0.003 }
+        },
+        "stopReason": "toolUse",
+        "timestamp": 946684800003,
+        "responseId": "message-synthetic-1"
+      },
+      {
+        "role": "toolResult",
+        "toolCallId": "tool-synthetic-1",
+        "toolName": "ipython",
+        "content": [{ "type": "text", "text": "True 'OK\\n'\n" }],
+        "details": {
+          "durationMs": 1,
+          "status": "ok",
+          "stdout": "True 'OK\\n'\n",
+          "stderr": "",
+          "kernelRestarted": false
+        },
+        "isError": false,
+        "timestamp": 946684800004
+      },
+      {
+        "role": "assistant",
+        "content": [{ "type": "text", "text": "Created the synthetic fixture file containing `OK`.\n\ndone" }],
+        "api": "synthetic-api",
+        "provider": "synthetic-provider",
+        "model": "synthetic-model",
+        "usage": {
+          "input": 5,
+          "output": 10,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 15,
+          "cost": { "input": 0.0005, "output": 0.001, "cacheRead": 0, "cacheWrite": 0, "total": 0.0015 }
+        },
+        "stopReason": "stop",
+        "timestamp": 946684800006,
+        "responseId": "message-synthetic-2"
+      }
+    ]
+  }
+}

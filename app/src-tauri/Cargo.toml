@@ -1,0 +1,53 @@
+[package]
+name = "prime-studio"
+default-run = "prime-studio"
+version = "0.1.0"
+description = "A Windows-first Tauri and React development snapshot exploring a desktop interface for a separately installed prime-agent runtime."
+authors = ["Prime Studio Contributors"]
+license = "MIT"
+publish = false
+edition = "2021"
+rust-version = "1.97"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# Keep the library name distinct from the hyphenated application binary on Windows.
+# See https://github.com/rust-lang/cargo/issues/8519.
+name = "prime_studio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+test-support-bin = []
+
+[[bin]]
+name = "fake-prime-jsonl"
+path = "tests/support/fake_prime.rs"
+test = false
+bench = false
+required-features = ["test-support-bin"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "=2.11.5", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+uuid = { version = "1", features = ["v4"] }
+unicode-general-category = "=1.1.0"
+
+[dev-dependencies]
+jsonschema = { version = "=0.49.8", default-features = false }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Storage_FileSystem",
+] }

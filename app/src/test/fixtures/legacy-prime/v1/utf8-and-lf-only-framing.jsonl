@@ -1,0 +1,2 @@
+{"type":"message_update","fixtureId":"evt-utf8-001","message":{"role":"assistant","content":[{"type":"text","text":"café 🧪 still-one-value "}]}}
+{"type":"agent_end","fixtureId":"evt-utf8-002","messages":[]}

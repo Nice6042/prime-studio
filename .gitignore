@@ -1,0 +1,21 @@
+node_modules/
+dist/
+app/playwright-report/
+app/test-results/
+app/src-tauri/target/
+app/src-tauri/gen/schemas/
+
+# Tooling scratch
+.worktrees/
+.playwright-mcp/
+*.local
+.DS_Store
+
+# Diagnostic captures under dev/: the scripts are committed, their output is not
+# — it is machine-specific and contains real paths and session content.
+*.log
+dev/*.local.json
+dev/hide-out-*.txt
+
+# ...except the deterministic synthetic log used by the reducer replay check.
+!dev/rpc-raw.log
