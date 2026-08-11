@@ -5,7 +5,7 @@ import test from "node:test";
 
 import { encodeFrame, FrameStreamDecoder } from "../src/framing.js";
 import { decideCompatibility } from "../src/compatibility.js";
-import { loadFakeDaemonScenario, replyToFakeDaemonRequest } from "../src/fakeDaemonScenario.js";
+import { FakeDaemonController, loadFakeDaemonScenario, replyToFakeDaemonRequest } from "../src/fakeDaemonScenario.js";
 
 const scenarioPath = join(import.meta.dirname, "..", "..", "test", "fixtures", "fake-daemon", "scenario-manifest.json");
 
@@ -74,23 +74,65 @@ test("compiled sidecar serves discovery and bootstrap from the deterministic fak
   child.stdout.on("data", (chunk: Buffer) => responses.push(...decoder.push(chunk)));
   child.stderr.setEncoding("utf8").on("data", (chunk: string) => { stderr += chunk; });
 
-  const request = async (requestId: string, type: "discover_runtime" | "bootstrap") => {
-    child.stdin.write(encodeFrame({ studioProtocol: 1, requestId, payload: { type } }));
+  const request = async (requestId: string, payload: Record<string, unknown>) => {
+    child.stdin.write(encodeFrame({ studioProtocol: 1, requestId, payload }));
     const deadline = Date.now() + 3_000;
     while (responses.length === 0 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 5));
     assert.notEqual(responses.length, 0, stderr);
     return responses.shift() as { requestId: string; payload: { type: string; sessions?: unknown[] } };
   };
 
-  const discovery = await request("request_discover_0001", "discover_runtime");
+  const discovery = await request("request_discover_0001", { type: "discover_runtime" });
   assert.equal(discovery.requestId, "request_discover_0001");
   assert.equal(discovery.payload.type, "discover_runtime_result");
-  const bootstrap = await request("request_bootstrap_0001", "bootstrap");
+  const bootstrap = await request("request_bootstrap_0001", { type: "bootstrap" });
   assert.equal(bootstrap.requestId, "request_bootstrap_0001");
   assert.equal(bootstrap.payload.type, "bootstrap_result");
   assert.equal(bootstrap.payload.sessions?.length, 1);
+  const attached = await request("request_attach_000001", { type: "attach_session", sessionId: "session-e2e" });
+  assert.equal(attached.payload.type, "snapshot_result");
+  const command = await request("request_command_00001", {
+    type: "session_command",
+    sessionId: "session-e2e",
+    commandId: "command-process-1",
+    expectedCursor: { runtimeGeneration: "fake-generation-1", sequence: 8 },
+    kind: "prompt",
+    text: "Verify the transport",
+  });
+  assert.equal(command.payload.type, "command_result");
   child.stdin.end();
   await new Promise<void>((resolve, reject) => {
     child.once("exit", (code) => code === 0 ? resolve() : reject(new Error(`sidecar exited ${code}: ${stderr}`)));
   });
+});
+
+test("fake daemon attach and command chronology are idempotent and cursor-bound", async () => {
+  const controller = new FakeDaemonController(await loadFakeDaemonScenario(scenarioPath));
+  const attached = controller.handle({ type: "attach_session", sessionId: "session-e2e" });
+  assert.equal(attached.type, "snapshot_result");
+  assert.equal(attached.type === "snapshot_result" ? attached.snapshot.cursor.sequence : -1, 8);
+
+  const command = {
+    type: "session_command" as const,
+    sessionId: "session-e2e",
+    commandId: "command-prompt-1",
+    expectedCursor: { runtimeGeneration: "fake-generation-1", sequence: 8 },
+    kind: "prompt" as const,
+    text: "Return the verified result",
+  };
+  const accepted = controller.handle(command);
+  assert.equal(accepted.type, "command_result");
+  assert.equal(accepted.type === "command_result" ? accepted.outcome : "", "accepted");
+  assert.equal(accepted.type === "command_result" ? accepted.snapshot.cursor.sequence : -1, 9);
+  assert.equal(accepted.type === "command_result" ? accepted.snapshot.parentMessages.at(-2)?.kind : "", "user");
+
+  const replay = controller.handle(command);
+  assert.equal(replay.type, "command_result");
+  assert.equal(replay.type === "command_result" ? replay.outcome : "", "reconciled");
+  assert.equal(replay.type === "command_result" ? replay.snapshot.cursor.sequence : -1, 9);
+
+  const stale = controller.handle({ ...command, commandId: "command-prompt-2" });
+  assert.deepEqual(stale, { type: "error", code: "stale_cursor", message: "Session cursor does not match" });
+  const unknown = controller.handle({ type: "attach_session", sessionId: "missing-session" });
+  assert.deepEqual(unknown, { type: "error", code: "unknown_session", message: "Session is not owned by this scenario" });
 });

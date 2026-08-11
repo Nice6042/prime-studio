@@ -33,10 +33,23 @@ export interface FakeDaemonScenario {
   readonly sessions: readonly FakeRootSessionSnapshot[];
 }
 
-type ScenarioRequest = Readonly<{ type: "discover_runtime" | "bootstrap" }>;
+export type ScenarioRequest =
+  | Readonly<{ type: "discover_runtime" }>
+  | Readonly<{ type: "bootstrap" }>
+  | Readonly<{ type: "attach_session"; sessionId: string }>
+  | Readonly<{
+      type: "session_command";
+      sessionId: string;
+      commandId: string;
+      expectedCursor: Readonly<{ runtimeGeneration: string; sequence: number }>;
+      kind: "prompt" | "steer" | "follow_up" | "abort";
+      text: string;
+    }>;
 export type ScenarioResponse =
   | Readonly<{ type: "discover_runtime_result"; runtime: RuntimeIdentity; compatibility: Compatibility }>
   | Readonly<{ type: "bootstrap_result"; compatibility: Compatibility; sessions: readonly FakeRootSessionSnapshot[] }>
+  | Readonly<{ type: "snapshot_result"; snapshot: FakeRootSessionSnapshot }>
+  | Readonly<{ type: "command_result"; commandId: string; outcome: "accepted" | "queued" | "reconciled"; snapshot: FakeRootSessionSnapshot }>
   | Readonly<{ type: "error"; code: string; message: string }>;
 
 function invalid(): never {
@@ -215,4 +228,79 @@ export function replyToFakeDaemonRequest(scenario: FakeDaemonScenario, request: 
   if (request.type === "discover_runtime") return deepFreeze({ type: "discover_runtime_result", runtime: scenario.runtime, compatibility });
   if (request.type === "bootstrap") return deepFreeze({ type: "bootstrap_result", compatibility, sessions: scenario.sessions });
   return deepFreeze({ type: "error", code: "unsupported_command", message: "Fake daemon command is not implemented" });
+}
+
+export class FakeDaemonController {
+  readonly #scenario: FakeDaemonScenario;
+  readonly #sessions = new Map<string, FakeRootSessionSnapshot>();
+  readonly #commands = new Map<string, Readonly<{ type: "command_result"; commandId: string; outcome: "accepted"; snapshot: FakeRootSessionSnapshot }>>();
+
+  constructor(scenario: FakeDaemonScenario) {
+    this.#scenario = scenario;
+    for (const session of scenario.sessions) this.#sessions.set(session.sessionId, session);
+  }
+
+  handle(request: ScenarioRequest): ScenarioResponse {
+    if (request.type === "discover_runtime") {
+      return deepFreeze({ type: "discover_runtime_result", runtime: this.#scenario.runtime, compatibility: decideCompatibility(this.#scenario.runtime) });
+    }
+    if (request.type === "bootstrap") {
+      return deepFreeze({ type: "bootstrap_result", compatibility: decideCompatibility(this.#scenario.runtime), sessions: [...this.#sessions.values()] });
+    }
+    const current = this.#sessions.get(request.sessionId);
+    if (!current) return deepFreeze({ type: "error", code: "unknown_session", message: "Session is not owned by this scenario" });
+    if (request.type === "attach_session") {
+      const snapshot = this.#advance(current, {});
+      this.#sessions.set(request.sessionId, snapshot);
+      return deepFreeze({ type: "snapshot_result", snapshot });
+    }
+    const prior = this.#commands.get(request.commandId);
+    if (prior) return deepFreeze({ ...prior, outcome: "reconciled" as const });
+    if (
+      request.expectedCursor.runtimeGeneration !== current.cursor.runtimeGeneration
+      || request.expectedCursor.sequence !== current.cursor.sequence
+    ) return deepFreeze({ type: "error", code: "stale_cursor", message: "Session cursor does not match" });
+    if ((request.kind === "abort") !== (request.text.length === 0)) {
+      return deepFreeze({ type: "error", code: "invalid_command", message: "Session command is invalid" });
+    }
+    const sequence = current.cursor.sequence + 1;
+    const now = 1_775_995_200_000 + sequence * 1_000;
+    const parentMessages: ParentMessage[] = [...current.parentMessages];
+    if (request.kind !== "abort") {
+      parentMessages.push({ channel: "parent", kind: "user", id: `${request.commandId}-user`, text: request.text, emittedAtMs: now });
+      parentMessages.push({
+        channel: "parent",
+        kind: "assistant",
+        id: `${request.commandId}-assistant`,
+        blocks: [{ kind: "text", text: "Synthetic Harness response admitted through the verified Studio protocol." }],
+        streaming: false,
+        emittedAtMs: now + 1,
+      });
+    }
+    const addedInput = request.kind === "abort" ? 0 : Math.max(1, Math.ceil(request.text.length / 4));
+    const addedOutput = request.kind === "abort" ? 0 : 12;
+    const usage = {
+      ...current.usage,
+      input: current.usage.input + addedInput,
+      output: current.usage.output + addedOutput,
+      totalTokens: current.usage.totalTokens + addedInput + addedOutput,
+    };
+    const snapshot = this.#advance(current, {
+      state: request.kind === "abort" ? "idle" : "working",
+      parentMessages: parentMessages.slice(-300),
+      usage,
+    });
+    this.#sessions.set(request.sessionId, snapshot);
+    const response = deepFreeze({ type: "command_result" as const, commandId: request.commandId, outcome: "accepted" as const, snapshot });
+    this.#commands.set(request.commandId, response);
+    return response;
+  }
+
+  #advance(current: FakeRootSessionSnapshot, patch: Partial<FakeRootSessionSnapshot>): FakeRootSessionSnapshot {
+    return deepFreeze({
+      ...current,
+      ...patch,
+      cursor: { runtimeGeneration: current.cursor.runtimeGeneration, sequence: current.cursor.sequence + 1 },
+    });
+  }
 }

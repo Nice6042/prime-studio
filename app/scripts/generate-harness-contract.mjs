@@ -184,11 +184,15 @@ export interface RootSessionSnapshot {
 
 export type StudioRequest =
   | { type: "discover_runtime" }
-  | { type: "bootstrap" };
+  | { type: "bootstrap" }
+  | { type: "attach_session"; sessionId: string }
+  | { type: "session_command"; sessionId: string; commandId: string; expectedCursor: HarnessCursor; kind: "prompt" | "steer" | "follow_up" | "abort"; text: string };
 
 export type StudioResponse =
   | { type: "discover_runtime_result"; runtime: RuntimeIdentity | null; compatibility: HarnessCompatibility }
   | { type: "bootstrap_result"; compatibility: HarnessCompatibility; sessions: readonly RootSessionSnapshot[] }
+  | { type: "snapshot_result"; snapshot: RootSessionSnapshot }
+  | { type: "command_result"; commandId: string; outcome: "accepted" | "queued" | "reconciled"; snapshot: RootSessionSnapshot }
   | { type: "error"; code: string; message: string };
 
 export type HarnessEvent =
@@ -346,13 +350,34 @@ pub enum RootSessionState { Idle, Working, Blocked, Failed, Disconnected, Stoppe
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case", tag = "type")]
-pub enum StudioRequest { DiscoverRuntime, Bootstrap }
+pub enum StudioRequest {
+    DiscoverRuntime,
+    Bootstrap,
+    AttachSession { #[serde(rename = "sessionId")] session_id: String },
+    SessionCommand {
+        #[serde(rename = "sessionId")] session_id: String,
+        #[serde(rename = "commandId")] command_id: String,
+        #[serde(rename = "expectedCursor")] expected_cursor: HarnessCursor,
+        kind: SessionCommandKind,
+        text: String,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionCommandKind { Prompt, Steer, FollowUp, Abort }
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommandOutcome { Accepted, Queued, Reconciled }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case", tag = "type")]
 pub enum StudioResponse {
     DiscoverRuntimeResult { runtime: Option<RuntimeIdentity>, compatibility: HarnessCompatibility },
     BootstrapResult { compatibility: HarnessCompatibility, sessions: Vec<RootSessionSnapshot> },
+    SnapshotResult { snapshot: Box<RootSessionSnapshot> },
+    CommandResult { #[serde(rename = "commandId")] command_id: String, outcome: CommandOutcome, snapshot: Box<RootSessionSnapshot> },
     Error { code: String, message: String },
 }
 

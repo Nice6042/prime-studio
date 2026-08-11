@@ -1,4 +1,4 @@
-// Generated from harness-v1.schema.json; SHA-256: 25f33dc6b546a65523277a337efe12811127ca93f2d67221c69ae45743830775
+// Generated from harness-v1.schema.json; SHA-256: d3e6996fca8c4a63fc1bd6890c8c65aab21dfec14db657b559cf5ec0a329ac38
 // Do not edit by hand. Run npm run generate:harness-contract.
 
 export const STUDIO_HARNESS_PROTOCOL = 1 as const;
@@ -108,11 +108,15 @@ export interface RootSessionSnapshot {
 
 export type StudioRequest =
   | { type: "discover_runtime" }
-  | { type: "bootstrap" };
+  | { type: "bootstrap" }
+  | { type: "attach_session"; sessionId: string }
+  | { type: "session_command"; sessionId: string; commandId: string; expectedCursor: HarnessCursor; kind: "prompt" | "steer" | "follow_up" | "abort"; text: string };
 
 export type StudioResponse =
   | { type: "discover_runtime_result"; runtime: RuntimeIdentity | null; compatibility: HarnessCompatibility }
   | { type: "bootstrap_result"; compatibility: HarnessCompatibility; sessions: readonly RootSessionSnapshot[] }
+  | { type: "snapshot_result"; snapshot: RootSessionSnapshot }
+  | { type: "command_result"; commandId: string; outcome: "accepted" | "queued" | "reconciled"; snapshot: RootSessionSnapshot }
   | { type: "error"; code: string; message: string };
 
 export type HarnessEvent =

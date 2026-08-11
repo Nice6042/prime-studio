@@ -503,6 +503,12 @@ fn validate_studio_response(response: &StudioResponse) -> bool {
                 && sessions.len() <= 256
                 && sessions.iter().all(validate_root_snapshot)
         }
+        StudioResponse::SnapshotResult { snapshot } => validate_root_snapshot(snapshot),
+        StudioResponse::CommandResult {
+            command_id,
+            snapshot,
+            ..
+        } => valid_id(command_id) && validate_root_snapshot(snapshot),
         StudioResponse::Error { code, message } => valid_id(code) && valid_label(message),
     }
 }

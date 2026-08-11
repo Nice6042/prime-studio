@@ -280,8 +280,32 @@
       "type": "object", "additionalProperties": false, "required": ["type"],
       "properties": { "type": { "const": "bootstrap" } }
     },
+    "AttachSessionRequest": {
+      "type": "object", "additionalProperties": false, "required": ["type", "sessionId"],
+      "properties": { "type": { "const": "attach_session" }, "sessionId": { "$ref": "#/$defs/Id" } }
+    },
+    "SessionCommandKind": {
+      "type": "string", "enum": ["prompt", "steer", "follow_up", "abort"]
+    },
+    "SessionCommandRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "sessionId", "commandId", "expectedCursor", "kind", "text"],
+      "properties": {
+        "type": { "const": "session_command" },
+        "sessionId": { "$ref": "#/$defs/Id" },
+        "commandId": { "$ref": "#/$defs/Id" },
+        "expectedCursor": { "$ref": "#/$defs/HarnessCursor" },
+        "kind": { "$ref": "#/$defs/SessionCommandKind" },
+        "text": { "$ref": "#/$defs/Text" }
+      }
+    },
     "StudioRequest": {
-      "oneOf": [{ "$ref": "#/$defs/DiscoverRuntimeRequest" }, { "$ref": "#/$defs/BootstrapRequest" }]
+      "oneOf": [
+        { "$ref": "#/$defs/DiscoverRuntimeRequest" },
+        { "$ref": "#/$defs/BootstrapRequest" },
+        { "$ref": "#/$defs/AttachSessionRequest" },
+        { "$ref": "#/$defs/SessionCommandRequest" }
+      ]
     },
     "DiscoverRuntimeResponse": {
       "type": "object", "additionalProperties": false, "required": ["type", "runtime", "compatibility"],
@@ -299,6 +323,19 @@
         "sessions": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/RootSessionSnapshot" } }
       }
     },
+    "SnapshotResponse": {
+      "type": "object", "additionalProperties": false, "required": ["type", "snapshot"],
+      "properties": { "type": { "const": "snapshot_result" }, "snapshot": { "$ref": "#/$defs/RootSessionSnapshot" } }
+    },
+    "CommandResponse": {
+      "type": "object", "additionalProperties": false, "required": ["type", "commandId", "outcome", "snapshot"],
+      "properties": {
+        "type": { "const": "command_result" },
+        "commandId": { "$ref": "#/$defs/Id" },
+        "outcome": { "type": "string", "enum": ["accepted", "queued", "reconciled"] },
+        "snapshot": { "$ref": "#/$defs/RootSessionSnapshot" }
+      }
+    },
     "ProtocolErrorResponse": {
       "type": "object", "additionalProperties": false, "required": ["type", "code", "message"],
       "properties": {
@@ -309,6 +346,8 @@
       "oneOf": [
         { "$ref": "#/$defs/DiscoverRuntimeResponse" },
         { "$ref": "#/$defs/BootstrapResponse" },
+        { "$ref": "#/$defs/SnapshotResponse" },
+        { "$ref": "#/$defs/CommandResponse" },
         { "$ref": "#/$defs/ProtocolErrorResponse" }
       ]
     },

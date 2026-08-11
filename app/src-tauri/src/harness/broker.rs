@@ -5,7 +5,8 @@ use uuid::Uuid;
 
 use super::compatibility::decide_compatibility;
 use super::generated::{
-    HarnessCompatibility, HarnessEvent, RootSessionSnapshot, StudioRequest, StudioResponse,
+    CommandOutcome, HarnessCompatibility, HarnessCursor, HarnessEvent, RootSessionSnapshot,
+    SessionCommandKind, StudioRequest, StudioResponse,
 };
 pub use super::projections::{BootProjection, ProjectionFreshness, RootSessionProjection};
 use super::recovery::{RecoveredSession, RecoveryRecord};
@@ -46,6 +47,19 @@ pub struct EventAdmission {
 
 pub struct AttachRequest {
     pub session_id: String,
+}
+
+pub struct SessionCommandRequest {
+    pub session_id: String,
+    pub command_id: String,
+    pub expected_cursor: HarnessCursor,
+    pub kind: SessionCommandKind,
+    pub text: String,
+}
+
+pub struct SessionCommandResult {
+    pub outcome: CommandOutcome,
+    pub session: RootSessionProjection,
 }
 
 pub struct HarnessBroker {
@@ -233,9 +247,89 @@ impl HarnessBroker {
 
     pub async fn attach(
         &mut self,
-        _request: AttachRequest,
+        request: AttachRequest,
     ) -> Result<RootSessionProjection, HarnessError> {
-        Err(HarnessError::StateViolation)
+        if self.state != BrokerState::Live
+            || !valid_id(&request.session_id)
+            || !self.ownership.contains_key(&request.session_id)
+        {
+            return Err(HarnessError::OwnershipViolation);
+        }
+        let sidecar = self.sidecar.clone().ok_or(HarnessError::StateViolation)?;
+        let response = sidecar
+            .request(
+                StudioRequest::AttachSession {
+                    session_id: request.session_id.clone(),
+                },
+                Instant::now() + Duration::from_secs(5),
+            )
+            .await?;
+        let StudioResponse::SnapshotResult { snapshot } = response else {
+            return Err(HarnessError::ProtocolViolation);
+        };
+        let admission = self.admit_event(HarnessEvent::Snapshot { snapshot })?;
+        self.apply_event(admission)?;
+        self.project(&request.session_id)
+            .ok_or(HarnessError::OwnershipViolation)
+    }
+
+    pub async fn submit(
+        &mut self,
+        request: SessionCommandRequest,
+    ) -> Result<SessionCommandResult, HarnessError> {
+        if self.state != BrokerState::Live
+            || !valid_id(&request.session_id)
+            || !valid_id(&request.command_id)
+            || request.expected_cursor.sequence > MAX_SAFE_INTEGER
+            || !valid_command_text(&request.kind, &request.text)
+        {
+            return Err(HarnessError::ProtocolViolation);
+        }
+        let current = self
+            .committed
+            .get(&request.session_id)
+            .ok_or(HarnessError::OwnershipViolation)?;
+        if current.cursor != request.expected_cursor {
+            return Err(HarnessError::ChronologyViolation);
+        }
+        let sidecar = self.sidecar.clone().ok_or(HarnessError::StateViolation)?;
+        let response = sidecar
+            .request(
+                StudioRequest::SessionCommand {
+                    session_id: request.session_id.clone(),
+                    command_id: request.command_id.clone(),
+                    expected_cursor: request.expected_cursor,
+                    kind: request.kind,
+                    text: request.text,
+                },
+                Instant::now() + Duration::from_secs(10),
+            )
+            .await;
+        let response = match response {
+            Ok(response) => response,
+            Err(HarnessError::DeadlineExceeded { uncertain: true }) => {
+                self.mark_unknown_outcome();
+                return Err(HarnessError::DeadlineExceeded { uncertain: true });
+            }
+            Err(error) => return Err(error),
+        };
+        let StudioResponse::CommandResult {
+            command_id,
+            outcome,
+            snapshot,
+        } = response
+        else {
+            return Err(HarnessError::ProtocolViolation);
+        };
+        if command_id != request.command_id || outcome == CommandOutcome::Reconciled {
+            return Err(HarnessError::ProtocolViolation);
+        }
+        let admission = self.admit_event(HarnessEvent::Snapshot { snapshot })?;
+        self.apply_event(admission)?;
+        let session = self
+            .project(&request.session_id)
+            .ok_or(HarnessError::OwnershipViolation)?;
+        Ok(SessionCommandResult { outcome, session })
     }
 
     pub fn begin_snapshot(&mut self, expected: usize) -> Result<(), HarnessError> {
@@ -546,6 +640,16 @@ fn valid_id(value: &str) -> bool {
 
 fn valid_digest(value: &str) -> bool {
     matches!(value.strip_prefix("sha256:"), Some(digest) if digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()))
+}
+
+fn valid_command_text(kind: &SessionCommandKind, text: &str) -> bool {
+    let length = text.chars().take(131_073).count();
+    match kind {
+        SessionCommandKind::Abort => text.is_empty(),
+        SessionCommandKind::Prompt | SessionCommandKind::Steer | SessionCommandKind::FollowUp => {
+            length > 0 && length <= 131_072 && !text.trim().is_empty()
+        }
+    }
 }
 
 fn compatibility_uses_profile(compatibility: &HarnessCompatibility, expected: &str) -> bool {

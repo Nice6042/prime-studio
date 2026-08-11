@@ -4,8 +4,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use prime_studio_lib::harness::broker::{BrokerState, HarnessBroker, SessionOwnership};
-use prime_studio_lib::harness::generated::{ChildAgentStatus, RootSessionState};
+use prime_studio_lib::harness::broker::{
+    AttachRequest, BrokerState, HarnessBroker, SessionCommandRequest, SessionOwnership,
+};
+use prime_studio_lib::harness::generated::{
+    ChildAgentStatus, CommandOutcome, HarnessCursor, RootSessionState, SessionCommandKind,
+};
 use prime_studio_lib::harness::sidecar::{SidecarSupervisor, VerifiedSidecarSpec};
 use sha2::{Digest, Sha256};
 
@@ -137,6 +141,25 @@ fn tauri_broker_bootstraps_through_the_real_sidecar_against_a_fake_daemon() {
     assert_eq!(session.tools.len(), 1);
     assert_eq!(session.resources.len(), 1);
     assert_eq!(session.usage.total_tokens, 2_400);
+    let attached = tauri::async_runtime::block_on(broker.attach(AttachRequest {
+        session_id: "session-e2e".to_owned(),
+    }))
+    .unwrap();
+    assert_eq!(attached.cursor.sequence, 8);
+    let submitted = tauri::async_runtime::block_on(broker.submit(SessionCommandRequest {
+        session_id: "session-e2e".to_owned(),
+        command_id: "command-rust-1".to_owned(),
+        expected_cursor: HarnessCursor {
+            runtime_generation: "fake-generation-1".to_owned(),
+            sequence: 8,
+        },
+        kind: SessionCommandKind::Prompt,
+        text: "Verify the Rust broker".to_owned(),
+    }))
+    .unwrap();
+    assert_eq!(submitted.outcome, CommandOutcome::Accepted);
+    assert_eq!(submitted.session.cursor.sequence, 9);
+    assert_eq!(submitted.session.parent_messages.len(), 4);
     assert_eq!(broker.recovery_record(1).unwrap().sessions.len(), 1);
     broker.close();
 }
