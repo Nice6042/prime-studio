@@ -1,85 +1,78 @@
-import {
-  expect,
-  expectNoSeriousOrCriticalAxeViolations,
-  test,
-} from "./support/browser-shell";
+import { expect, expectNoSeriousOrCriticalAxeViolations, test } from "./support/browser-shell";
 
-test("first-run browser shell presents a workspace prompt and a usable composer", async ({ shellPage }) => {
-  await expect(
-    shellPage.getByRole("heading", { name: "Ready. Pick a folder and say what you want done." }),
-  ).toBeVisible();
-  await expect(shellPage.getByPlaceholder("Message Prime, or / for commands")).toBeEditable();
-  await expect(shellPage.getByRole("button", { name: "SEND" })).toBeDisabled();
-  await expectNoSeriousOrCriticalAxeViolations(shellPage, "first-run");
+test("production workspace presents the complete three-region shell", async ({ shellPage }) => {
+  await expect(shellPage.getByRole("navigation", { name: "Projects and chats" })).toBeVisible();
+  await expect(shellPage.getByRole("main", { name: "Prime Harness architecture" })).toBeVisible();
+  await expect(shellPage.getByRole("complementary", { name: "Harness" })).toBeVisible();
+  await expect(shellPage.getByRole("button", { name: "Prime Harness architecture" })).toBeVisible();
+  await expect(shellPage.getByText(/The parent conversation stays focused on decisions and final results/)).toBeVisible();
+  await expect(shellPage.getByText("Checking protocol identity and capability closure.")).toHaveCount(0);
+  await expect(shellPage.getByText("workspace.inspect")).toHaveCount(0);
+  await expect(shellPage.getByPlaceholder("Message Prime")).toBeEditable();
+  await expect(shellPage.getByRole("button", { name: "Send message" })).toBeDisabled();
+  await expect(shellPage.getByText("Prompt admission is not connected.")).toBeVisible();
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-workspace");
 });
 
-test("session tab strip remains axe-clean with multiple open tabs", async ({ shellPage }) => {
-  await shellPage.keyboard.press("Control+N");
-
-  const tablist = shellPage.getByRole("tablist", { name: "Open sessions" });
-  await expect(tablist.getByRole("tab")).toHaveCount(2);
-  await expectNoSeriousOrCriticalAxeViolations(shellPage, "session-tabs");
+test("Harness keeps child work, activity, and current-chat usage out of the parent chat", async ({ shellPage }) => {
+  const harness = shellPage.getByRole("complementary", { name: "Harness" });
+  await harness.getByRole("button", { name: /Verify runtime compatibility/ }).click();
+  await expect(harness.getByRole("heading", { name: "Verify runtime compatibility" })).toBeVisible();
+  await expect(harness.getByText("gpt-5.6-sol")).toBeVisible();
+  await expect(harness.getByText(/Child transcript is not available/)).toBeVisible();
+  await harness.getByRole("button", { name: "Back to agents" }).click();
+  await harness.getByRole("tab", { name: "Activity" }).click();
+  await expect(harness.getByText("Checking protocol identity and capability closure.")).toBeVisible();
+  await expect(harness.getByText("workspace.inspect")).toBeVisible();
+  await harness.getByRole("tab", { name: "Usage" }).click();
+  await expect(harness.getByText("Current chat only")).toBeVisible();
+  await expect(harness.getByText("2,400")).toBeVisible();
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-harness");
 });
 
-test("active transcript browser shell keeps a failed tool cell expanded", async ({ shellPage }) => {
-  const composer = shellPage.getByPlaceholder("Message Prime, or / for commands");
-  await composer.fill("Investigate the failing cell");
-  await composer.press("Enter");
-
-  await expect(shellPage.getByRole("main").getByText("Investigate the failing cell")).toBeVisible();
-  const failedCell = shellPage.locator(".cell-error");
-  await expect(failedCell).toBeVisible();
-  await expect(failedCell.getByRole("button")).toHaveAttribute("aria-expanded", "true");
-  await expect(failedCell.locator(".cell-out")).toContainText("python: command not found");
-  await expectNoSeriousOrCriticalAxeViolations(shellPage, "active-transcript-tool-error");
+test("account usage routes to Settings and remains truthfully distinct", async ({ shellPage }) => {
+  const harness = shellPage.getByRole("complementary", { name: "Harness" });
+  await harness.getByRole("tab", { name: "Usage" }).click();
+  await harness.getByRole("button", { name: "Open account-wide usage in Settings" }).click();
+  await expect(shellPage.getByRole("main", { name: "Settings" })).toBeVisible();
+  await expect(shellPage.getByRole("heading", { name: "Usage", level: 1 })).toBeVisible();
+  await expect(shellPage.getByText(/Account-wide usage is unavailable/)).toBeVisible();
+  await shellPage.getByRole("button", { name: "Back to chat" }).click();
+  await expect(shellPage.getByRole("main", { name: "Prime Harness architecture" })).toBeVisible();
 });
 
-test("settings browser shell opens the appearance controls without losing the session", async ({ shellPage }) => {
-  await shellPage.keyboard.press("Control+,");
-
-  await expect(shellPage.getByText("Settings", { exact: true })).toBeVisible();
-  await shellPage.getByRole("button", { name: "Appearance" }).click();
-  await expect(shellPage.getByRole("heading", { name: "Appearance" })).toBeVisible();
-  await expect(shellPage.getByRole("button", { name: "Light" })).toBeVisible();
-  await expectNoSeriousOrCriticalAxeViolations(shellPage, "settings-appearance");
-});
-
-test("command palette browser shell can invoke Open settings", async ({ shellPage }) => {
+test("command palette, settings search, theme, and editor are keyboard reachable", async ({ shellPage }) => {
   await shellPage.keyboard.press("Control+K");
-
-  const query = shellPage.getByPlaceholder("Search sessions, models, accounts, actions…");
+  const query = shellPage.getByRole("combobox", { name: "Search commands" });
   await expect(query).toBeFocused();
-  await query.fill("Open settings");
-  await expect(shellPage.getByText("Open settings", { exact: true })).toBeVisible();
-  await query.press("Enter");
-
-  await expect(shellPage.getByText("Settings", { exact: true })).toBeVisible();
-  await expectNoSeriousOrCriticalAxeViolations(shellPage, "command-palette");
+  await query.fill("settings");
+  await shellPage.getByRole("option", { name: /Open settings/ }).click();
+  await shellPage.getByRole("searchbox", { name: "Search settings" }).fill("theme");
+  await shellPage.getByRole("button", { name: /Appearance/ }).click();
+  await expect(shellPage.getByRole("radio", { name: "Dark" })).toHaveAttribute("aria-checked", "true");
+  await shellPage.getByRole("button", { name: "Back to chat" }).click();
+  await shellPage.getByRole("button", { name: "Open editor" }).click();
+  await expect(shellPage.getByRole("region", { name: "Editor" })).toBeVisible();
+  await expect(shellPage.getByText(/No verified file or Canvas revision/)).toBeVisible();
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-settings-editor");
 });
 
-test("forced colors and reduced motion keep keyboard focus explicit", async ({ shellPage }) => {
+test("resizable project and Harness panes preserve a usable conversation", async ({ shellPage }) => {
+  const center = shellPage.getByRole("main", { name: "Prime Harness architecture" });
+  const before = await center.evaluate((element) => element.getBoundingClientRect().width);
+  const separator = shellPage.getByRole("separator", { name: "Resize Harness inspector" });
+  await separator.focus();
+  await shellPage.keyboard.press("ArrowRight");
+  const after = await center.evaluate((element) => element.getBoundingClientRect().width);
+  expect(after).not.toBe(before);
+  expect(after).toBeGreaterThanOrEqual(340);
+});
+
+test("forced colors and reduced motion keep controls operable", async ({ shellPage }) => {
   await shellPage.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
-
-  const newSession = shellPage.getByRole("button", { name: "New session" });
-  await newSession.focus();
-  await shellPage.locator(".kernel-pill").evaluate((element) => {
-    element.classList.add("child-running");
-    element.querySelector(".dot")?.classList.add("child-dot");
-  });
-  const styles = await newSession.evaluate((element) => {
-    const computed = getComputedStyle(element);
-    const statusDot = document.querySelector<HTMLElement>(".kernel-pill .dot");
-    const dotStyle = statusDot ? getComputedStyle(statusDot) : null;
-    return {
-      outlineStyle: computed.outlineStyle,
-      outlineWidth: Number.parseFloat(computed.outlineWidth),
-      animationDuration: dotStyle?.animationDuration ?? "",
-      forcedColorAdjust: dotStyle?.forcedColorAdjust ?? "",
-    };
-  });
-
-  expect(styles.outlineStyle).not.toBe("none");
-  expect(styles.outlineWidth).toBeGreaterThanOrEqual(2);
-  expect(Number.parseFloat(styles.animationDuration)).toBeLessThanOrEqual(0.001);
-  expect(styles.forcedColorAdjust).toBe("none");
+  const trigger = shellPage.getByRole("button", { name: "Open command palette" });
+  await trigger.focus();
+  const styles = await trigger.evaluate((element) => ({ outline: getComputedStyle(element).outlineStyle, width: Number.parseFloat(getComputedStyle(element).outlineWidth) }));
+  expect(styles.outline).not.toBe("none");
+  expect(styles.width).toBeGreaterThanOrEqual(2);
 });

@@ -1,58 +1,36 @@
-import {
-  expect,
-  expectNoSeriousOrCriticalAxeViolations,
-  test,
-} from "./support/browser-shell";
-import type { Page } from "@playwright/test";
+import { expect, expectNoSeriousOrCriticalAxeViolations, test } from "./support/browser-shell";
 
-async function expectHitTestable(shellPage: Page, selector: string) {
-  const locator = shellPage.locator(selector);
-  await expect(locator).toBeVisible();
-  const hit = await locator.evaluate((element) => {
-    const rect = element.getBoundingClientRect();
-    const target = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-    return target === element || element.contains(target);
-  });
-  expect(hit, `${selector} must own its visible centre point`).toBe(true);
-}
-
-test("640x400 at 200% keeps the first-run composer and sidebar usable", async ({ shellPage }) => {
+test("compact workspace keeps the parent conversation and composer visible", async ({ shellPage }) => {
   expect(shellPage.viewportSize()).toEqual({ width: 320, height: 200 });
-  await expect(shellPage.getByPlaceholder("Message Prime, or / for commands")).toBeEditable();
-  await expect(
-    shellPage.getByRole("heading", { name: "Ready. Pick a folder and say what you want done." }),
-  ).toBeVisible();
-  await expectHitTestable(shellPage, ".sidebar");
-  await expect(shellPage.locator(".sidebar")).toHaveCSS("overflow-y", /auto|scroll/);
-  await expectNoSeriousOrCriticalAxeViolations(shellPage, "narrow-first-run");
+  await expect(shellPage.getByRole("main", { name: "Prime Harness architecture" })).toBeVisible();
+  await expect(shellPage.getByPlaceholder("Message Prime")).toBeVisible();
+  const geometry = await shellPage.getByRole("main", { name: "Prime Harness architecture" }).evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return { width: rect.width, height: rect.height, scrollWidth: element.scrollWidth };
+  });
+  expect(geometry.width).toBeGreaterThan(0);
+  expect(geometry.height).toBeGreaterThan(0);
+  expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width + 1);
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-narrow-workspace");
 });
 
-test("640x400 at 200% preserves transcript, composer, and artifact geometry", async ({ shellPage }) => {
-  const composer = shellPage.getByPlaceholder("Message Prime, or / for commands");
-  await composer.fill("Inspect the compact workspace");
-  await composer.press("Enter");
-  await expect(shellPage.locator(".messages")).toBeVisible();
+test("projects, Harness, and editor become controlled sheets", async ({ shellPage }) => {
+  await shellPage.getByRole("button", { name: "Projects" }).click();
+  await expect(shellPage.getByRole("navigation", { name: "Projects and chats" })).toBeVisible();
+  await shellPage.getByRole("button", { name: "Projects" }).click();
+  await shellPage.getByRole("button", { name: "Harness" }).click();
+  await expect(shellPage.getByRole("complementary", { name: "Harness" })).toBeVisible();
+  await shellPage.getByRole("button", { name: "Harness" }).click();
+  await shellPage.getByRole("button", { name: "Open editor" }).click();
+  await expect(shellPage.getByRole("region", { name: "Editor" })).toBeVisible();
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-narrow-sheets");
+});
 
+test("settings and palette use compact responsive surfaces", async ({ shellPage }) => {
   await shellPage.keyboard.press("Control+K");
-  const query = shellPage.getByPlaceholder("Search sessions, models, accounts, actions…");
-  await query.fill("Toggle artifact pane");
-  await query.press("Enter");
-
-  const geometry = await shellPage.locator(".column").evaluate((column) => {
-    const transcript = column.querySelector<HTMLElement>(".messages")?.getBoundingClientRect();
-    const composerBox = column.querySelector<HTMLElement>(".composer")?.getBoundingClientRect();
-    return {
-      transcript: transcript && { width: transcript.width, height: transcript.height },
-      composer: composerBox && { width: composerBox.width, height: composerBox.height },
-    };
-  });
-  expect(geometry.transcript?.width).toBeGreaterThan(0);
-  expect(geometry.transcript?.height).toBeGreaterThan(0);
-  expect(geometry.composer?.width).toBeGreaterThan(0);
-  expect(geometry.composer?.height).toBeGreaterThan(0);
-
-  await expectHitTestable(shellPage, ".artifacts");
-  await expect(shellPage.locator(".artifacts")).toHaveCSS("overflow-y", /auto|scroll/);
-  await shellPage.getByTitle("Refresh").click();
-  await expectNoSeriousOrCriticalAxeViolations(shellPage, "narrow-artifacts-transcript");
+  await expect(shellPage.getByRole("dialog", { name: "Command palette" })).toBeVisible();
+  await shellPage.keyboard.press("Escape");
+  await shellPage.keyboard.press("Control+,");
+  await expect(shellPage.getByRole("main", { name: "Settings" })).toBeVisible();
+  await expect(shellPage.getByRole("searchbox", { name: "Search settings" })).toBeVisible();
 });

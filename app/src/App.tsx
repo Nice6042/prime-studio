@@ -633,7 +633,7 @@ export function LegacyApp() {
 const studioStore = createStudioStore(initialStudioState());
 
 export default function App() {
-  if (import.meta.env.VITE_PRIME_STUDIO_WORKSPACE === "1") {
+  if (import.meta.env.VITE_PRIME_STUDIO_WORKSPACE === "1" || (import.meta.env.VITE_PRIME_STUDIO_WORKSPACE !== "0" && import.meta.env.PROD)) {
     return (
       <AppProviders store={studioStore}>
         <StudioApp />

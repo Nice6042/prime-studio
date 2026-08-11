@@ -72,6 +72,7 @@ export function StudioApp() {
   const [settings, setSettings] = useState<AppSettings>({});
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteOpener, setPaletteOpener] = useState<HTMLElement | null>(null);
+  const [activeSheet, setActiveSheet] = useState<"sidebar" | "inspector" | "editor" | null>(null);
   const [inspectorRouteRequest, setInspectorRouteRequest] = useState<Readonly<{ id: number; route: "overview" | "usage" | "activity" }> | undefined>();
   const [expandedProjectIds, setExpandedProjectIds] = useState<ReadonlySet<string>>(
     () => new Set(projectCatalog.projects.filter((project) => !project.archived).map((project) => project.id)),
@@ -215,7 +216,7 @@ export function StudioApp() {
     admissionConnected: false,
   });
   return <div className="studio-application">
-    <TitleBar title={title} actions={<><button type="button" className="studio-command-trigger" aria-label={layout.editorOpen ? "Close editor" : "Open editor"} onClick={() => changeLayout({ editorOpen: !layout.editorOpen })}>▤</button><button type="button" className="studio-command-trigger" aria-label="Open command palette" onClick={openPalette}>⌕</button></>} />
+    <TitleBar title={title} actions={<><button type="button" className="studio-command-trigger" aria-label="Projects" aria-pressed={viewport < 760 ? activeSheet === "sidebar" : layout.sidebarOpen} onClick={() => { if (viewport < 760) { changeLayout({ sidebarOpen: true }); setActiveSheet((value) => value === "sidebar" ? null : "sidebar"); } else changeLayout({ sidebarOpen: !layout.sidebarOpen }); }}>☰</button><button type="button" className="studio-command-trigger" aria-label="Harness" aria-pressed={viewport < 760 ? activeSheet === "inspector" : layout.inspectorOpen} onClick={() => { if (viewport < 760) { changeLayout({ inspectorOpen: true }); setActiveSheet((value) => value === "inspector" ? null : "inspector"); } else changeLayout({ inspectorOpen: !layout.inspectorOpen }); }}>◫</button><button type="button" className="studio-command-trigger" aria-label={layout.editorOpen ? "Close editor" : "Open editor"} onClick={() => { changeLayout({ editorOpen: !layout.editorOpen }); setActiveSheet(layout.editorOpen ? null : "editor"); }}>▤</button><button type="button" className="studio-command-trigger" aria-label="Open command palette" onClick={openPalette}>⌕</button></>} />
     <WorkspaceShell
       viewport={viewport}
       sidebar={{ open: layout.sidebarOpen, preferred: layout.sidebarWidth }}
@@ -225,6 +226,7 @@ export function StudioApp() {
       onSidebarPreferred={(sidebarWidth) => changeLayout({ sidebarWidth })}
       onInspectorPreferred={(inspectorWidth) => changeLayout({ inspectorWidth })}
       onEditorPreferred={(editorWidth) => changeLayout({ editorWidth })}
+      activeSheet={activeSheet}
       sidebarContent={sidebarContent}
       conversation={<div className="conversation-stage">
         <ParentConversation title={title} session={selectedSession} archived={archived} />

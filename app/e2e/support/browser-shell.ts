@@ -164,10 +164,35 @@ export const test = base.extend<ShellFixtures>({
           case "harness_bootstrap":
             return {
               compatibility: {
-                status: "unavailable",
-                reason: "security_verification_failed",
+                status: "ready",
+                profile: "browser-shell-v1",
+                capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog", "queue_management", "resource_snapshot"],
               },
-              sessions: [],
+              sessions: [{
+                sessionId: "session-e2e",
+                accountId: "account-e2e",
+                projectId: "project:personal",
+                chatId: "chat-e2e",
+                cursor: { runtimeGeneration: "generation-e2e", sequence: 8 },
+                state: "working",
+                freshness: "live",
+                parentMessages: [
+                  { channel: "parent", kind: "user", id: "message-user", text: "Map the Prime Harness boundary and keep the parent chat concise.", emittedAtMs: 1_723_456_700_000 },
+                  { channel: "parent", kind: "assistant", id: "message-assistant", streaming: false, emittedAtMs: 1_723_456_706_000, blocks: [
+                    { kind: "text", text: "The parent conversation stays focused on decisions and final results. Child transcripts, reasoning, tools, queue state, and current-chat usage remain in the Harness panel." },
+                    { kind: "thinking", text: "Checking protocol identity and capability closure.", redacted: false },
+                    { kind: "tool_call", toolCallId: "tool-1", toolId: "workspace.inspect", status: "succeeded" },
+                  ] },
+                ],
+                children: [
+                  { id: "child-runtime", status: "running", task: "Verify runtime compatibility", provider: "OpenAI", model: "gpt-5.6-sol", progress: 0.72 },
+                  { id: "child-navigation", status: "done", task: "Map project navigation", provider: "OpenAI", model: "gpt-5.6-sol", progress: 1 },
+                ],
+                queue: [{ id: "queue-1", label: "Review compatibility report", state: "queued" }],
+                tools: [{ id: "workspace.inspect", label: "Workspace inspect", enabled: true, configurable: false }],
+                resources: [{ id: "resource-1", label: "Project files", kind: "workspace", availability: "available" }],
+                usage: { input: 1240, output: 430, cacheRead: 640, cacheWrite: 90, totalTokens: 2400, cost: null },
+              }],
             };
           case "harness_projection":
             return [];
@@ -195,8 +220,15 @@ export const test = base.extend<ShellFixtures>({
                   root: { kind: "studio-managed-empty" },
                   pinned: false,
                   archived: false,
-                  selectedChatId: null,
-                  chats: [],
+                  selectedChatId: "chat-e2e",
+                  chats: [{
+                    id: "chat-e2e",
+                    projectId: "project:personal",
+                    title: "Prime Harness architecture",
+                    pinned: true,
+                    archived: false,
+                    binding: { kind: "prime-session", accountId: "account-e2e", sessionId: "session-e2e", sessionFile: "session-e2e.jsonl", agentId: null },
+                  }],
                 }],
               },
             };
@@ -302,7 +334,7 @@ export const test = base.extend<ShellFixtures>({
     });
 
     await page.goto("/");
-    await expect(page.getByPlaceholder("Message Prime, or / for commands")).toBeVisible();
+    await expect(page.getByPlaceholder("Message Prime")).toBeVisible();
     await use(page);
   },
 });
