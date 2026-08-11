@@ -11,7 +11,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "npm run build:harness-sidecar && tsc && vite build",
+    "build:harness-sidecar": "tsc -p harness-sidecar/tsconfig.json",
+    "test:harness-sidecar": "npm run build:harness-sidecar && node --test harness-sidecar/dist/test/*.test.js",
     "branding:icons": "tauri icon ../assets/branding/prime-studio-mark.svg && node scripts/canonicalize-icns.mjs src-tauri/icons/icon.icns && node scripts/normalize-branding-icons.mjs src-tauri/icons",
     "check": "node src/reducer.check.mjs",
     "generate:harness-contract": "node scripts/generate-harness-contract.mjs --write",
@@ -46,6 +48,7 @@
     "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.3",
+    "@types/node": "22.18.0",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
