@@ -7,6 +7,9 @@ export default defineConfig({
     setupFiles: "./src/test/setup.ts",
     globals: true,
     clearMocks: true,
-    exclude: [...configDefaults.exclude, "e2e/**"],
+    // The sidecar owns a separate compiled Node test command. Letting Vitest
+    // discover its node:test sources (and generated dist copies) runs them in
+    // jsdom with the wrong fixture root and reports false "no suite" failures.
+    exclude: [...configDefaults.exclude, "e2e/**", "harness-sidecar/**"],
   },
 });
