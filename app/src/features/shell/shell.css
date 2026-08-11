@@ -46,4 +46,5 @@
 .studio-titlebar,
 .studio-statusbar { display: flex; align-items: center; min-block-size: 36px; padding-inline: 12px; border-block-end: 1px solid var(--line, #323232); }
 .studio-titlebar-actions { margin-inline-start: auto; }
+.studio-command-trigger { inline-size:30px; block-size:28px; margin-inline-start:3px; border:0; border-radius:7px; background:transparent; color:inherit; }.studio-command-trigger:hover { background:rgb(255 255 255 / .06); }
 .studio-statusbar { min-block-size: 28px; border-block-start: 1px solid var(--line, #323232); border-block-end: 0; color: var(--muted, #a4a4a4); font-size: 12px; }

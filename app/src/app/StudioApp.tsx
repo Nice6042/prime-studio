@@ -16,6 +16,7 @@ import { HarnessInspector } from "../features/harness/HarnessInspector";
 import { SettingsShell } from "../features/settings/SettingsShell";
 import { CommandPalette } from "../features/command-palette/CommandPalette";
 import type { StudioCommandId } from "../entities/commands/commandRegistry";
+import { EditorPane } from "../features/editor/EditorPane";
 import { useStudioSelector, useStudioStore } from "./AppProviders";
 
 let bootstrapPromise: ReturnType<typeof rpc.bootstrapHarness> | null = null;
@@ -214,7 +215,7 @@ export function StudioApp() {
     admissionConnected: false,
   });
   return <div className="studio-application">
-    <TitleBar title={title} actions={<button type="button" className="studio-command-trigger" aria-label="Open command palette" onClick={openPalette}>⌕</button>} />
+    <TitleBar title={title} actions={<><button type="button" className="studio-command-trigger" aria-label={layout.editorOpen ? "Close editor" : "Open editor"} onClick={() => changeLayout({ editorOpen: !layout.editorOpen })}>▤</button><button type="button" className="studio-command-trigger" aria-label="Open command palette" onClick={openPalette}>⌕</button></>} />
     <WorkspaceShell
       viewport={viewport}
       sidebar={{ open: layout.sidebarOpen, preferred: layout.sidebarWidth }}
@@ -248,6 +249,7 @@ export function StudioApp() {
         routeRequest={inspectorRouteRequest}
         onOpenAccountUsage={() => store.dispatch({ type: "route/settings", section: "usage" })}
       />}
+      editorContent={<EditorPane onClose={() => changeLayout({ editorOpen: false })} />}
     />
     <RuntimeStatusBar session={selectedSession} />
     {paletteOpen && <CommandPalette admissionConnected={false} onRun={runCommand} onClose={() => setPaletteOpen(false)} restoreFocusTo={paletteOpener} />}
