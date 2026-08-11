@@ -229,6 +229,54 @@ function decodeProjectChatCommand(value: unknown): ProjectChatCommand | undefine
           };
         }
         return undefined;
+
+      case "chat.duplicate":
+        if (
+          hasExactCommandKeys(command, ["type", "projectId", "chatId", "newChatId", "title"]) &&
+          typeof command.projectId === "string" &&
+          typeof command.chatId === "string" &&
+          typeof command.newChatId === "string" &&
+          typeof command.title === "string"
+        ) {
+          return {
+            type: command.type,
+            projectId: command.projectId,
+            chatId: command.chatId,
+            newChatId: command.newChatId,
+            title: command.title,
+          };
+        }
+        return undefined;
+
+      case "chat.move":
+        if (
+          hasExactCommandKeys(command, ["type", "projectId", "chatId", "targetProjectId"]) &&
+          typeof command.projectId === "string" &&
+          typeof command.chatId === "string" &&
+          typeof command.targetProjectId === "string"
+        ) {
+          return {
+            type: command.type,
+            projectId: command.projectId,
+            chatId: command.chatId,
+            targetProjectId: command.targetProjectId,
+          };
+        }
+        return undefined;
+
+      case "chat.delete":
+        if (
+          hasExactCommandKeys(command, ["type", "projectId", "chatId"]) &&
+          typeof command.projectId === "string" &&
+          typeof command.chatId === "string"
+        ) {
+          return {
+            type: command.type,
+            projectId: command.projectId,
+            chatId: command.chatId,
+          };
+        }
+        return undefined;
     }
   } catch {
     return undefined;
@@ -362,6 +410,12 @@ export function transitionProjectChatState(
   if (!command) return rejected(state, "invalid-command");
   if (!isProjectChatId(command.projectId)) return rejected(state, "invalid-id");
   if ("chatId" in command && !isProjectChatId(command.chatId)) {
+    return rejected(state, "invalid-id");
+  }
+  if ("newChatId" in command && !isProjectChatId(command.newChatId)) {
+    return rejected(state, "invalid-id");
+  }
+  if ("targetProjectId" in command && !isProjectChatId(command.targetProjectId)) {
     return rejected(state, "invalid-id");
   }
 
@@ -571,6 +625,57 @@ export function transitionProjectChatState(
           ),
         }),
       );
+    }
+
+    case "chat.duplicate": {
+      const found = chatInProject(state, command.projectId, command.chatId);
+      if (found.status === "rejected") return rejected(state, found.reason);
+      if (!isProjectChatLabel(command.title)) return rejected(state, "invalid-name");
+      if (chatOwner(state, command.newChatId)) return rejected(state, "duplicate-chat-id");
+      const duplicate: ProjectChat = {
+        id: command.newChatId,
+        projectId: found.project.id,
+        title: command.title,
+        pinned: false,
+        archived: false,
+        binding: null,
+      };
+      return applied(state, replaceProject(state, {
+        ...found.project,
+        selectedChatId: duplicate.id,
+        chats: [...found.project.chats, duplicate],
+      }, found.project.id));
+    }
+
+    case "chat.move": {
+      const found = chatInProject(state, command.projectId, command.chatId);
+      if (found.status === "rejected") return rejected(state, found.reason);
+      if (found.project.id === command.targetProjectId) return unchanged(state, "already-selected");
+      const target = projectById(state, command.targetProjectId);
+      if (!target) return rejected(state, "project-not-found");
+      if (target.archived) return rejected(state, "project-archived");
+      const moved = { ...found.chat, projectId: target.id };
+      const source = {
+        ...found.project,
+        selectedChatId: replacementChatAfterArchive(found.project, found.chat.id),
+        chats: found.project.chats.filter((chat) => chat.id !== found.chat.id),
+      };
+      const destination = { ...target, selectedChatId: moved.id, chats: [...target.chats, moved] };
+      return applied(state, {
+        ...state,
+        selectedProjectId: target.id,
+        projects: state.projects.map((project) => project.id === source.id ? source : project.id === destination.id ? destination : project),
+      });
+    }
+
+    case "chat.delete": {
+      const found = chatInProject(state, command.projectId, command.chatId);
+      if (found.status === "rejected") return rejected(state, found.reason);
+      return applied(state, replaceProject(state, {
+        ...found.project,
+        selectedChatId: replacementChatAfterArchive(found.project, found.chat.id),
+        chats: found.project.chats.filter((chat) => chat.id !== found.chat.id),
+      }));
     }
 
     case "selection.select-project": {

@@ -102,6 +102,24 @@ export type ProjectChatCommand =
       pinned: boolean;
     }>
   | Readonly<{
+      type: "chat.duplicate";
+      projectId: ProjectId;
+      chatId: ChatId;
+      newChatId: ChatId;
+      title: string;
+    }>
+  | Readonly<{
+      type: "chat.move";
+      projectId: ProjectId;
+      chatId: ChatId;
+      targetProjectId: ProjectId;
+    }>
+  | Readonly<{
+      type: "chat.delete";
+      projectId: ProjectId;
+      chatId: ChatId;
+    }>
+  | Readonly<{
       type: "selection.select-project";
       projectId: ProjectId;
     }>
