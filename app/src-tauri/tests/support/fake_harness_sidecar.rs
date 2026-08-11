@@ -121,6 +121,28 @@ fn main() {
                 }
             }));
         }
+        "broker-bootstrap" | "broker-wrong-profile" => {
+            let request = read_frame();
+            let profile = if mode == "broker-bootstrap" {
+                "daemon-v7-schema13"
+            } else {
+                "wrong-profile"
+            };
+            write_frame(&json!({
+                "studioProtocol": 1,
+                "requestId": request["requestId"],
+                "payload": {
+                    "type":"bootstrap_result",
+                    "compatibility":{"status":"ready","profile":profile,"capabilities":[]},
+                    "sessions":[{
+                        "sessionId":"root","accountId":"account","projectId":"project","chatId":"chat",
+                        "cursor":{"runtimeGeneration":"generation","sequence":1},"state":"idle",
+                        "parentMessages":[],"children":[],"queue":[],"tools":[],"resources":[],
+                        "usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null}
+                    }]
+                }
+            }));
+        }
         "diagnostic" => {
             eprintln!("Bearer TOPSECRET C:\\Users\\Private\\AppData\\Local");
             let request = read_frame();

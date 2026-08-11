@@ -35,6 +35,10 @@ pub enum HarnessError {
     DeadlineExceeded { uncertain: bool },
     ProtocolViolation,
     SidecarClosed,
+    OwnershipViolation,
+    ChronologyViolation,
+    StateViolation,
+    RecoveryFailed,
 }
 
 impl HarnessError {
@@ -47,6 +51,10 @@ impl HarnessError {
             Self::DeadlineExceeded { .. } => "deadline",
             Self::ProtocolViolation => "protocol",
             Self::SidecarClosed => "closed",
+            Self::OwnershipViolation => "ownership",
+            Self::ChronologyViolation => "chronology",
+            Self::StateViolation => "state",
+            Self::RecoveryFailed => "recovery",
         }
     }
 }
@@ -493,7 +501,7 @@ fn validate_studio_response(response: &StudioResponse) -> bool {
         } => {
             valid_compatibility(compatibility)
                 && sessions.len() <= 256
-                && sessions.iter().all(valid_snapshot)
+                && sessions.iter().all(validate_root_snapshot)
         }
         StudioResponse::Error { code, message } => valid_id(code) && valid_label(message),
     }
@@ -527,7 +535,7 @@ fn valid_compatibility(compatibility: &HarnessCompatibility) -> bool {
     }
 }
 
-fn valid_snapshot(snapshot: &RootSessionSnapshot) -> bool {
+pub(crate) fn validate_root_snapshot(snapshot: &RootSessionSnapshot) -> bool {
     valid_id(&snapshot.session_id)
         && snapshot
             .account_id

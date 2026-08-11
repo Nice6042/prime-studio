@@ -8,6 +8,7 @@
 //!                                         even on success — NOT an error signal.
 
 pub mod accounts;
+pub mod app_state;
 pub mod authority;
 mod bounded_io;
 pub mod browser;
