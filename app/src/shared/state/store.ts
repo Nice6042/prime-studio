@@ -1,5 +1,5 @@
 import type { HarnessCompatibility } from "../ipc/harness.generated";
-import type { RootSessionProjection } from "../../entities/harness/types";
+import type { BootProjection, RootSessionProjection } from "../../entities/harness/types";
 import {
   createInitialProjectChatState,
   transitionProjectChatState,
@@ -41,6 +41,8 @@ export type StudioIntent =
   | Readonly<{ type: "project-chat/command"; command: ProjectChatCommand }>
   | Readonly<{ type: "draft/change"; chatId: string; draft: string }>
   | Readonly<{ type: "attachments/change"; chatId: string; attachments: readonly DraftAttachment[] }>
+  | Readonly<{ type: "harness/bootstrap-loaded"; projection: BootProjection }>
+  | Readonly<{ type: "harness/session-projected"; session: RootSessionProjection }>
   | Readonly<{ type: "account/default-selected"; accountId: string | null }>
   | Readonly<{ type: "route/settings"; section?: string }>
   | Readonly<{ type: "route/workspace" }>
@@ -136,6 +138,16 @@ export function reduceStudio(state: StudioAppState, intent: StudioIntent): Studi
       const attachments = Object.freeze(intent.attachments.map((attachment) => Object.freeze({ ...attachment })));
       return { ...state, attachments: Object.freeze({ ...state.attachments, [intent.chatId]: attachments }) };
     }
+    case "harness/bootstrap-loaded":
+      return {
+        ...state,
+        compatibility: intent.projection.compatibility,
+        sessions: normalizeSessions(intent.projection.sessions),
+      };
+    case "harness/session-projected":
+      return state.sessions[intent.session.sessionId]
+        ? { ...state, sessions: Object.freeze({ ...state.sessions, [intent.session.sessionId]: intent.session }) }
+        : state;
     case "account/default-selected":
       return state.defaultAccountId === intent.accountId ? state : { ...state, defaultAccountId: intent.accountId };
     case "route/settings":

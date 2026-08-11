@@ -14,6 +14,16 @@ import { deriveComposerState } from "../features/conversation/composerModel";
 import { HarnessInspector } from "../features/harness/HarnessInspector";
 import { useStudioSelector, useStudioStore } from "./AppProviders";
 
+let bootstrapPromise: ReturnType<typeof rpc.bootstrapHarness> | null = null;
+
+function loadHarnessProjection() {
+  bootstrapPromise ??= rpc.bootstrapHarness().catch((error) => {
+    bootstrapPromise = null;
+    throw error;
+  });
+  return bootstrapPromise;
+}
+
 function useViewportWidth() {
   const [width, setWidth] = useState(() => typeof window === "undefined" ? 1280 : window.innerWidth);
   useEffect(() => {
@@ -68,6 +78,22 @@ export function StudioApp() {
     });
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    let unsubscribe: (() => void) | undefined;
+    void loadHarnessProjection().then((projection) => {
+      if (!active) return;
+      store.dispatch({ type: "harness/bootstrap-loaded", projection });
+      unsubscribe = rpc.subscribeHarnessEvents((event) => {
+        if (active) store.dispatch({ type: "harness/session-projected", session: event.session });
+      });
+    }).catch(() => undefined);
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
+  }, [store]);
 
   const changeLayout = (patch: Partial<LayoutPreferencesV1>) => {
     const next = { ...layout, ...patch };
