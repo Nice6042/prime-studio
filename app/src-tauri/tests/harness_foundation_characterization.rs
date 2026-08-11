@@ -1,6 +1,6 @@
 use prime_studio_lib::authority::{
-    authorize_tauri_command, authorize_tauri_invoke, AuthorityError, AuthorityGate,
-    EffectClass, SecurityReadiness, TauriCommand,
+    authorize_tauri_command, authorize_tauri_invoke, AuthorityError, AuthorityGate, EffectClass,
+    SecurityReadiness, TauriCommand,
 };
 use serde_json::json;
 

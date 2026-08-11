@@ -12,6 +12,7 @@ pub mod authority;
 mod bounded_io;
 pub mod browser;
 pub mod computer_use;
+pub mod harness;
 pub mod project_catalog;
 mod provider_product;
 pub mod runtime_manifest;

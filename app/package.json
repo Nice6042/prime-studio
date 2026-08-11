@@ -14,6 +14,8 @@
     "build": "tsc && vite build",
     "branding:icons": "tauri icon ../assets/branding/prime-studio-mark.svg && node scripts/canonicalize-icns.mjs src-tauri/icons/icon.icns && node scripts/normalize-branding-icons.mjs src-tauri/icons",
     "check": "node src/reducer.check.mjs",
+    "generate:harness-contract": "node scripts/generate-harness-contract.mjs --write",
+    "check:harness-contract": "node scripts/generate-harness-contract.mjs --check",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:browser-shell:config": "node --test e2e/browser-shell.config.test.mjs",
