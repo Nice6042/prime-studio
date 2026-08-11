@@ -5,3 +5,4 @@
 pub mod compatibility;
 #[rustfmt::skip]
 pub mod generated;
+pub mod sidecar;

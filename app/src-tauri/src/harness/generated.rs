@@ -151,7 +151,7 @@ pub enum StudioResponse {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case", tag = "type")]
 pub enum HarnessEvent {
-    Snapshot { snapshot: RootSessionSnapshot },
+    Snapshot { snapshot: Box<RootSessionSnapshot> },
     SessionState { #[serde(rename = "sessionId")] session_id: String, cursor: HarnessCursor, state: RootSessionState },
 }
 
