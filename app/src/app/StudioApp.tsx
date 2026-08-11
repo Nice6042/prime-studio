@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import * as rpc from "../rpc";
-import type { LayoutPreferencesV1 } from "../types";
+import type { AppSettings, LayoutPreferencesV1 } from "../types";
 import { RuntimeStatusBar } from "../features/shell/RuntimeStatusBar";
 import { TitleBar } from "../features/shell/TitleBar";
 import { WorkspaceShell } from "../features/shell/WorkspaceShell";
@@ -13,6 +13,7 @@ import { ParentConversation } from "../features/conversation/ParentConversation"
 import { Composer } from "../features/conversation/Composer";
 import { deriveComposerState } from "../features/conversation/composerModel";
 import { HarnessInspector } from "../features/harness/HarnessInspector";
+import { SettingsShell } from "../features/settings/SettingsShell";
 import { useStudioSelector, useStudioStore } from "./AppProviders";
 
 let bootstrapPromise: ReturnType<typeof rpc.bootstrapHarness> | null = null;
@@ -65,6 +66,7 @@ export function StudioApp() {
     editorWidth: 400,
   });
   const [query, setQuery] = useState("");
+  const [settings, setSettings] = useState<AppSettings>({});
   const [inspectorRouteRequest, setInspectorRouteRequest] = useState<Readonly<{ id: number; route: "overview" | "usage" | "activity" }> | undefined>();
   const [expandedProjectIds, setExpandedProjectIds] = useState<ReadonlySet<string>>(
     () => new Set(projectCatalog.projects.filter((project) => !project.archived).map((project) => project.id)),
@@ -86,6 +88,12 @@ export function StudioApp() {
     void rpc.getLayoutPreferences().then((preferences) => {
       if (active) setLayout(preferences);
     });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void rpc.getAppSettings().then((next) => { if (active) setSettings(next); });
     return () => { active = false; };
   }, []);
 
@@ -147,7 +155,16 @@ export function StudioApp() {
       />;
 
   if (navigation.route === "settings") {
-    return <main aria-label="Settings"><h1>Settings</h1></main>;
+    return <SettingsShell
+      section={navigation.settingsSection}
+      onSection={(section) => store.dispatch({ type: "route/settings", section })}
+      onBack={() => store.dispatch({ type: "route/workspace" })}
+      compatibility={compatibility}
+      settings={settings}
+      onSetting={(key, value) => {
+        void rpc.setAppSetting(key, value).then(setSettings).catch(() => undefined);
+      }}
+    />;
   }
 
   const title = selectedChat?.title ?? "Prime Studio";

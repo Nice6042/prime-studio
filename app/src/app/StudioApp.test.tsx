@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import { createInitialProjectChatState, transitionProjectChatState } from "../domain/projectChats";
@@ -116,5 +117,18 @@ describe("Studio application state", () => {
     expect(screen.getByRole("button", { name: "Harness architecture" })).toBeVisible();
     expect(screen.getByRole("main", { name: "Harness architecture" })).toBeVisible();
     expect(screen.getByRole("button", { name: "New chat" })).toBeDisabled();
+  });
+
+  it("renders routed settings and preserves the selected chat when returning", async () => {
+    const store = createStudioStore(initialStudioState({ chats: [chat] }));
+    store.dispatch({ type: "chat/open", chatId: chat.id });
+    store.dispatch({ type: "route/settings", section: "security" });
+
+    render(<AppProviders store={store}><StudioApp /></AppProviders>);
+    expect(screen.getByRole("main", { name: "Settings" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Security", level: 1 })).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Back to chat" }));
+    expect(store.getSnapshot().navigation.selectedChatId).toBe(chat.id);
+    expect(screen.getByRole("main", { name: "Harness architecture" })).toBeVisible();
   });
 });

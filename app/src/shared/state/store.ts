@@ -174,7 +174,7 @@ export function reduceStudio(state: StudioAppState, intent: StudioIntent): Studi
     case "account/default-selected":
       return state.defaultAccountId === intent.accountId ? state : { ...state, defaultAccountId: intent.accountId };
     case "route/settings":
-      return { ...state, navigation: { route: "settings", settingsSection: intent.section ?? null, selectedChatId: null } };
+      return { ...state, navigation: { route: "settings", settingsSection: intent.section ?? null, selectedChatId: state.navigation.selectedChatId } };
     case "route/workspace":
       return state.navigation.route === "workspace" ? state : { ...state, navigation: { ...state.navigation, route: "workspace", settingsSection: null } };
     case "async/started": {
