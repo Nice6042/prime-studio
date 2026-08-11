@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use uuid::Uuid;
 
+use super::compatibility::decide_compatibility;
 use super::generated::{
     HarnessCompatibility, HarnessEvent, RootSessionSnapshot, StudioRequest, StudioResponse,
 };
@@ -152,6 +153,53 @@ impl HarnessBroker {
 
     async fn bootstrap_inner(&mut self) -> Result<BootProjection, HarnessError> {
         let sidecar = self.sidecar.clone().ok_or(HarnessError::StateViolation)?;
+        let discovery = sidecar
+            .request(
+                StudioRequest::DiscoverRuntime,
+                Instant::now() + Duration::from_secs(5),
+            )
+            .await?;
+        let StudioResponse::DiscoverRuntimeResult {
+            runtime,
+            compatibility: reported_compatibility,
+        } = discovery
+        else {
+            return Err(HarnessError::ProtocolViolation);
+        };
+        let Some(runtime) = runtime else {
+            if !matches!(
+                reported_compatibility,
+                HarnessCompatibility::Unavailable { .. }
+            ) {
+                return Err(HarnessError::ProtocolViolation);
+            }
+            self.compatibility = Some(reported_compatibility.clone());
+            self.begin_snapshot(0)?;
+            self.finish_snapshot()?;
+            return Ok(BootProjection {
+                compatibility: reported_compatibility,
+                sessions: Vec::new(),
+            });
+        };
+        let compatibility = decide_compatibility(&runtime);
+        if compatibility != reported_compatibility {
+            return Err(HarnessError::ProtocolViolation);
+        }
+        if runtime.package_digest != self.runtime_digest {
+            return Err(HarnessError::ProtocolViolation);
+        }
+        if matches!(
+            compatibility,
+            HarnessCompatibility::ReadOnly { .. } | HarnessCompatibility::Unavailable { .. }
+        ) {
+            self.compatibility = Some(compatibility.clone());
+            self.begin_snapshot(0)?;
+            self.finish_snapshot()?;
+            return Ok(BootProjection {
+                compatibility,
+                sessions: Vec::new(),
+            });
+        }
         let response = sidecar
             .request(
                 StudioRequest::Bootstrap,
@@ -165,7 +213,9 @@ impl HarnessBroker {
         else {
             return Err(HarnessError::ProtocolViolation);
         };
-        if !compatibility_uses_profile(&compatibility, &self.profile) {
+        if compatibility != reported_compatibility
+            || !compatibility_uses_profile(&compatibility, &self.profile)
+        {
             return Err(HarnessError::ProtocolViolation);
         }
         self.compatibility = Some(compatibility.clone());
@@ -342,6 +392,13 @@ impl HarnessBroker {
             .keys()
             .filter_map(|id| self.project(id))
             .collect()
+    }
+
+    pub fn boot_projection(&self) -> Option<BootProjection> {
+        Some(BootProjection {
+            compatibility: self.compatibility.clone()?,
+            sessions: self.projects(),
+        })
     }
 
     pub fn recovery_record(&self, revision: u64) -> Result<RecoveryRecord, HarnessError> {

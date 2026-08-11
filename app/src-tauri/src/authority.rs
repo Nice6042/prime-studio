@@ -268,6 +268,8 @@ pub enum TauriCommand {
     CheckPrimeCli,
     GetAppSettings,
     SchedulerProjection,
+    HarnessBootstrap,
+    HarnessProjection,
     SetAppSetting,
     KernelStatus,
     FilesTouched,
@@ -278,7 +280,7 @@ pub enum TauriCommand {
     ComputerUseReadiness,
 }
 
-pub const ALL_TAURI_COMMANDS: [TauriCommand; 41] = [
+pub const ALL_TAURI_COMMANDS: [TauriCommand; 43] = [
     TauriCommand::StartSession,
     TauriCommand::AttachSession,
     TauriCommand::DetachSession,
@@ -312,6 +314,8 @@ pub const ALL_TAURI_COMMANDS: [TauriCommand; 41] = [
     TauriCommand::CheckPrimeCli,
     TauriCommand::GetAppSettings,
     TauriCommand::SchedulerProjection,
+    TauriCommand::HarnessBootstrap,
+    TauriCommand::HarnessProjection,
     TauriCommand::SetAppSetting,
     TauriCommand::KernelStatus,
     TauriCommand::FilesTouched,
@@ -365,6 +369,8 @@ impl TauriCommand {
             Self::CheckPrimeCli => "check_prime_cli",
             Self::GetAppSettings => "get_app_settings",
             Self::SchedulerProjection => "scheduler_projection",
+            Self::HarnessBootstrap => "harness_bootstrap",
+            Self::HarnessProjection => "harness_projection",
             Self::SetAppSetting => "set_app_setting",
             Self::KernelStatus => "kernel_status",
             Self::FilesTouched => "files_touched",
@@ -424,6 +430,8 @@ impl TauriCommand {
             | Self::BrowserCheckIntentAdmission
             | Self::GetAppSettings
             | Self::SchedulerProjection
+            | Self::HarnessBootstrap
+            | Self::HarnessProjection
             | Self::ComputerUseReadiness => CommandAuthority::OfflineRead,
         }
     }

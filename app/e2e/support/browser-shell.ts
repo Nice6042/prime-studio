@@ -161,6 +161,16 @@ export const test = base.extend<ShellFixtures>({
               status: "unavailable",
               dispatchAvailable: false,
             };
+          case "harness_bootstrap":
+            return {
+              compatibility: {
+                status: "unavailable",
+                reason: "security_verification_failed",
+              },
+              sessions: [],
+            };
+          case "harness_projection":
+            return [];
           case "list_models":
             return [
               {

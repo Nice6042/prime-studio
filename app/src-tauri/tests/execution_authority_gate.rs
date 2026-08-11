@@ -9,7 +9,7 @@ use prime_studio_lib::authority::{
 };
 use serde_json::{json, Value};
 
-const EXPECTED_TAURI_COMMANDS: [&str; 41] = [
+const EXPECTED_TAURI_COMMANDS: [&str; 43] = [
     "start_session",
     "attach_session",
     "detach_session",
@@ -43,6 +43,8 @@ const EXPECTED_TAURI_COMMANDS: [&str; 41] = [
     "check_prime_cli",
     "get_app_settings",
     "scheduler_projection",
+    "harness_bootstrap",
+    "harness_projection",
     "set_app_setting",
     "kernel_status",
     "files_touched",
@@ -133,7 +135,7 @@ fn tauri_command_inventory_is_complete_unique_and_stable() {
     assert_eq!(registered, EXPECTED_TAURI_COMMANDS);
     assert_eq!(actual, EXPECTED_TAURI_COMMANDS);
     assert_eq!(actual, registered);
-    assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 41);
+    assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 43);
     assert_eq!(
         source.matches(".invoke_handler(").count(),
         1,
@@ -202,6 +204,8 @@ fn tauri_policy_keeps_only_offline_account_configuration_reads_and_owned_stop_pa
         (TauriCommand::AccountStatuses, AccountManagement),
         (TauriCommand::GetAppSettings, OfflineRead),
         (TauriCommand::SchedulerProjection, OfflineRead),
+        (TauriCommand::HarnessBootstrap, OfflineRead),
+        (TauriCommand::HarnessProjection, OfflineRead),
         (TauriCommand::ComputerUseReadiness, OfflineRead),
     ];
 

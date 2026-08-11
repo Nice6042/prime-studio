@@ -398,8 +398,8 @@ fn live_snapshot_events_cannot_steal_children_or_exceed_safe_chronology() {
 fn contained_bootstrap_commits_atomically_and_profile_failure_is_terminal() {
     let mut broker = HarnessBroker::new(
         sidecar("broker-bootstrap"),
-        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned(),
-        "daemon-v7-schema13".to_owned(),
+        "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900".to_owned(),
+        "prime-agent-daemon-v7-schema13-816309b1cd50".to_owned(),
         vec![ownership("root", "project", "chat")],
         None,
     )
@@ -413,8 +413,8 @@ fn contained_bootstrap_commits_atomically_and_profile_failure_is_terminal() {
 
     let mut wrong = HarnessBroker::new(
         sidecar("broker-wrong-profile"),
-        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned(),
-        "daemon-v7-schema13".to_owned(),
+        "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900".to_owned(),
+        "prime-agent-daemon-v7-schema13-816309b1cd50".to_owned(),
         vec![ownership("root", "project", "chat")],
         None,
     )

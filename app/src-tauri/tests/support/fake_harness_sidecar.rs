@@ -27,6 +27,24 @@ fn write_frame(value: &Value) {
     std::io::stdout().flush().unwrap();
 }
 
+fn broker_runtime() -> Value {
+    json!({
+        "packageName":"prime-agent","packageVersion":"0.7.1",
+        "packageDigest":"sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900",
+        "entrypointDigest":"sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b",
+        "protocolName":"prime-agent.daemon","protocolVersion":7,"schemaRevision":13,
+        "schemaId":"protocol-7-schema-13-816309b1cd50",
+        "capabilities":["attach_snapshot","chunked_snapshot","delete_child","event_sequence","extension_ui","heartbeat_catalog","heartbeat_management","model_catalog","prompt_admission_cancellation","queue_management","resident_sessions","resource_snapshot","session_input_admission","side_question_transcript","transient_bash"]
+    })
+}
+
+fn broker_compatibility(profile: &str) -> Value {
+    json!({
+        "status":"ready","profile":profile,
+        "capabilities":["attach_snapshot","chunked_snapshot","delete_child","event_sequence","extension_ui","heartbeat_catalog","heartbeat_management","model_catalog","prompt_admission_cancellation","queue_management","resident_sessions","resource_snapshot","session_input_admission","side_question_transcript","transient_bash"]
+    })
+}
+
 fn main() {
     let mode = std::env::args().nth(1).unwrap_or_else(|| "echo".to_owned());
     match mode.as_str() {
@@ -122,18 +140,28 @@ fn main() {
             }));
         }
         "broker-bootstrap" | "broker-wrong-profile" => {
-            let request = read_frame();
             let profile = if mode == "broker-bootstrap" {
-                "daemon-v7-schema13"
+                "prime-agent-daemon-v7-schema13-816309b1cd50"
             } else {
                 "wrong-profile"
             };
+            let discovery = read_frame();
+            write_frame(&json!({
+                "studioProtocol": 1,
+                "requestId": discovery["requestId"],
+                "payload": {
+                    "type":"discover_runtime_result",
+                    "runtime":broker_runtime(),
+                    "compatibility":broker_compatibility("prime-agent-daemon-v7-schema13-816309b1cd50")
+                }
+            }));
+            let request = read_frame();
             write_frame(&json!({
                 "studioProtocol": 1,
                 "requestId": request["requestId"],
                 "payload": {
                     "type":"bootstrap_result",
-                    "compatibility":{"status":"ready","profile":profile,"capabilities":[]},
+                    "compatibility":broker_compatibility(profile),
                     "sessions":[{
                         "sessionId":"root","accountId":"account","projectId":"project","chatId":"chat",
                         "cursor":{"runtimeGeneration":"generation","sequence":1},"state":"idle",

@@ -12,6 +12,7 @@ pub mod app_state;
 pub mod authority;
 mod bounded_io;
 pub mod browser;
+mod commands;
 pub mod computer_use;
 pub mod harness;
 mod process_env_policy;
@@ -35,6 +36,7 @@ use bounded_io::{
 use browser::{
     BrowserBroker, BrowserIntentAdmission, BrowserIntentAdmissionRequest, BrowserSecurityStatus,
 };
+use commands::harness::{harness_bootstrap, harness_projection};
 use computer_use::{ComputerUseBroker, ComputerUseReadinessProjection};
 use provider_product::provider_product_snapshot_from_registry;
 use scheduler::{SchedulerProjection, SchedulerService};
@@ -2574,6 +2576,7 @@ struct AppState {
     /// The sole native scheduler authority. The WebView receives projections,
     /// never the durable store or a mutation handle.
     scheduler: SchedulerService,
+    harness: app_state::HarnessState,
 }
 
 impl AppState {
@@ -2591,6 +2594,7 @@ impl AppState {
             computer_use,
             browser: BrowserBroker::admission_only(),
             scheduler: SchedulerService::open(scheduler_state_path()),
+            harness: app_state::HarnessState::default(),
         }
     }
 }
@@ -3685,6 +3689,8 @@ pub fn run() {
             check_prime_cli,
             get_app_settings,
             scheduler_projection,
+            harness_bootstrap,
+            harness_projection,
             set_app_setting,
             kernel_status,
             files_touched,
