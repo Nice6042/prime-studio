@@ -267,7 +267,14 @@ function usage(value: unknown): CurrentChatUsage {
   const source = record(value, ["input", "output", "cacheRead", "cacheWrite", "totalTokens", "cost"]);
   const cost = source.cost;
   if (cost !== null && (typeof cost !== "number" || !Number.isFinite(cost) || cost < 0 || cost > 1e15)) fail();
-  return { input: safeInteger(source.input), output: safeInteger(source.output), cacheRead: safeInteger(source.cacheRead), cacheWrite: safeInteger(source.cacheWrite), totalTokens: safeInteger(source.totalTokens), cost: cost as number | null };
+  const input = safeInteger(source.input);
+  const output = safeInteger(source.output);
+  const cacheRead = safeInteger(source.cacheRead);
+  const cacheWrite = safeInteger(source.cacheWrite);
+  const totalTokens = safeInteger(source.totalTokens);
+  const categoryTotal = input + output + cacheRead + cacheWrite;
+  if (!Number.isSafeInteger(categoryTotal) || categoryTotal !== totalTokens) fail();
+  return { input, output, cacheRead, cacheWrite, totalTokens, cost: cost as number | null };
 }
 
 function session(value: unknown): RootSessionProjection {

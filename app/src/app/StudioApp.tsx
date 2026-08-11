@@ -11,6 +11,7 @@ import { selectNavigationProjects } from "../features/navigation/navigationSelec
 import { ParentConversation } from "../features/conversation/ParentConversation";
 import { Composer } from "../features/conversation/Composer";
 import { deriveComposerState } from "../features/conversation/composerModel";
+import { HarnessInspector } from "../features/harness/HarnessInspector";
 import { useStudioSelector, useStudioStore } from "./AppProviders";
 
 function useViewportWidth() {
@@ -44,6 +45,7 @@ export function StudioApp() {
     editorWidth: 400,
   });
   const [query, setQuery] = useState("");
+  const [inspectorRouteRequest, setInspectorRouteRequest] = useState<Readonly<{ id: number; route: "overview" | "usage" | "activity" }> | undefined>();
   const [expandedProjectIds, setExpandedProjectIds] = useState<ReadonlySet<string>>(
     () => new Set(projectCatalog.projects.filter((project) => !project.archived).map((project) => project.id)),
   );
@@ -139,10 +141,19 @@ export function StudioApp() {
           onAttachmentsChange={(nextAttachments) => store.dispatch({ type: "attachments/change", chatId: navigation.selectedChatId!, attachments: nextAttachments })}
           onSubmit={() => undefined}
           onAbort={() => undefined}
-          onOpenUsage={() => changeLayout({ inspectorOpen: true })}
+          onOpenUsage={() => {
+            changeLayout({ inspectorOpen: true });
+            setInspectorRouteRequest((current) => ({ id: (current?.id ?? 0) + 1, route: "usage" }));
+          }}
         />}
       </div>}
-      inspectorContent={<div><strong>Harness</strong><p>{compatibility.status.replace("_", " ")}</p></div>}
+      inspectorContent={<HarnessInspector
+        chatId={navigation.selectedChatId}
+        session={selectedSession}
+        compatibility={compatibility}
+        routeRequest={inspectorRouteRequest}
+        onOpenAccountUsage={() => store.dispatch({ type: "route/settings", section: "usage" })}
+      />}
     />
     <RuntimeStatusBar session={selectedSession} />
   </div>;

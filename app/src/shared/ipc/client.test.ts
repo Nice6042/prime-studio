@@ -114,6 +114,10 @@ describe("Harness IPC client", () => {
       sessions: [{ ...session, cursor: { ...session.cursor, sequence: Number.MAX_SAFE_INTEGER + 1 } }],
     })).toThrow();
     expect(() => decodeBootProjection({
+      compatibility: { status: "ready", profile: "profile", capabilities: readyCapabilities },
+      sessions: [{ ...session, usage: { input: 10, output: 20, cacheRead: 30, cacheWrite: 40, totalTokens: 99, cost: null } }],
+    })).toThrow();
+    expect(() => decodeBootProjection({
       compatibility: unavailable.compatibility,
       sessions: [session],
     })).toThrow();
