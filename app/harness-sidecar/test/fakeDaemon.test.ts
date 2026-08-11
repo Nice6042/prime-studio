@@ -13,7 +13,7 @@ test("loads one closed bounded credential-free fake daemon scenario", async () =
   const scenario = await loadFakeDaemonScenario(scenarioPath);
   assert.equal(scenario.name, "resident-parent-with-child");
   assert.equal(scenario.sessions.length, 1);
-  assert.equal(scenario.sessions[0]?.children[0]?.id, "child-security");
+  assert.equal(scenario.sessions[0]?.children[0]?.id, "child-runtime");
   assert.equal(scenario.sessions[0]?.parentMessages.some((message) => message.kind === "assistant"), true);
   assert.equal(decideCompatibility(scenario.runtime).status, "ready");
   assert.equal(JSON.stringify(scenario).includes("Ayush"), false);

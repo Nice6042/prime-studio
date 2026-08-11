@@ -19,6 +19,12 @@ type AxeFingerprint = {
 const axeBaseline: Record<string, AxeFingerprint[]> = JSON.parse(
   readFileSync(new URL("../axe-baseline.json", import.meta.url), "utf8"),
 );
+const harnessScenario = JSON.parse(
+  readFileSync(new URL("../../harness-sidecar/test/fixtures/fake-daemon/scenario-manifest.json", import.meta.url), "utf8"),
+) as {
+  runtime: { capabilities: string[] };
+  sessions: Array<Record<string, unknown>>;
+};
 
 export const test = base.extend<ShellFixtures>({
   shellPage: async ({ context, page }, use) => {
@@ -30,7 +36,7 @@ export const test = base.extend<ShellFixtures>({
       }
     });
 
-    await page.addInitScript(() => {
+    await page.addInitScript((scenario) => {
       type Callback = (payload: unknown) => unknown;
       type TauriInternals = {
         invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown>;
@@ -165,34 +171,10 @@ export const test = base.extend<ShellFixtures>({
             return {
               compatibility: {
                 status: "ready",
-                profile: "browser-shell-v1",
-                capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog", "queue_management", "resource_snapshot"],
+                profile: "prime-agent-daemon-v7-schema13-816309b1cd50",
+                capabilities: scenario.runtime.capabilities,
               },
-              sessions: [{
-                sessionId: "session-e2e",
-                accountId: "account-e2e",
-                projectId: "project:personal",
-                chatId: "chat-e2e",
-                cursor: { runtimeGeneration: "generation-e2e", sequence: 8 },
-                state: "working",
-                freshness: "live",
-                parentMessages: [
-                  { channel: "parent", kind: "user", id: "message-user", text: "Map the Prime Harness boundary and keep the parent chat concise.", emittedAtMs: 1_723_456_700_000 },
-                  { channel: "parent", kind: "assistant", id: "message-assistant", streaming: false, emittedAtMs: 1_723_456_706_000, blocks: [
-                    { kind: "text", text: "The parent conversation stays focused on decisions and final results. Child transcripts, reasoning, tools, queue state, and current-chat usage remain in the Harness panel." },
-                    { kind: "thinking", text: "Checking protocol identity and capability closure.", redacted: false },
-                    { kind: "tool_call", toolCallId: "tool-1", toolId: "workspace.inspect", status: "succeeded" },
-                  ] },
-                ],
-                children: [
-                  { id: "child-runtime", status: "running", task: "Verify runtime compatibility", provider: "OpenAI", model: "gpt-5.6-sol", progress: 0.72 },
-                  { id: "child-navigation", status: "done", task: "Map project navigation", provider: "OpenAI", model: "gpt-5.6-sol", progress: 1 },
-                ],
-                queue: [{ id: "queue-1", label: "Review compatibility report", state: "queued" }],
-                tools: [{ id: "workspace.inspect", label: "Workspace inspect", enabled: true, configurable: false }],
-                resources: [{ id: "resource-1", label: "Project files", kind: "workspace", availability: "available" }],
-                usage: { input: 1240, output: 430, cacheRead: 640, cacheWrite: 90, totalTokens: 2400, cost: null },
-              }],
+              sessions: scenario.sessions.map((session) => ({ ...session, freshness: "live" })),
             };
           case "harness_projection":
             return [];
@@ -331,7 +313,7 @@ export const test = base.extend<ShellFixtures>({
         callbacks,
       };
       global.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: (_event, id) => unregisterCallback(id) };
-    });
+    }, harnessScenario);
 
     await page.goto("/");
     await expect(page.getByPlaceholder("Message Prime")).toBeVisible();

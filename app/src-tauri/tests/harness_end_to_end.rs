@@ -113,11 +113,11 @@ fn tauri_broker_bootstraps_through_the_real_sidecar_against_a_fake_daemon() {
         RUNTIME_DIGEST.to_owned(),
         PROFILE.to_owned(),
         vec![(
-            "root-session".to_owned(),
+            "session-e2e".to_owned(),
             SessionOwnership {
-                account_id: Some("synthetic-account".to_owned()),
-                project_id: "synthetic-project".to_owned(),
-                chat_id: "synthetic-chat".to_owned(),
+                account_id: Some("account-e2e".to_owned()),
+                project_id: "project:personal".to_owned(),
+                chat_id: "chat-e2e".to_owned(),
             },
         )],
         None,
@@ -128,15 +128,15 @@ fn tauri_broker_bootstraps_through_the_real_sidecar_against_a_fake_daemon() {
     assert_eq!(broker.state(), BrokerState::Live);
     assert_eq!(projection.sessions.len(), 1);
     let session = &projection.sessions[0];
-    assert_eq!(session.session_id, "root-session");
+    assert_eq!(session.session_id, "session-e2e");
     assert_eq!(session.state, RootSessionState::Working);
     assert_eq!(session.parent_messages.len(), 2);
-    assert_eq!(session.children.len(), 1);
+    assert_eq!(session.children.len(), 2);
     assert_eq!(session.children[0].status, ChildAgentStatus::Running);
     assert_eq!(session.queue.len(), 1);
     assert_eq!(session.tools.len(), 1);
     assert_eq!(session.resources.len(), 1);
-    assert_eq!(session.usage.total_tokens, 1_800);
+    assert_eq!(session.usage.total_tokens, 2_400);
     assert_eq!(broker.recovery_record(1).unwrap().sessions.len(), 1);
     broker.close();
 }

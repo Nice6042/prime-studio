@@ -30,29 +30,34 @@
   },
   "sessions": [
     {
-      "sessionId": "root-session",
-      "accountId": "synthetic-account",
-      "projectId": "synthetic-project",
-      "chatId": "synthetic-chat",
+      "sessionId": "session-e2e",
+      "accountId": "account-e2e",
+      "projectId": "project:personal",
+      "chatId": "chat-e2e",
       "cursor": { "runtimeGeneration": "fake-generation-1", "sequence": 7 },
       "state": "working",
       "parentMessages": [
-        { "channel": "parent", "kind": "user", "id": "message-user-1", "text": "Build the verified workspace", "emittedAtMs": 1775995200000 },
-        { "channel": "parent", "kind": "assistant", "id": "message-assistant-1", "blocks": [{ "kind": "text", "text": "I am checking the adapter boundary now." }], "streaming": true, "emittedAtMs": 1775995201000 }
+        { "channel": "parent", "kind": "user", "id": "message-user-1", "text": "Map the Prime Harness boundary and keep the parent chat concise.", "emittedAtMs": 1775995200000 },
+        { "channel": "parent", "kind": "assistant", "id": "message-assistant-1", "blocks": [
+          { "kind": "text", "text": "The parent conversation stays focused on decisions and final results. Child transcripts, reasoning, tools, queue state, and current-chat usage remain in the Harness panel." },
+          { "kind": "thinking", "text": "Checking protocol identity and capability closure.", "redacted": false },
+          { "kind": "tool_call", "toolCallId": "tool-1", "toolId": "workspace.inspect", "status": "succeeded" }
+        ], "streaming": false, "emittedAtMs": 1775995201000 }
       ],
       "children": [
-        { "id": "child-security", "status": "running", "task": "Review the adapter boundary", "provider": "openai-codex", "model": "gpt-5.6-sol", "progress": 0.65 }
+        { "id": "child-runtime", "status": "running", "task": "Verify runtime compatibility", "provider": "OpenAI", "model": "gpt-5.6-sol", "progress": 0.72 },
+        { "id": "child-navigation", "status": "done", "task": "Map project navigation", "provider": "OpenAI", "model": "gpt-5.6-sol", "progress": 1 }
       ],
       "queue": [
         { "id": "queue-1", "label": "Summarize verification", "state": "queued" }
       ],
       "tools": [
-        { "id": "workspace.read", "label": "Read workspace", "enabled": true, "configurable": false }
+        { "id": "workspace.inspect", "label": "Workspace inspect", "enabled": true, "configurable": false }
       ],
       "resources": [
         { "id": "resource-project", "label": "Synthetic project", "kind": "workspace", "availability": "available" }
       ],
-      "usage": { "input": 1200, "output": 340, "cacheRead": 200, "cacheWrite": 60, "totalTokens": 1800, "cost": 0.042 }
+      "usage": { "input": 1240, "output": 430, "cacheRead": 640, "cacheWrite": 90, "totalTokens": 2400, "cost": null }
     }
   ]
 }
