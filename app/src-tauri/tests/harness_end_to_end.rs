@@ -1,0 +1,142 @@
+#![cfg(feature = "test-support-bin")]
+
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use prime_studio_lib::harness::broker::{BrokerState, HarnessBroker, SessionOwnership};
+use prime_studio_lib::harness::generated::{ChildAgentStatus, RootSessionState};
+use prime_studio_lib::harness::sidecar::{SidecarSupervisor, VerifiedSidecarSpec};
+use sha2::{Digest, Sha256};
+
+const RUNTIME_DIGEST: &str =
+    "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900";
+const PROFILE: &str = "prime-agent-daemon-v7-schema13-816309b1cd50";
+
+fn digest(path: &Path) -> String {
+    format!("sha256:{:x}", Sha256::digest(fs::read(path).unwrap()))
+}
+
+fn app_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_path_buf()
+}
+
+fn ensure_compiled_sidecar(app: &Path) {
+    let entry = app.join("harness-sidecar/dist/src/index.js");
+    if entry.is_file() {
+        return;
+    }
+    #[cfg(windows)]
+    let npm = "npm.cmd";
+    #[cfg(not(windows))]
+    let npm = "npm";
+    let status = Command::new(npm)
+        .args(["run", "build:harness-sidecar"])
+        .current_dir(app)
+        .status()
+        .expect("npm must be available for the sidecar integration test");
+    assert!(status.success(), "sidecar compilation must succeed");
+}
+
+fn node_executable() -> PathBuf {
+    if let Some(configured) = std::env::var_os("PRIME_STUDIO_TEST_NODE") {
+        return PathBuf::from(configured);
+    }
+    #[cfg(windows)]
+    {
+        let output = Command::new("where.exe")
+            .arg("node.exe")
+            .output()
+            .expect("node lookup must run");
+        assert!(output.status.success(), "node must be installed");
+        let first = String::from_utf8(output.stdout)
+            .unwrap()
+            .lines()
+            .next()
+            .unwrap()
+            .trim()
+            .to_owned();
+        return PathBuf::from(first);
+    }
+    #[cfg(not(windows))]
+    {
+        let output = Command::new("sh")
+            .args(["-c", "command -v node"])
+            .output()
+            .expect("node lookup must run");
+        assert!(output.status.success(), "node must be installed");
+        PathBuf::from(String::from_utf8(output.stdout).unwrap().trim())
+    }
+}
+
+#[test]
+fn tauri_broker_bootstraps_through_the_real_sidecar_against_a_fake_daemon() {
+    let app = app_root();
+    ensure_compiled_sidecar(&app);
+    let entry = app.join("harness-sidecar/dist/src/index.js");
+    let scenario = app.join("harness-sidecar/test/fixtures/fake-daemon/scenario-manifest.json");
+    let resources = [
+        "compatibility.js",
+        "fakeDaemonScenario.js",
+        "framing.js",
+        "index.js",
+        "redaction.js",
+        "runtimeDiscovery.js",
+        "profiles/daemon-v7-schema13.js",
+    ]
+    .into_iter()
+    .map(|relative| app.join("harness-sidecar/dist/src").join(relative))
+    .chain(std::iter::once(scenario.clone()))
+    .map(|path| {
+        let hash = digest(&path);
+        (path, hash)
+    })
+    .collect();
+    let node = node_executable();
+    let spec = VerifiedSidecarSpec::for_tests(
+        node.clone(),
+        digest(&node),
+        vec![
+            entry.display().to_string(),
+            "--fixture-scenario".to_owned(),
+            scenario.display().to_string(),
+        ],
+        resources,
+    )
+    .unwrap();
+    let sidecar = SidecarSupervisor::start(spec).unwrap();
+    let mut broker = HarnessBroker::new(
+        sidecar,
+        RUNTIME_DIGEST.to_owned(),
+        PROFILE.to_owned(),
+        vec![(
+            "root-session".to_owned(),
+            SessionOwnership {
+                account_id: Some("synthetic-account".to_owned()),
+                project_id: "synthetic-project".to_owned(),
+                chat_id: "synthetic-chat".to_owned(),
+            },
+        )],
+        None,
+    )
+    .unwrap();
+
+    let projection = tauri::async_runtime::block_on(broker.bootstrap()).unwrap();
+    assert_eq!(broker.state(), BrokerState::Live);
+    assert_eq!(projection.sessions.len(), 1);
+    let session = &projection.sessions[0];
+    assert_eq!(session.session_id, "root-session");
+    assert_eq!(session.state, RootSessionState::Working);
+    assert_eq!(session.parent_messages.len(), 2);
+    assert_eq!(session.children.len(), 1);
+    assert_eq!(session.children[0].status, ChildAgentStatus::Running);
+    assert_eq!(session.queue.len(), 1);
+    assert_eq!(session.tools.len(), 1);
+    assert_eq!(session.resources.len(), 1);
+    assert_eq!(session.usage.total_tokens, 1_800);
+    assert_eq!(broker.recovery_record(1).unwrap().sessions.len(), 1);
+    broker.close();
+}

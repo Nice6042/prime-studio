@@ -1,17 +1,25 @@
 import { stdout, stderr, stdin } from "node:process";
 
 import { encodeFrame, FrameStreamDecoder } from "./framing.js";
+import { loadFakeDaemonScenario, replyToFakeDaemonRequest, type FakeDaemonScenario } from "./fakeDaemonScenario.js";
 import { sanitizeDiagnostic } from "./redaction.js";
 import { discoverRuntime } from "./runtimeDiscovery.js";
 
-function runtimeRootArgument(argv: readonly string[]): string {
-  const index = argv.indexOf("--runtime-root");
-  const value = index >= 0 ? argv[index + 1] : undefined;
-  if (!value) throw new Error("runtime root is required");
-  return value;
+type Mode = Readonly<{ runtimeRoot: string; fixture: null }> | Readonly<{ runtimeRoot: null; fixture: FakeDaemonScenario }>;
+
+async function modeArgument(argv: readonly string[]): Promise<Mode> {
+  const runtimeIndex = argv.indexOf("--runtime-root");
+  const fixtureIndex = argv.indexOf("--fixture-scenario");
+  const runtimeRoot = runtimeIndex >= 0 ? argv[runtimeIndex + 1] : undefined;
+  const fixturePath = fixtureIndex >= 0 ? argv[fixtureIndex + 1] : undefined;
+  if (argv.length !== 2 || Boolean(runtimeRoot) === Boolean(fixturePath)) throw new Error("exactly one sidecar mode is required");
+  if (fixturePath) return Object.freeze({ runtimeRoot: null, fixture: await loadFakeDaemonScenario(fixturePath) });
+  return Object.freeze({ runtimeRoot: runtimeRoot!, fixture: null });
 }
 
-function closedRequest(value: unknown): { studioProtocol: 1; requestId: string; payload: { type: "discover_runtime" } } {
+type ClosedRequest = { studioProtocol: 1; requestId: string; payload: { type: "discover_runtime" | "bootstrap" } };
+
+function closedRequest(value: unknown): ClosedRequest {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("request must be an object");
   const request = value as Record<string, unknown>;
   if (Object.keys(request).sort().join(",") !== "payload,requestId,studioProtocol" || request.studioProtocol !== 1) {
@@ -21,20 +29,37 @@ function closedRequest(value: unknown): { studioProtocol: 1; requestId: string; 
     throw new Error("request ID is invalid");
   }
   const payload = request.payload;
-  if (!payload || typeof payload !== "object" || Array.isArray(payload) || Object.keys(payload).join(",") !== "type" || (payload as { type?: unknown }).type !== "discover_runtime") {
+  const type = payload && typeof payload === "object" && !Array.isArray(payload) ? (payload as { type?: unknown }).type : undefined;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload) || Object.keys(payload).join(",") !== "type" || (type !== "discover_runtime" && type !== "bootstrap")) {
     throw new Error("request payload is invalid");
   }
-  return request as { studioProtocol: 1; requestId: string; payload: { type: "discover_runtime" } };
+  return request as ClosedRequest;
 }
 
 async function main(): Promise<void> {
-  const root = runtimeRootArgument(process.argv.slice(2));
+  const mode = await modeArgument(process.argv.slice(2));
   const decoder = new FrameStreamDecoder();
   for await (const chunk of stdin) {
     for (const raw of decoder.push(chunk)) {
       const request = closedRequest(raw);
       try {
-        const runtime = await discoverRuntime(root);
+        if (mode.fixture) {
+          stdout.write(encodeFrame({
+            studioProtocol: 1,
+            requestId: request.requestId,
+            payload: replyToFakeDaemonRequest(mode.fixture, request.payload),
+          }));
+          continue;
+        }
+        if (request.payload.type !== "discover_runtime") {
+          stdout.write(encodeFrame({
+            studioProtocol: 1,
+            requestId: request.requestId,
+            payload: { type: "error", code: "security_verification_failed", message: "Harness activation is unavailable" },
+          }));
+          continue;
+        }
+        const runtime = await discoverRuntime(mode.runtimeRoot);
         stdout.write(encodeFrame({
           studioProtocol: 1,
           requestId: request.requestId,

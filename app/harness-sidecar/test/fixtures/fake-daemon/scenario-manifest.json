@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "name": "resident-parent-with-child",
+  "runtime": {
+    "packageName": "prime-agent",
+    "packageVersion": "0.7.1",
+    "packageDigest": "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900",
+    "entrypointDigest": "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b",
+    "protocolName": "prime-agent.daemon",
+    "protocolVersion": 7,
+    "schemaRevision": 13,
+    "schemaId": "protocol-7-schema-13-816309b1cd50",
+    "capabilities": [
+      "attach_snapshot",
+      "chunked_snapshot",
+      "delete_child",
+      "event_sequence",
+      "extension_ui",
+      "heartbeat_catalog",
+      "heartbeat_management",
+      "model_catalog",
+      "prompt_admission_cancellation",
+      "queue_management",
+      "resident_sessions",
+      "resource_snapshot",
+      "session_input_admission",
+      "side_question_transcript",
+      "transient_bash"
+    ]
+  },
+  "sessions": [
+    {
+      "sessionId": "root-session",
+      "accountId": "synthetic-account",
+      "projectId": "synthetic-project",
+      "chatId": "synthetic-chat",
+      "cursor": { "runtimeGeneration": "fake-generation-1", "sequence": 7 },
+      "state": "working",
+      "parentMessages": [
+        { "channel": "parent", "kind": "user", "id": "message-user-1", "text": "Build the verified workspace", "emittedAtMs": 1775995200000 },
+        { "channel": "parent", "kind": "assistant", "id": "message-assistant-1", "blocks": [{ "kind": "text", "text": "I am checking the adapter boundary now." }], "streaming": true, "emittedAtMs": 1775995201000 }
+      ],
+      "children": [
+        { "id": "child-security", "status": "running", "task": "Review the adapter boundary", "provider": "openai-codex", "model": "gpt-5.6-sol", "progress": 0.65 }
+      ],
+      "queue": [
+        { "id": "queue-1", "label": "Summarize verification", "state": "queued" }
+      ],
+      "tools": [
+        { "id": "workspace.read", "label": "Read workspace", "enabled": true, "configurable": false }
+      ],
+      "resources": [
+        { "id": "resource-project", "label": "Synthetic project", "kind": "workspace", "availability": "available" }
+      ],
+      "usage": { "input": 1200, "output": 340, "cacheRead": 200, "cacheWrite": 60, "totalTokens": 1800, "cost": 0.042 }
+    }
+  ]
+}
