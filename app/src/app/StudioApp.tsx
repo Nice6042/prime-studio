@@ -14,6 +14,8 @@ import { Composer } from "../features/conversation/Composer";
 import { deriveComposerState } from "../features/conversation/composerModel";
 import { HarnessInspector } from "../features/harness/HarnessInspector";
 import { SettingsShell } from "../features/settings/SettingsShell";
+import { CommandPalette } from "../features/command-palette/CommandPalette";
+import type { StudioCommandId } from "../entities/commands/commandRegistry";
 import { useStudioSelector, useStudioStore } from "./AppProviders";
 
 let bootstrapPromise: ReturnType<typeof rpc.bootstrapHarness> | null = null;
@@ -67,6 +69,8 @@ export function StudioApp() {
   });
   const [query, setQuery] = useState("");
   const [settings, setSettings] = useState<AppSettings>({});
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteOpener, setPaletteOpener] = useState<HTMLElement | null>(null);
   const [inspectorRouteRequest, setInspectorRouteRequest] = useState<Readonly<{ id: number; route: "overview" | "usage" | "activity" }> | undefined>();
   const [expandedProjectIds, setExpandedProjectIds] = useState<ReadonlySet<string>>(
     () => new Set(projectCatalog.projects.filter((project) => !project.archived).map((project) => project.id)),
@@ -127,6 +131,35 @@ export function StudioApp() {
     void rpc.setLayoutPreferences(next).catch(() => undefined);
   };
 
+  const openPalette = () => {
+    setPaletteOpener(document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    setPaletteOpen(true);
+  };
+
+  const runCommand = (id: StudioCommandId) => {
+    switch (id) {
+      case "chat.new": return;
+      case "palette.open": openPalette(); return;
+      case "settings.open": store.dispatch({ type: "route/settings" }); return;
+      case "settings.usage": store.dispatch({ type: "route/settings", section: "usage" }); return;
+      case "sidebar.toggle": changeLayout({ sidebarOpen: !layout.sidebarOpen }); return;
+      case "inspector.toggle": changeLayout({ inspectorOpen: !layout.inspectorOpen }); return;
+    }
+  };
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.isComposing || !event.ctrlKey || event.altKey || event.shiftKey) return;
+      const key = event.key.toLocaleLowerCase();
+      const command = key === "k" ? "palette.open" : key === "," ? "settings.open" : key === "b" ? "sidebar.toggle" : key === "j" ? "inspector.toggle" : key === "n" ? "chat.new" : null;
+      if (!command) return;
+      event.preventDefault();
+      runCommand(command);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   const openSettings = () => store.dispatch({ type: "route/settings" });
   const sidebarContent = layout.sidebarOpen
     ? <ProjectSidebar
@@ -155,7 +188,7 @@ export function StudioApp() {
       />;
 
   if (navigation.route === "settings") {
-    return <SettingsShell
+    return <><SettingsShell
       section={navigation.settingsSection}
       onSection={(section) => store.dispatch({ type: "route/settings", section })}
       onBack={() => store.dispatch({ type: "route/workspace" })}
@@ -164,7 +197,7 @@ export function StudioApp() {
       onSetting={(key, value) => {
         void rpc.setAppSetting(key, value).then(setSettings).catch(() => undefined);
       }}
-    />;
+    />{paletteOpen && <CommandPalette admissionConnected={false} onRun={runCommand} onClose={() => setPaletteOpen(false)} restoreFocusTo={paletteOpener} />}</>;
   }
 
   const title = selectedChat?.title ?? "Prime Studio";
@@ -181,7 +214,7 @@ export function StudioApp() {
     admissionConnected: false,
   });
   return <div className="studio-application">
-    <TitleBar title={title} />
+    <TitleBar title={title} actions={<button type="button" className="studio-command-trigger" aria-label="Open command palette" onClick={openPalette}>⌕</button>} />
     <WorkspaceShell
       viewport={viewport}
       sidebar={{ open: layout.sidebarOpen, preferred: layout.sidebarWidth }}
@@ -217,5 +250,6 @@ export function StudioApp() {
       />}
     />
     <RuntimeStatusBar session={selectedSession} />
+    {paletteOpen && <CommandPalette admissionConnected={false} onRun={runCommand} onClose={() => setPaletteOpen(false)} restoreFocusTo={paletteOpener} />}
   </div>;
 }

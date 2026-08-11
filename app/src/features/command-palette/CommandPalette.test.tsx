@@ -1,0 +1,41 @@
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
+
+import { CommandPalette } from "./CommandPalette";
+
+describe("CommandPalette", () => {
+  it("searches commands, executes enabled results, and restores focus on close", async () => {
+    const run = vi.fn();
+    const close = vi.fn();
+    const opener = document.createElement("button");
+    document.body.append(opener);
+    opener.focus();
+    render(<CommandPalette admissionConnected={false} onRun={run} onClose={close} restoreFocusTo={opener} />);
+
+    const input = screen.getByRole("combobox", { name: "Search commands" });
+    expect(input).toHaveFocus();
+    await userEvent.type(input, "settings");
+    await userEvent.click(screen.getByRole("option", { name: /Open settings/ }));
+    expect(run).toHaveBeenCalledWith("settings.open");
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("does not execute disabled commands and explains why", async () => {
+    const run = vi.fn();
+    render(<CommandPalette admissionConnected={false} onRun={run} onClose={() => undefined} />);
+    await userEvent.type(screen.getByRole("combobox", { name: "Search commands" }), "new chat");
+    const option = screen.getByRole("option", { name: /New chat/ });
+    expect(option).toHaveAttribute("aria-disabled", "true");
+    await userEvent.click(option);
+    expect(run).not.toHaveBeenCalled();
+    expect(screen.getByText("New chat activation is not connected yet.")).toBeVisible();
+  });
+
+  it("closes on Escape", async () => {
+    const close = vi.fn();
+    render(<CommandPalette admissionConnected={false} onRun={() => undefined} onClose={close} />);
+    await userEvent.keyboard("{Escape}");
+    expect(close).toHaveBeenCalledOnce();
+  });
+});

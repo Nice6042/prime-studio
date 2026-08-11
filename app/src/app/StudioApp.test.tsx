@@ -131,4 +131,16 @@ describe("Studio application state", () => {
     expect(store.getSnapshot().navigation.selectedChatId).toBe(chat.id);
     expect(screen.getByRole("main", { name: "Harness architecture" })).toBeVisible();
   });
+
+  it("opens the centralized command palette and routes enabled commands", async () => {
+    const store = createStudioStore(initialStudioState({ chats: [chat] }));
+    store.dispatch({ type: "chat/open", chatId: chat.id });
+    render(<AppProviders store={store}><StudioApp /></AppProviders>);
+
+    await userEvent.keyboard("{Control>}k{/Control}");
+    expect(screen.getByRole("dialog", { name: "Command palette" })).toBeVisible();
+    await userEvent.type(screen.getByRole("combobox", { name: "Search commands" }), "account usage");
+    await userEvent.click(screen.getByRole("option", { name: /Open account usage/ }));
+    expect(screen.getByRole("heading", { name: "Usage", level: 1 })).toBeVisible();
+  });
 });
