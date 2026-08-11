@@ -27,10 +27,6 @@ export function ComposerSettings() {
   return <><SettingGroup title="Sending"><Row label="Send shortcut" description="Press Enter to send. Use Shift+Enter for a new line."><button type="button" disabled>Enter</button></Row><Row label="Drafts" description="Draft text and attachments stay isolated to each chat." /></SettingGroup><SettingGroup title="Suggestions"><Row label="Suggested prompts" description="Suggestions require a connected Harness and are not synthesized locally."><button type="button" disabled>Unavailable</button></Row></SettingGroup></>;
 }
 
-export function AccountUsageSettings() {
-  return <><div className="studio-usage-summary"><div><span>Account usage</span><strong>Unavailable</strong><small>No account-wide accounting projection is connected.</small></div><div className="studio-usage-period" aria-label="Usage period"><button type="button" disabled>7 days</button><button type="button" disabled>30 days</button><button type="button" disabled>90 days</button></div></div><Unavailable>Account-wide usage is unavailable until a verified provider accounting source is connected. Current-chat token usage remains in the Harness panel.</Unavailable><SettingGroup title="Breakdown"><Row label="Providers and models" description="No verified account usage rows are available." /><Row label="CSV export" description="Export stays disabled until bounded account rows and a user-selected destination are available."><button type="button" disabled>Export CSV</button></Row></SettingGroup></>;
-}
-
 export function AccountsSettings({ accounts, defaultAccount, onChanged, onDefaultAccount }: {
   readonly accounts: readonly Account[];
   readonly defaultAccount: string | null;

@@ -4,6 +4,7 @@ import * as rpcSurface from "./rpc";
 
 import {
   AccountDeletionError,
+  accountUsageSeriesStrict,
   accountStatuses,
   commitRemoveAccount,
   getComputerUseReadiness,
@@ -21,6 +22,33 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 const invokeMock = vi.mocked(invoke);
+
+describe("account usage RPC", () => {
+  beforeEach(() => invokeMock.mockReset());
+
+  it("returns a detached bounded snapshot and keeps bridge failure as failure", async () => {
+    const row = { ts: 1, provider: "openai-codex", cost: 0.5, input: 10, output: 2, cacheRead: 3, cacheWrite: 0 };
+    invokeMock.mockResolvedValueOnce([row]);
+    const result = await accountUsageSeriesStrict("work", 30);
+    expect(result).toEqual([row]);
+    expect(result).not.toBe(row);
+    expect(Object.isFrozen(result)).toBe(true);
+    expect(Object.isFrozen(result[0])).toBe(true);
+
+    const bridge = new Error("bridge unavailable");
+    invokeMock.mockRejectedValueOnce(bridge);
+    await expect(accountUsageSeriesStrict("work", 30)).rejects.toBe(bridge);
+  });
+
+  it.each([
+    [{ ts: 1, provider: "openai-codex", cost: -1, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }],
+    [{ ts: 1, provider: "openai-codex", cost: 1, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, secret: "x" }],
+    [{ ts: Number.MAX_SAFE_INTEGER + 1, provider: "openai-codex", cost: 1, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }],
+  ])("rejects malformed rows instead of projecting zero usage", async (rows) => {
+    invokeMock.mockResolvedValueOnce(rows);
+    await expect(accountUsageSeriesStrict("work", 7)).rejects.toThrow(/usage snapshot/i);
+  });
+});
 
 const plan = {
   planId: "plan-7",

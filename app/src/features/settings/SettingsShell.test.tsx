@@ -29,10 +29,10 @@ describe("SettingsShell", () => {
     expect(screen.getAllByText(/verified Harness connection/i).length).toBeGreaterThan(0);
   });
 
-  it("routes account-wide usage independently from current-chat usage", () => {
+  it("routes account-wide usage independently from current-chat usage", async () => {
     render(<SettingsShell section="usage" onBack={() => undefined} onSection={() => undefined} compatibility={unavailable} />);
     expect(screen.getByRole("heading", { name: "Usage", level: 1 })).toBeVisible();
-    expect(screen.getByText(/Account-wide usage is unavailable/)).toBeVisible();
+    expect(await screen.findByText(/No verified usage in this window/)).toBeVisible();
     expect(screen.queryByText(/^Current chat$/i)).not.toBeInTheDocument();
   });
 

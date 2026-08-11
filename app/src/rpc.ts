@@ -491,6 +491,56 @@ export const accountUsage = (id: string, since?: number) =>
 export const accountUsageSeries = (id: string, days: number) =>
   safeInvoke<UsageRow[]>("account_usage_series", { id, days }, []);
 
+const USAGE_ROW_KEYS = ["ts", "provider", "cost", "input", "output", "cacheRead", "cacheWrite"] as const;
+const MAX_USAGE_ROWS = 100_000;
+
+function readUsageSnapshot(value: unknown): UsageRow[] {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) throw new Error();
+  const ownKeys = Reflect.ownKeys(value);
+  const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
+  if (!lengthDescriptor || !("value" in lengthDescriptor) || !Number.isSafeInteger(lengthDescriptor.value) || lengthDescriptor.value < 0 || lengthDescriptor.value > MAX_USAGE_ROWS) throw new Error();
+  const length = lengthDescriptor.value as number;
+  if (ownKeys.length !== length + 1 || !ownKeys.includes("length")) throw new Error();
+  const result: UsageRow[] = [];
+  const aggregate = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
+  for (let index = 0; index < length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (!descriptor || !("value" in descriptor)) throw new Error();
+    const row = exactDataRecord(descriptor.value, USAGE_ROW_KEYS);
+    if (!row || !Number.isSafeInteger(row.ts) || (row.ts as number) < 0 || typeof row.provider !== "string" || !/^[a-z0-9-]{0,64}$/.test(row.provider)) throw new Error();
+    if (typeof row.cost !== "number" || !Number.isFinite(row.cost) || row.cost < 0) throw new Error();
+    aggregate.cost += row.cost;
+    if (!Number.isFinite(aggregate.cost)) throw new Error();
+    for (const key of ["input", "output", "cacheRead", "cacheWrite"] as const) {
+      if (!Number.isSafeInteger(row[key]) || (row[key] as number) < 0) throw new Error();
+      aggregate[key] += row[key] as number;
+      if (!Number.isSafeInteger(aggregate[key])) throw new Error();
+    }
+    result.push(Object.freeze({
+      ts: row.ts as number,
+      provider: row.provider,
+      cost: row.cost as number,
+      input: row.input as number,
+      output: row.output as number,
+      cacheRead: row.cacheRead as number,
+      cacheWrite: row.cacheWrite as number,
+    }));
+  }
+  return Object.freeze(result) as unknown as UsageRow[];
+}
+
+/** Strict account-history projection: bridge and malformed data remain failures, never zero usage. */
+export async function accountUsageSeriesStrict(id: string, days: 7 | 30 | 90): Promise<UsageRow[]> {
+  if (!ACCOUNT_ID.test(id) || ![7, 30, 90].includes(days)) throw new Error("account usage request is invalid");
+  const value = await strictInvoke<unknown>("account_usage_series", { id, days });
+  try {
+    readUsageSnapshot(value);
+    return readUsageSnapshot(structuredClone(value));
+  } catch {
+    throw new Error("account usage snapshot is invalid");
+  }
+}
+
 /** Real ChatGPT quota snapshot from the Codex CLI's logs; null when it has never run. */
 export const codexSubscriptionUsage = () =>
   safeInvoke<CodexSubscription | null>("codex_subscription_usage", {}, null);

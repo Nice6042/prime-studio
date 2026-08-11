@@ -5,7 +5,6 @@ import type { Account, AppSettings } from "../../types";
 import {
   AboutSettings,
   AccountsSettings,
-  AccountUsageSettings,
   AppearanceSettings,
   ComposerSettings,
   GeneralSettings,
@@ -15,6 +14,7 @@ import {
   SecuritySettings,
   ShortcutsSettings,
 } from "./SettingsPages";
+import { AccountUsageSettings } from "./AccountUsageSettings";
 import { isStudioSettingsSection, searchSettingsSections, settingsSections, type StudioSettingsSectionId } from "./settingsRegistry";
 import "./settings.css";
 
@@ -31,7 +31,7 @@ function SettingsPage({ section, compatibility, settings, onSetting, accounts = 
     case "appearance": return <AppearanceSettings theme={settings?.theme ?? "system"} onTheme={(value) => onSetting?.("theme", value)} />;
     case "composer": return <ComposerSettings />;
     case "accounts": return <AccountsSettings accounts={accounts} defaultAccount={settings?.defaultAccount ?? null} onChanged={onAccountsChanged ?? (() => undefined)} onDefaultAccount={(accountId) => onSetting?.("defaultAccount", accountId)} />;
-    case "usage": return <AccountUsageSettings />;
+    case "usage": return <AccountUsageSettings accounts={accounts} />;
     case "harness": return <HarnessSettings compatibility={compatibility} />;
     case "models": return <ModelsSettings compatibility={compatibility} />;
     case "integrations": return <IntegrationsSettings />;
