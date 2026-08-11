@@ -1,4 +1,5 @@
 .parent-conversation { display: grid; min-block-size: 0; block-size: 100%; color: var(--fg, #ececec); background: var(--surface-center, #181818); }
+.conversation-stage { position: relative; min-block-size: 0; block-size: 100%; }
 .parent-transcript { min-block-size: 0; overflow: auto; scrollbar-gutter: stable; outline: none; }
 .parent-reading-column { inline-size: min(100% - 32px, 760px); margin-inline: auto; padding: 42px 0 152px; }
 .parent-turn { position: relative; margin-block: 0 30px; font: 15px/1.65 "Segoe UI Variable", "Segoe UI", sans-serif; }
@@ -20,3 +21,25 @@
 @keyframes parent-pulse { 50% { opacity: .35; transform: scale(.78); } }
 @media (prefers-reduced-motion: reduce) { .assistant-streaming::before { animation: none; } .parent-message-actions { transition: none; } }
 @media (max-width: 760px) { .parent-reading-column { inline-size: min(100% - 20px, 760px); padding-block-start: 26px; } .parent-user-bubble { max-inline-size: 88%; } }
+.composer-dock { position: absolute; z-index: 4; inset-inline: 16px; inset-block-end: 14px; display: grid; justify-items: center; pointer-events: none; }
+.composer-frame { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; inline-size: min(100%, 760px); min-block-size: 56px; padding: 12px 10px 8px 16px; border: 1px solid var(--line, #3b3b3b); border-radius: 18px; background: color-mix(in srgb, var(--surface-raised, #242424) 96%, transparent); box-shadow: 0 8px 30px rgb(0 0 0 / 24%); pointer-events: auto; }
+.composer-frame textarea { grid-column: 1 / -1; min-block-size: 28px; max-block-size: 180px; resize: none; overflow: auto; border: 0; outline: 0; color: var(--fg, #ececec); background: transparent; font: 15px/1.45 "Segoe UI Variable", "Segoe UI", sans-serif; }
+.composer-controls { grid-column: 1 / -1; display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-block-size: 32px; }
+.composer-context { margin-inline-end: auto; color: var(--muted, #9f9f9f); font-size: 11px; }
+.composer-attach { display: grid; place-items: center; inline-size: 30px; block-size: 30px; border-radius: 50%; color: var(--muted-strong, #d0d0d0); cursor: pointer; }
+.composer-attach:hover { background: color-mix(in srgb, currentColor 8%, transparent); }
+.composer-attach input { position: absolute; inline-size: 1px; block-size: 1px; opacity: 0; pointer-events: none; }
+.composer-quick-control { min-block-size: 28px; padding: 3px 7px; border: 0; border-radius: 7px; color: var(--muted, #9f9f9f); background: transparent; font: inherit; font-size: 11px; }
+.composer-send { display: grid; place-items: center; inline-size: 32px; block-size: 32px; border: 0; border-radius: 50%; color: #171717; background: var(--fg, #ececec); }
+.composer-send:disabled { opacity: .35; cursor: not-allowed; }
+.composer-send svg { inline-size: 18px; block-size: 18px; }
+.composer-explanation { inline-size: min(100%, 740px); min-block-size: 18px; padding: 4px 8px 0; color: var(--muted, #9f9f9f); font-size: 11px; text-align: center; pointer-events: none; }
+.composer-slash-menu { position: absolute; inset-inline: 0; inset-block-end: calc(100% + 8px); display: grid; max-block-size: 240px; overflow: auto; padding: 6px; border: 1px solid var(--line, #3b3b3b); border-radius: 12px; background: var(--surface-raised, #242424); box-shadow: 0 12px 32px rgb(0 0 0 / 32%); }
+.composer-slash-menu button { display: grid; grid-template-columns: 88px 1fr; gap: 12px; min-block-size: 42px; align-items: center; padding: 7px 10px; border: 0; border-radius: 8px; color: inherit; background: transparent; text-align: start; }
+.composer-slash-menu button:hover, .composer-slash-menu button:focus-visible { background: color-mix(in srgb, currentColor 8%, transparent); }
+.composer-slash-menu button:disabled { opacity: .55; cursor: not-allowed; }
+.composer-slash-menu span { color: var(--muted, #9f9f9f); }
+.composer-attachments { grid-column: 1 / -1; display: flex; gap: 6px; overflow: auto; padding-block-end: 6px; }
+.composer-attachment { display: flex; align-items: center; gap: 5px; max-inline-size: 220px; padding: 5px 7px; border: 1px solid var(--line, #3b3b3b); border-radius: 8px; color: var(--muted-strong, #d0d0d0); font-size: 11px; }
+.composer-attachment > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-attachment button { border: 0; color: var(--muted, #9f9f9f); background: transparent; font-size: 10px; }

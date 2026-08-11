@@ -9,6 +9,8 @@ import { CollapsedSidebar } from "../features/navigation/CollapsedSidebar";
 import { ProjectSidebar } from "../features/navigation/ProjectSidebar";
 import { selectNavigationProjects } from "../features/navigation/navigationSelectors";
 import { ParentConversation } from "../features/conversation/ParentConversation";
+import { Composer } from "../features/conversation/Composer";
+import { deriveComposerState } from "../features/conversation/composerModel";
 import { useStudioSelector, useStudioStore } from "./AppProviders";
 
 function useViewportWidth() {
@@ -29,6 +31,8 @@ export function StudioApp() {
   const sessions = useStudioSelector((state) => state.sessions);
   const selectedSession = Object.values(sessions).find((session) => session.chatId === navigation.selectedChatId) ?? null;
   const compatibility = useStudioSelector((state) => state.compatibility);
+  const drafts = useStudioSelector((state) => state.drafts);
+  const attachments = useStudioSelector((state) => state.attachments);
   const viewport = useViewportWidth();
   const [layout, setLayout] = useState<LayoutPreferencesV1>({
     schemaVersion: 1,
@@ -104,6 +108,15 @@ export function StudioApp() {
   const archived = projectCatalog.projects.some((project) => project.chats.some(
     (chat) => chat.id === navigation.selectedChatId && chat.archived,
   ));
+  const draft = navigation.selectedChatId ? (drafts[navigation.selectedChatId] ?? "") : "";
+  const composerState = deriveComposerState({
+    compatibility,
+    sessionState: selectedSession?.state ?? null,
+    archived,
+    draft,
+    phase: "idle",
+    admissionConnected: false,
+  });
   return <div className="studio-application">
     <TitleBar title={title} />
     <WorkspaceShell
@@ -116,7 +129,19 @@ export function StudioApp() {
       onInspectorPreferred={(inspectorWidth) => changeLayout({ inspectorWidth })}
       onEditorPreferred={(editorWidth) => changeLayout({ editorWidth })}
       sidebarContent={sidebarContent}
-      conversation={<ParentConversation title={title} session={selectedSession} archived={archived} />}
+      conversation={<div className="conversation-stage">
+        <ParentConversation title={title} session={selectedSession} archived={archived} />
+        {navigation.selectedChatId && <Composer
+          draft={draft}
+          state={composerState}
+          attachments={attachments[navigation.selectedChatId] ?? []}
+          onDraftChange={(nextDraft) => store.dispatch({ type: "draft/change", chatId: navigation.selectedChatId!, draft: nextDraft })}
+          onAttachmentsChange={(nextAttachments) => store.dispatch({ type: "attachments/change", chatId: navigation.selectedChatId!, attachments: nextAttachments })}
+          onSubmit={() => undefined}
+          onAbort={() => undefined}
+          onOpenUsage={() => changeLayout({ inspectorOpen: true })}
+        />}
+      </div>}
       inspectorContent={<div><strong>Harness</strong><p>{compatibility.status.replace("_", " ")}</p></div>}
     />
     <RuntimeStatusBar session={selectedSession} />

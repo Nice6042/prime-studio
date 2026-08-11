@@ -23,13 +23,24 @@ export interface StudioAppState {
   readonly sessions: SessionEntities;
   readonly navigation: NavigationState;
   readonly defaultAccountId: string | null;
+  readonly drafts: Readonly<Record<string, string>>;
+  readonly attachments: Readonly<Record<string, readonly DraftAttachment[]>>;
   readonly async: Readonly<Record<string, AsyncState>>;
+}
+
+export interface DraftAttachment {
+  readonly id: string;
+  readonly name: string;
+  readonly size: number;
+  readonly mediaType: string;
 }
 
 export type StudioIntent =
   | Readonly<{ type: "chat/open"; chatId: string }>
   | Readonly<{ type: "chat/create"; chat: StudioChat }>
   | Readonly<{ type: "project-chat/command"; command: ProjectChatCommand }>
+  | Readonly<{ type: "draft/change"; chatId: string; draft: string }>
+  | Readonly<{ type: "attachments/change"; chatId: string; attachments: readonly DraftAttachment[] }>
   | Readonly<{ type: "account/default-selected"; accountId: string | null }>
   | Readonly<{ type: "route/settings"; section?: string }>
   | Readonly<{ type: "route/workspace" }>
@@ -64,6 +75,8 @@ export function initialStudioState(input: {
       ? { route: "workspace", settingsSection: null, selectedChatId }
       : initialNavigationState,
     defaultAccountId: null,
+    drafts: Object.freeze({}),
+    attachments: Object.freeze({}),
     async: Object.freeze({}),
   };
 }
@@ -93,12 +106,35 @@ export function reduceStudio(state: StudioAppState, intent: StudioIntent): Studi
         title: chat.title,
       }))));
       const selectedChatId = result.selection.status === "resolved" ? result.selection.chatId : null;
+      const drafts = Object.freeze(Object.fromEntries(Object.entries(state.drafts).filter(([chatId]) => Boolean(chats[chatId]))));
+      const attachments = Object.freeze(Object.fromEntries(Object.entries(state.attachments).filter(([chatId]) => Boolean(chats[chatId]))));
       return {
         ...state,
         projectCatalog: result.state,
         chats,
+        drafts,
+        attachments,
         navigation: { route: "workspace", settingsSection: null, selectedChatId },
       };
+    }
+    case "draft/change": {
+      if (!state.chats[intent.chatId]) return state;
+      const draft = Array.from(intent.draft).slice(0, 64 * 1024).join("");
+      if (state.drafts[intent.chatId] === draft) return state;
+      return { ...state, drafts: Object.freeze({ ...state.drafts, [intent.chatId]: draft }) };
+    }
+    case "attachments/change": {
+      if (!state.chats[intent.chatId] || intent.attachments.length > 8) return state;
+      if (intent.attachments.some((attachment) =>
+        !attachment.id || attachment.id.length > 1024 ||
+        !attachment.name || Array.from(attachment.name).length > 255 ||
+        !attachment.mediaType || attachment.mediaType.length > 255 ||
+        !Number.isSafeInteger(attachment.size) || attachment.size < 0 || attachment.size > 20 * 1024 * 1024
+      )) return state;
+      const total = intent.attachments.reduce((sum, attachment) => sum + attachment.size, 0);
+      if (total > 50 * 1024 * 1024 || new Set(intent.attachments.map((attachment) => attachment.id)).size !== intent.attachments.length) return state;
+      const attachments = Object.freeze(intent.attachments.map((attachment) => Object.freeze({ ...attachment })));
+      return { ...state, attachments: Object.freeze({ ...state.attachments, [intent.chatId]: attachments }) };
     }
     case "account/default-selected":
       return state.defaultAccountId === intent.accountId ? state : { ...state, defaultAccountId: intent.accountId };

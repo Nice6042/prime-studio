@@ -56,6 +56,19 @@ describe("Studio application state", () => {
     expect(notifications).toBe(1);
   });
 
+  it("keeps bounded drafts isolated by chat while switching", () => {
+    const second = { ...chat, id: "chat-2", title: "Second" };
+    let state = initialStudioState({ chats: [chat, second] });
+    state = reduceStudio(state, { type: "draft/change", chatId: chat.id, draft: "first draft" });
+    state = reduceStudio(state, { type: "draft/change", chatId: second.id, draft: "second draft" });
+    state = reduceStudio(state, { type: "attachments/change", chatId: chat.id, attachments: [{ id: "a1", name: "plan.txt", size: 12, mediaType: "text/plain" }] });
+    state = reduceStudio(state, { type: "chat/open", chatId: second.id });
+
+    expect(state.drafts).toEqual({ "chat-1": "first draft", "chat-2": "second draft" });
+    expect(state.attachments[chat.id]).toHaveLength(1);
+    expect(state.navigation.selectedChatId).toBe("chat-2");
+  });
+
   it("renders the selected normalized chat through providers", () => {
     const store = createStudioStore(initialStudioState({ chats: [chat] }));
     store.dispatch({ type: "chat/open", chatId: chat.id });
