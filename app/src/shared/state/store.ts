@@ -1,5 +1,11 @@
 import type { HarnessCompatibility } from "../ipc/harness.generated";
 import type { RootSessionProjection } from "../../entities/harness/types";
+import {
+  createInitialProjectChatState,
+  transitionProjectChatState,
+  type ProjectChatCommand,
+  type ProjectChatState,
+} from "../../domain/projectChats";
 import { normalizeChats, type ChatEntities, type StudioChat } from "../../entities/chats/chatStore";
 import { initialNavigationState, type NavigationState } from "../../entities/navigation/navigationStore";
 import { normalizeSessions, type SessionEntities } from "../../entities/sessions/sessionStore";
@@ -12,6 +18,7 @@ export interface AsyncState {
 
 export interface StudioAppState {
   readonly compatibility: HarnessCompatibility;
+  readonly projectCatalog: ProjectChatState;
   readonly chats: ChatEntities;
   readonly sessions: SessionEntities;
   readonly navigation: NavigationState;
@@ -22,6 +29,7 @@ export interface StudioAppState {
 export type StudioIntent =
   | Readonly<{ type: "chat/open"; chatId: string }>
   | Readonly<{ type: "chat/create"; chat: StudioChat }>
+  | Readonly<{ type: "project-chat/command"; command: ProjectChatCommand }>
   | Readonly<{ type: "account/default-selected"; accountId: string | null }>
   | Readonly<{ type: "route/settings"; section?: string }>
   | Readonly<{ type: "route/workspace" }>
@@ -32,12 +40,29 @@ export function initialStudioState(input: {
   chats?: readonly StudioChat[];
   sessions?: readonly RootSessionProjection[];
   compatibility?: HarnessCompatibility;
+  projectCatalog?: ProjectChatState;
 } = {}): StudioAppState {
+  const projectCatalog = input.projectCatalog ?? createInitialProjectChatState();
+  const catalogChats = projectCatalog.projects.flatMap((project) => project.chats.map((chat) => ({
+    id: chat.id,
+    projectId: project.id,
+    accountId: chat.binding?.accountId ?? null,
+    title: chat.title,
+  })));
+  const selectedProject = projectCatalog.projects.find(
+    (project) => project.id === projectCatalog.selectedProjectId && !project.archived,
+  );
+  const selectedChatId = selectedProject?.chats.some(
+    (chat) => chat.id === selectedProject.selectedChatId && !chat.archived,
+  ) ? selectedProject.selectedChatId : null;
   return {
     compatibility: input.compatibility ?? { status: "unavailable", reason: "security_verification_failed" },
-    chats: normalizeChats(input.chats ?? []),
+    projectCatalog,
+    chats: normalizeChats(input.projectCatalog ? catalogChats : (input.chats ?? catalogChats)),
     sessions: normalizeSessions(input.sessions ?? []),
-    navigation: initialNavigationState,
+    navigation: selectedChatId
+      ? { route: "workspace", settingsSection: null, selectedChatId }
+      : initialNavigationState,
     defaultAccountId: null,
     async: Object.freeze({}),
   };
@@ -56,6 +81,23 @@ export function reduceStudio(state: StudioAppState, intent: StudioIntent): Studi
         ...state,
         chats: Object.freeze({ ...state.chats, [chat.id]: chat }),
         navigation: { route: "workspace", settingsSection: null, selectedChatId: chat.id },
+      };
+    }
+    case "project-chat/command": {
+      const result = transitionProjectChatState(state.projectCatalog, intent.command);
+      if (result.status !== "applied") return state;
+      const chats = normalizeChats(result.state.projects.flatMap((project) => project.chats.map((chat) => ({
+        id: chat.id,
+        projectId: project.id,
+        accountId: chat.binding?.accountId ?? state.chats[chat.id]?.accountId ?? null,
+        title: chat.title,
+      }))));
+      const selectedChatId = result.selection.status === "resolved" ? result.selection.chatId : null;
+      return {
+        ...state,
+        projectCatalog: result.state,
+        chats,
+        navigation: { route: "workspace", settingsSection: null, selectedChatId },
       };
     }
     case "account/default-selected":

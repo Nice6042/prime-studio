@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { createInitialProjectChatState, transitionProjectChatState } from "../domain/projectChats";
 import { createStudioStore, initialStudioState, reduceStudio } from "../shared/state/store";
 import { AppProviders } from "./AppProviders";
 import { StudioApp } from "./StudioApp";
@@ -67,5 +68,27 @@ describe("Studio application state", () => {
 
     expect(screen.getByRole("main")).toHaveAccessibleName("Harness architecture");
     expect(screen.getByRole("heading", { name: "Harness architecture" })).toBeVisible();
+  });
+
+  it("projects the durable project catalog into the real sidebar", () => {
+    const created = transitionProjectChatState(createInitialProjectChatState(), {
+      type: "chat.create",
+      projectId: "project:personal",
+      chatId: chat.id,
+      title: chat.title,
+    });
+    expect(created.status).toBe("applied");
+    const store = createStudioStore(initialStudioState({ projectCatalog: created.state }));
+
+    render(
+      <AppProviders store={store}>
+        <StudioApp />
+      </AppProviders>,
+    );
+
+    expect(screen.getByRole("navigation", { name: "Projects and chats" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Harness architecture" })).toBeVisible();
+    expect(screen.getByRole("main", { name: "Harness architecture" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "New chat" })).toBeDisabled();
   });
 });
