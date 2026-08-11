@@ -103,3 +103,18 @@ a supported Prime compatibility set.
 The contract test compiles the checked-in schema as Draft 2020-12, validates every fixture, and runs a shared valid/invalid mutation corpus through both the JSON Schema validator and the Rust parser. Rust also applies semantic constraints that JSON Schema cannot conveniently express, including sorted records, aggregate byte limits, case-insensitive Windows aliases, reserved path segments, deterministic set digests, and filesystem identity checks.
 
 A later schema must add the approved signed compatibility-set envelope, trust-root/key policy, Studio closure, security/broker epochs, provider-auth mode, migration range, immutable managed path, anti-rollback state, and pre-spawn revalidation. That work must use a new explicit activation API. Changing this version's boolean or returning a verified structure must never start Prime by itself.
+
+## Prime Harness daemon profile
+
+The Studio Harness adapter adds a separate, non-activating compatibility decision. It binds the
+installed `prime-agent` package version 0.7.1, manifest and public-entrypoint SHA-256 digests,
+`prime-agent.daemon` protocol 7, schema revision 13, schema ID
+`protocol-7-schema-13-816309b1cd50`, and an explicit capability inventory.
+
+Attach snapshots, monotonic event sequences, resident sessions, session-input admission, and model
+catalog discovery are mandatory. Losing one makes the runtime read-only. Missing optional
+capabilities degrade only their corresponding interface. An unknown identity, protocol, or schema
+remains unavailable until a fixture-backed profile and security review are merged.
+
+A compatible result is evidence, not execution authority. Production process readiness remains
+unavailable until the activation plan verifies and installs a private native activation receipt.
