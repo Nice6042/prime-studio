@@ -1,0 +1,22 @@
+.parent-conversation { display: grid; min-block-size: 0; block-size: 100%; color: var(--fg, #ececec); background: var(--surface-center, #181818); }
+.parent-transcript { min-block-size: 0; overflow: auto; scrollbar-gutter: stable; outline: none; }
+.parent-reading-column { inline-size: min(100% - 32px, 760px); margin-inline: auto; padding: 42px 0 152px; }
+.parent-turn { position: relative; margin-block: 0 30px; font: 15px/1.65 "Segoe UI Variable", "Segoe UI", sans-serif; }
+.parent-turn p { margin: 0 0 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.parent-user-turn { display: grid; justify-items: end; }
+.parent-user-bubble { max-inline-size: min(78%, 620px); padding: 10px 15px; border-radius: 18px; background: var(--surface-user, #303030); }
+.parent-user-bubble p { margin: 0; }
+.parent-assistant-turn { padding-inline: 2px; }
+.parent-assistant-copy { color: var(--fg, #ececec); }
+.parent-message-actions { min-block-size: 26px; opacity: 0; transition: opacity 120ms ease; }
+.parent-turn:hover .parent-message-actions, .parent-turn:focus-within .parent-message-actions { opacity: 1; }
+.parent-message-actions button { min-inline-size: 44px; min-block-size: 28px; padding: 3px 8px; border: 0; border-radius: 7px; color: var(--muted, #a7a7a7); background: transparent; }
+.parent-message-actions button:hover { color: var(--fg, #ececec); background: color-mix(in srgb, currentColor 8%, transparent); }
+.assistant-streaming { display: inline-flex; align-items: center; gap: 7px; color: var(--muted, #a7a7a7); font-size: 12px; }
+.assistant-streaming::before { content: ""; inline-size: 7px; block-size: 7px; border-radius: 50%; background: var(--accent, #9b8cff); animation: parent-pulse 1.25s ease-in-out infinite; }
+.conversation-empty { display: grid; place-content: center; min-block-size: 70%; padding: 40px 20px; text-align: center; color: var(--muted, #aaa); }
+.conversation-empty h1 { margin: 0 0 8px; color: var(--fg, #ececec); font-size: 24px; font-weight: 600; }
+.conversation-notice { inline-size: min(100% - 32px, 760px); margin: 16px auto; padding: 8px 12px; border: 1px solid var(--line, #333); border-radius: 9px; color: var(--muted, #aaa); background: var(--surface-raised, #202020); font-size: 12px; }
+@keyframes parent-pulse { 50% { opacity: .35; transform: scale(.78); } }
+@media (prefers-reduced-motion: reduce) { .assistant-streaming::before { animation: none; } .parent-message-actions { transition: none; } }
+@media (max-width: 760px) { .parent-reading-column { inline-size: min(100% - 20px, 760px); padding-block-start: 26px; } .parent-user-bubble { max-inline-size: 88%; } }

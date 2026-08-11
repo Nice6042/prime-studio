@@ -8,6 +8,7 @@ import { WorkspaceShell } from "../features/shell/WorkspaceShell";
 import { CollapsedSidebar } from "../features/navigation/CollapsedSidebar";
 import { ProjectSidebar } from "../features/navigation/ProjectSidebar";
 import { selectNavigationProjects } from "../features/navigation/navigationSelectors";
+import { ParentConversation } from "../features/conversation/ParentConversation";
 import { useStudioSelector, useStudioStore } from "./AppProviders";
 
 function useViewportWidth() {
@@ -100,6 +101,9 @@ export function StudioApp() {
   }
 
   const title = selectedChat?.title ?? "Prime Studio";
+  const archived = projectCatalog.projects.some((project) => project.chats.some(
+    (chat) => chat.id === navigation.selectedChatId && chat.archived,
+  ));
   return <div className="studio-application">
     <TitleBar title={title} />
     <WorkspaceShell
@@ -112,7 +116,7 @@ export function StudioApp() {
       onInspectorPreferred={(inspectorWidth) => changeLayout({ inspectorWidth })}
       onEditorPreferred={(editorWidth) => changeLayout({ editorWidth })}
       sidebarContent={sidebarContent}
-      conversation={<section aria-label={title}><h1>{title}</h1><p>Parent conversation</p></section>}
+      conversation={<ParentConversation title={title} session={selectedSession} archived={archived} />}
       inspectorContent={<div><strong>Harness</strong><p>{compatibility.status.replace("_", " ")}</p></div>}
     />
     <RuntimeStatusBar session={selectedSession} />
