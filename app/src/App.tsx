@@ -20,6 +20,9 @@ import type {
   SchedulerProjection,
   ThinkingLevel,
 } from "./types";
+import { AppProviders } from "./app/AppProviders";
+import { StudioApp } from "./app/StudioApp";
+import { createStudioStore, initialStudioState } from "./shared/state/store";
 
 type Theme = "dark" | "light";
 
@@ -74,7 +77,7 @@ const newTabId = () => `tab-${++tabSeq}`;
 const sessionTabId = (id: string) => `session-tab-${id}`;
 const sessionPanelId = (id: string) => `session-panel-${id}`;
 
-export default function App() {
+export function LegacyApp() {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [sessions, setSessions] = useState<DiskSession[]>([]);
@@ -625,4 +628,17 @@ export default function App() {
       <Toasts />
     </div>
   );
+}
+
+const studioStore = createStudioStore(initialStudioState());
+
+export default function App() {
+  if (import.meta.env.VITE_PRIME_STUDIO_WORKSPACE === "1") {
+    return (
+      <AppProviders store={studioStore}>
+        <StudioApp />
+      </AppProviders>
+    );
+  }
+  return <LegacyApp />;
 }
