@@ -69,6 +69,19 @@ describe("Studio application state", () => {
     expect(state.navigation.selectedChatId).toBe("chat-2");
   });
 
+  it("adopts a revision-bound native project catalog snapshot", () => {
+    const created = transitionProjectChatState(createInitialProjectChatState(), {
+      type: "chat.create", projectId: "project:personal", chatId: chat.id, title: chat.title,
+    });
+    const state = reduceStudio(initialStudioState(), {
+      type: "project-catalog/loaded",
+      snapshot: { revision: 7, state: created.state },
+    });
+    expect(state.catalogRevision).toBe(7);
+    expect(state.navigation.selectedChatId).toBe(chat.id);
+    expect(state.chats[chat.id]?.title).toBe(chat.title);
+  });
+
   it("renders the selected normalized chat through providers", () => {
     const store = createStudioStore(initialStudioState({ chats: [chat] }));
     store.dispatch({ type: "chat/open", chatId: chat.id });

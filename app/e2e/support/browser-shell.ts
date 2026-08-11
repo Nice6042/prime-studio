@@ -182,6 +182,24 @@ export const test = base.extend<ShellFixtures>({
               editorOpen: false,
               editorWidth: 400,
             };
+          case "project_catalog_load":
+            return {
+              revision: 0,
+              state: {
+                schemaVersion: 2,
+                selectedProjectId: "project:personal",
+                projects: [{
+                  id: "project:personal",
+                  kind: "personal",
+                  name: "Personal",
+                  root: { kind: "studio-managed-empty" },
+                  pinned: false,
+                  archived: false,
+                  selectedChatId: null,
+                  chats: [],
+                }],
+              },
+            };
           case "list_models":
             return [
               {

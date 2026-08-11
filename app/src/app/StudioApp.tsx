@@ -8,6 +8,7 @@ import { WorkspaceShell } from "../features/shell/WorkspaceShell";
 import { CollapsedSidebar } from "../features/navigation/CollapsedSidebar";
 import { ProjectSidebar } from "../features/navigation/ProjectSidebar";
 import { selectNavigationProjects } from "../features/navigation/navigationSelectors";
+import { loadProjectCatalog } from "../features/navigation/projectCatalogClient";
 import { ParentConversation } from "../features/conversation/ParentConversation";
 import { Composer } from "../features/conversation/Composer";
 import { deriveComposerState } from "../features/conversation/composerModel";
@@ -15,6 +16,7 @@ import { HarnessInspector } from "../features/harness/HarnessInspector";
 import { useStudioSelector, useStudioStore } from "./AppProviders";
 
 let bootstrapPromise: ReturnType<typeof rpc.bootstrapHarness> | null = null;
+let catalogPromise: ReturnType<typeof loadProjectCatalog> | null = null;
 
 function loadHarnessProjection() {
   bootstrapPromise ??= rpc.bootstrapHarness().catch((error) => {
@@ -22,6 +24,14 @@ function loadHarnessProjection() {
     throw error;
   });
   return bootstrapPromise;
+}
+
+function loadCatalogProjection() {
+  catalogPromise ??= loadProjectCatalog().catch((error) => {
+    catalogPromise = null;
+    throw error;
+  });
+  return catalogPromise;
 }
 
 function useViewportWidth() {
@@ -93,6 +103,14 @@ export function StudioApp() {
       active = false;
       unsubscribe?.();
     };
+  }, [store]);
+
+  useEffect(() => {
+    let active = true;
+    void loadCatalogProjection().then((snapshot) => {
+      if (active) store.dispatch({ type: "project-catalog/loaded", snapshot });
+    }).catch(() => undefined);
+    return () => { active = false; };
   }, [store]);
 
   const changeLayout = (patch: Partial<LayoutPreferencesV1>) => {

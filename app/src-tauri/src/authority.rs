@@ -267,6 +267,7 @@ pub enum TauriCommand {
     SetPrimeCli,
     CheckPrimeCli,
     GetAppSettings,
+    ProjectCatalogLoad,
     SchedulerProjection,
     HarnessBootstrap,
     HarnessProjection,
@@ -282,7 +283,7 @@ pub enum TauriCommand {
     ComputerUseReadiness,
 }
 
-pub const ALL_TAURI_COMMANDS: [TauriCommand; 45] = [
+pub const ALL_TAURI_COMMANDS: [TauriCommand; 46] = [
     TauriCommand::StartSession,
     TauriCommand::AttachSession,
     TauriCommand::DetachSession,
@@ -315,6 +316,7 @@ pub const ALL_TAURI_COMMANDS: [TauriCommand; 45] = [
     TauriCommand::SetPrimeCli,
     TauriCommand::CheckPrimeCli,
     TauriCommand::GetAppSettings,
+    TauriCommand::ProjectCatalogLoad,
     TauriCommand::SchedulerProjection,
     TauriCommand::HarnessBootstrap,
     TauriCommand::HarnessProjection,
@@ -372,6 +374,7 @@ impl TauriCommand {
             Self::SetPrimeCli => "set_prime_cli",
             Self::CheckPrimeCli => "check_prime_cli",
             Self::GetAppSettings => "get_app_settings",
+            Self::ProjectCatalogLoad => "project_catalog_load",
             Self::SchedulerProjection => "scheduler_projection",
             Self::HarnessBootstrap => "harness_bootstrap",
             Self::HarnessProjection => "harness_projection",
@@ -437,6 +440,7 @@ impl TauriCommand {
             | Self::BrowserSecurityStatus
             | Self::BrowserCheckIntentAdmission
             | Self::GetAppSettings
+            | Self::ProjectCatalogLoad
             | Self::SchedulerProjection
             | Self::HarnessBootstrap
             | Self::HarnessProjection

@@ -39,6 +39,7 @@ use browser::{
 use commands::harness::{harness_bootstrap, harness_projection};
 use commands::settings::{get_layout_preferences, set_layout_preferences};
 use computer_use::{ComputerUseBroker, ComputerUseReadinessProjection};
+use project_catalog::{CatalogSnapshot, ProjectCatalog};
 use provider_product::provider_product_snapshot_from_registry;
 use scheduler::{SchedulerProjection, SchedulerService};
 use session_process::{
@@ -439,6 +440,10 @@ fn settings_path() -> PathBuf {
 
 fn scheduler_state_path() -> PathBuf {
     config_dir().join("scheduler-state.json")
+}
+
+fn project_catalog_path() -> PathBuf {
+    config_dir().join("project-catalog.json")
 }
 
 fn read_settings() -> Settings {
@@ -2578,6 +2583,7 @@ struct AppState {
     /// never the durable store or a mutation handle.
     scheduler: SchedulerService,
     harness: app_state::HarnessState,
+    project_catalog: ProjectCatalog,
 }
 
 impl AppState {
@@ -2596,6 +2602,7 @@ impl AppState {
             browser: BrowserBroker::admission_only(),
             scheduler: SchedulerService::open(scheduler_state_path()),
             harness: app_state::HarnessState::default(),
+            project_catalog: ProjectCatalog::new(project_catalog_path()),
         }
     }
 }
@@ -2645,6 +2652,14 @@ fn browser_check_intent_admission(
 #[tauri::command]
 fn scheduler_projection(state: State<AppState>) -> SchedulerProjection {
     state.scheduler.projection()
+}
+
+#[tauri::command]
+fn project_catalog_load(state: State<AppState>) -> Result<CatalogSnapshot, String> {
+    state
+        .project_catalog
+        .load()
+        .map_err(|error| error.to_string())
 }
 
 /// Put the real Tauri-generated dispatcher behind the single Phase 0 choke
@@ -3628,6 +3643,9 @@ fn navigation_allowed(url: &tauri::Url, is_dev: bool) -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    std::fs::create_dir_all(config_dir()).unwrap_or_else(|error| {
+        panic!("Prime Studio configuration directory must be available: {error}")
+    });
     account_deletion()
         .recover_pending_transactions()
         .unwrap_or_else(|error| {
@@ -3689,6 +3707,7 @@ pub fn run() {
             set_prime_cli,
             check_prime_cli,
             get_app_settings,
+            project_catalog_load,
             scheduler_projection,
             harness_bootstrap,
             harness_projection,

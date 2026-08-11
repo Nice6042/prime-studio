@@ -19,6 +19,7 @@ export interface AsyncState {
 export interface StudioAppState {
   readonly compatibility: HarnessCompatibility;
   readonly projectCatalog: ProjectChatState;
+  readonly catalogRevision: number | null;
   readonly chats: ChatEntities;
   readonly sessions: SessionEntities;
   readonly navigation: NavigationState;
@@ -43,6 +44,7 @@ export type StudioIntent =
   | Readonly<{ type: "attachments/change"; chatId: string; attachments: readonly DraftAttachment[] }>
   | Readonly<{ type: "harness/bootstrap-loaded"; projection: BootProjection }>
   | Readonly<{ type: "harness/session-projected"; session: RootSessionProjection }>
+  | Readonly<{ type: "project-catalog/loaded"; snapshot: Readonly<{ revision: number; state: ProjectChatState }> }>
   | Readonly<{ type: "account/default-selected"; accountId: string | null }>
   | Readonly<{ type: "route/settings"; section?: string }>
   | Readonly<{ type: "route/workspace" }>
@@ -71,6 +73,7 @@ export function initialStudioState(input: {
   return {
     compatibility: input.compatibility ?? { status: "unavailable", reason: "security_verification_failed" },
     projectCatalog,
+    catalogRevision: input.projectCatalog ? 0 : null,
     chats: normalizeChats(input.projectCatalog ? catalogChats : (input.chats ?? catalogChats)),
     sessions: normalizeSessions(input.sessions ?? []),
     navigation: selectedChatId
@@ -148,6 +151,26 @@ export function reduceStudio(state: StudioAppState, intent: StudioIntent): Studi
       return state.sessions[intent.session.sessionId]
         ? { ...state, sessions: Object.freeze({ ...state.sessions, [intent.session.sessionId]: intent.session }) }
         : state;
+    case "project-catalog/loaded": {
+      const projectCatalog = intent.snapshot.state;
+      const chats = normalizeChats(projectCatalog.projects.flatMap((project) => project.chats.map((chat) => ({
+        id: chat.id,
+        projectId: project.id,
+        accountId: chat.binding?.accountId ?? state.chats[chat.id]?.accountId ?? null,
+        title: chat.title,
+      }))));
+      const selectedProject = projectCatalog.projects.find((project) => project.id === projectCatalog.selectedProjectId && !project.archived);
+      const selectedChatId = selectedProject?.chats.some((chat) => chat.id === selectedProject.selectedChatId && !chat.archived)
+        ? selectedProject.selectedChatId
+        : null;
+      return {
+        ...state,
+        projectCatalog,
+        catalogRevision: intent.snapshot.revision,
+        chats,
+        navigation: { route: "workspace", settingsSection: null, selectedChatId },
+      };
+    }
     case "account/default-selected":
       return state.defaultAccountId === intent.accountId ? state : { ...state, defaultAccountId: intent.accountId };
     case "route/settings":
