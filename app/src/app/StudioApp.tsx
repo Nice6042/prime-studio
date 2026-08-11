@@ -73,6 +73,8 @@ export function StudioApp() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteOpener, setPaletteOpener] = useState<HTMLElement | null>(null);
   const [activeSheet, setActiveSheet] = useState<"sidebar" | "inspector" | "editor" | null>(null);
+  const [canvas, setCanvas] = useState<Readonly<{ chatId: string; messageId: string; displayRevision: number; content: string }> | null>(null);
+  const [displayRevisions, setDisplayRevisions] = useState<Readonly<Record<string, Readonly<Record<string, Readonly<{ revision: number; content: string }>>>>>>({});
   const [inspectorRouteRequest, setInspectorRouteRequest] = useState<Readonly<{ id: number; route: "overview" | "usage" | "activity" }> | undefined>();
   const [expandedProjectIds, setExpandedProjectIds] = useState<ReadonlySet<string>>(
     () => new Set(projectCatalog.projects.filter((project) => !project.archived).map((project) => project.id)),
@@ -236,7 +238,18 @@ export function StudioApp() {
       sidebarContent={sidebarContent}
       sidebarRailContent={sidebarRailContent}
       conversation={<div className="conversation-stage">
-        <ParentConversation title={title} session={selectedSession} archived={archived} />
+        <ParentConversation
+          title={title}
+          session={selectedSession}
+          archived={archived}
+          displayRevisions={navigation.selectedChatId ? displayRevisions[navigation.selectedChatId] : undefined}
+          onOpenCanvas={navigation.selectedChatId ? (messageId, content) => {
+            const existing = displayRevisions[navigation.selectedChatId!]?.[messageId];
+            setCanvas({ chatId: navigation.selectedChatId!, messageId, displayRevision: existing?.revision ?? 1, content });
+            changeLayout({ editorOpen: true });
+            setActiveSheet("editor");
+          } : undefined}
+        />
         {navigation.selectedChatId && <Composer
           draft={draft}
           state={composerState}
@@ -258,7 +271,15 @@ export function StudioApp() {
         routeRequest={inspectorRouteRequest}
         onOpenAccountUsage={() => store.dispatch({ type: "route/settings", section: "usage" })}
       />}
-      editorContent={<EditorPane onClose={() => changeLayout({ editorOpen: false })} />}
+      editorContent={<EditorPane
+        onClose={() => { changeLayout({ editorOpen: false }); setActiveSheet(null); }}
+        canvas={canvas?.chatId === navigation.selectedChatId ? canvas : null}
+        onCanvasApply={canvas ? (content) => {
+          const revision = canvas.displayRevision + 1;
+          setDisplayRevisions((current) => Object.freeze({ ...current, [canvas.chatId]: Object.freeze({ ...(current[canvas.chatId] ?? {}), [canvas.messageId]: Object.freeze({ revision, content }) }) }));
+          setCanvas({ ...canvas, displayRevision: revision, content });
+        } : undefined}
+      />}
     />
     <RuntimeStatusBar session={selectedSession} />
     {paletteOpen && <CommandPalette admissionConnected={false} onRun={runCommand} onClose={() => setPaletteOpen(false)} restoreFocusTo={paletteOpener} />}

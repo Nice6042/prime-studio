@@ -6,10 +6,12 @@ import { MessageActions } from "./MessageActions";
 import { TurnActivity } from "./TurnActivity";
 import "./conversation.css";
 
-export function ParentConversation({ title, session, archived }: {
+export function ParentConversation({ title, session, archived, displayRevisions = {}, onOpenCanvas }: {
   readonly title: string;
   readonly session: RootSessionProjection | null;
   readonly archived: boolean;
+  readonly displayRevisions?: Readonly<Record<string, Readonly<{ revision: number; content: string }>>>;
+  readonly onOpenCanvas?: (messageId: string, content: string) => void;
 }) {
   const transcript = useMemo(() => session ? reduceParentTranscript(createEmptyParentTranscript(), {
     type: "snapshot",
@@ -46,12 +48,15 @@ export function ParentConversation({ title, session, archived }: {
             <div className="parent-user-bubble"><p>{message.text}</p></div>
             <MessageActions text={message.text} />
           </article>;
-          const text = message.blocks.filter((block) => block.kind === "text").map((block) => block.text).join("\n\n");
+          const sourceText = message.blocks.filter((block) => block.kind === "text").map((block) => block.text).join("\n\n");
+          const displayRevision = displayRevisions[message.id];
+          const text = displayRevision?.content ?? sourceText;
           return <article className="parent-turn parent-assistant-turn" key={message.id} aria-busy={message.streaming}>
             <TurnActivity blocks={message.blocks} />
+            {displayRevision && <span className="canvas-revision-label">Display revision {displayRevision.revision}</span>}
             {text ? <div className="parent-assistant-copy">{text.split("\n\n").map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div> : null}
             {message.streaming && <span className="assistant-streaming" role="status">Responding</span>}
-            {!message.streaming && text && <MessageActions text={text} />}
+            {!message.streaming && text && <MessageActions text={text} onOpenCanvas={onOpenCanvas ? () => onOpenCanvas(message.id, text) : undefined} />}
           </article>;
         })}
       </div>

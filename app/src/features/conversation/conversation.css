@@ -9,6 +9,7 @@
 .parent-user-bubble p { margin: 0; }
 .parent-assistant-turn { padding-inline: 2px; }
 .parent-assistant-copy { color: var(--fg, #ececec); }
+.canvas-revision-label { display:inline-block; margin-block-end:8px; color:var(--muted,#999); font-size:11px; }
 .parent-message-actions { min-block-size: 26px; opacity: 0; transition: opacity 120ms ease; }
 .parent-turn:hover .parent-message-actions, .parent-turn:focus-within .parent-message-actions { opacity: 1; }
 .parent-message-actions button { min-inline-size: 44px; min-block-size: 28px; padding: 3px 8px; border: 0; border-radius: 7px; color: var(--muted, #a7a7a7); background: transparent; }

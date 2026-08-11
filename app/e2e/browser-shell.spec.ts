@@ -68,6 +68,17 @@ test("resizable project and Harness panes preserve a usable conversation", async
   expect(after).toBeGreaterThanOrEqual(340);
 });
 
+test("Canvas creates a display revision without rewriting Harness history", async ({ shellPage }) => {
+  await shellPage.getByRole("button", { name: "Edit answer in Canvas" }).click();
+  const editor = shellPage.getByRole("region", { name: "Editor" });
+  const canvas = editor.getByRole("textbox", { name: "Canvas content" });
+  await canvas.fill("A concise Studio-only display revision.");
+  await editor.getByRole("button", { name: "Apply display revision" }).click();
+  await expect(shellPage.getByRole("main", { name: "Prime Harness architecture" }).getByText("A concise Studio-only display revision.")).toBeVisible();
+  await expect(shellPage.getByText("Display revision 2")).toBeVisible();
+  await expect(editor.getByText(/does not rewrite Harness history/)).toBeVisible();
+});
+
 test("forced colors and reduced motion keep controls operable", async ({ shellPage }) => {
   await shellPage.emulateMedia({ forcedColors: "active", reducedMotion: "reduce" });
   const trigger = shellPage.getByRole("button", { name: "Open command palette" });
