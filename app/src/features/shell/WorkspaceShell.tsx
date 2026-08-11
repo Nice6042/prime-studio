@@ -10,6 +10,7 @@ export function WorkspaceShell({
   inspector,
   editor,
   sidebarContent,
+  sidebarRailContent,
   conversation,
   inspectorContent,
   editorContent,
@@ -20,6 +21,7 @@ export function WorkspaceShell({
   activeSheet = null,
 }: LayoutInput & {
   readonly sidebarContent: ReactNode;
+  readonly sidebarRailContent?: ReactNode;
   readonly conversation: ReactNode;
   readonly inspectorContent?: ReactNode;
   readonly editorContent?: ReactNode;
@@ -41,7 +43,7 @@ export function WorkspaceShell({
     <div className="studio-shell" style={{ gridTemplateColumns: columns.map((width) => `${width}px`).join(" ") }}>
       {layout.sidebar.mode !== "sheet" && (
         <nav className="studio-sidebar" aria-label="Projects and chats" data-mode={layout.sidebar.mode}>
-          {sidebarContent}
+          {layout.sidebar.mode === "rail" ? (sidebarRailContent ?? sidebarContent) : sidebarContent}
         </nav>
       )}
       {sidebarAttached && (layout.sidebar.mode === "pane" && onSidebarPreferred ? (

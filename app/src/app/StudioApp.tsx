@@ -188,6 +188,12 @@ export function StudioApp() {
         newChatDisabledReason="New chat activation is not connected yet."
         onOpenSettings={openSettings}
       />;
+  const sidebarRailContent = <CollapsedSidebar
+    onExpand={() => changeLayout({ sidebarOpen: true })}
+    onNewChat={() => undefined}
+    newChatDisabledReason="New chat activation is not connected yet."
+    onOpenSettings={openSettings}
+  />;
 
   if (navigation.route === "settings") {
     return <><SettingsShell
@@ -228,6 +234,7 @@ export function StudioApp() {
       onEditorPreferred={(editorWidth) => changeLayout({ editorWidth })}
       activeSheet={activeSheet}
       sidebarContent={sidebarContent}
+      sidebarRailContent={sidebarRailContent}
       conversation={<div className="conversation-stage">
         <ParentConversation title={title} session={selectedSession} archived={archived} />
         {navigation.selectedChatId && <Composer

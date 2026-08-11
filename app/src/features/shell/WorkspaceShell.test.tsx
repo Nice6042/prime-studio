@@ -53,4 +53,20 @@ describe("WorkspaceShell", () => {
     expect((container.firstElementChild as HTMLElement).style.gridTemplateColumns).toBe("640px");
     expect(screen.getByRole("main")).toBeVisible();
   });
+
+  it("uses dedicated compact navigation when center pressure collapses the sidebar to a rail", () => {
+    render(<WorkspaceShell
+      viewport={1280}
+      sidebar={{ open: true, preferred: 264 }}
+      inspector={{ open: true, preferred: 384 }}
+      editor={{ open: true, preferred: 400 }}
+      sidebarContent={<div>Full projects</div>}
+      sidebarRailContent={<div>Compact projects</div>}
+      conversation={<div>Conversation</div>}
+      inspectorContent={<div>Harness</div>}
+      editorContent={<div>Editor</div>}
+    />);
+    expect(screen.getByText("Compact projects")).toBeVisible();
+    expect(screen.queryByText("Full projects")).not.toBeInTheDocument();
+  });
 });
