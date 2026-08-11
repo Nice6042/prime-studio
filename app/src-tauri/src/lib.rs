@@ -37,6 +37,7 @@ use browser::{
     BrowserBroker, BrowserIntentAdmission, BrowserIntentAdmissionRequest, BrowserSecurityStatus,
 };
 use commands::harness::{harness_bootstrap, harness_projection};
+use commands::settings::{get_layout_preferences, set_layout_preferences};
 use computer_use::{ComputerUseBroker, ComputerUseReadinessProjection};
 use provider_product::provider_product_snapshot_from_registry;
 use scheduler::{SchedulerProjection, SchedulerService};
@@ -3691,6 +3692,8 @@ pub fn run() {
             scheduler_projection,
             harness_bootstrap,
             harness_projection,
+            get_layout_preferences,
+            set_layout_preferences,
             set_app_setting,
             kernel_status,
             files_touched,

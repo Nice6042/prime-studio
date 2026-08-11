@@ -171,6 +171,17 @@ export const test = base.extend<ShellFixtures>({
             };
           case "harness_projection":
             return [];
+          case "get_layout_preferences":
+          case "set_layout_preferences":
+            return {
+              schemaVersion: 1,
+              sidebarOpen: true,
+              sidebarWidth: 264,
+              inspectorOpen: true,
+              inspectorWidth: 384,
+              editorOpen: false,
+              editorWidth: 400,
+            };
           case "list_models":
             return [
               {

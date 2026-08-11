@@ -19,6 +19,7 @@ import type {
   DiskSessionContent,
   FleetReport,
   KernelStatus,
+  LayoutPreferencesV1,
   ModelInfo,
   PrimeEvent,
   RpcCommand,
@@ -530,6 +531,50 @@ export const schedulerProjection = () =>
 /** `null`/empty clears the key. Returns the whole file back. */
 export const setAppSetting = (key: keyof AppSettings, value: string | null) =>
   strictInvoke<AppSettings>("set_app_setting", { key, value });
+
+const DEFAULT_LAYOUT: LayoutPreferencesV1 = Object.freeze({
+  schemaVersion: 1,
+  sidebarOpen: true,
+  sidebarWidth: 264,
+  inspectorOpen: true,
+  inspectorWidth: 384,
+  editorOpen: false,
+  editorWidth: 400,
+});
+
+function decodeLayoutPreferences(value: unknown): LayoutPreferencesV1 {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid layout preferences.");
+  const source = value as Record<string, unknown>;
+  const keys = ["schemaVersion", "sidebarOpen", "sidebarWidth", "inspectorOpen", "inspectorWidth", "editorOpen", "editorWidth"];
+  const actual = Object.keys(source).sort();
+  if (actual.length !== keys.length || actual.some((key, index) => key !== [...keys].sort()[index])) throw new Error("Invalid layout preferences.");
+  const width = (candidate: unknown, minimum: number, maximum: number) => {
+    if (!Number.isSafeInteger(candidate) || (candidate as number) < minimum || (candidate as number) > maximum) throw new Error("Invalid layout preferences.");
+    return candidate as number;
+  };
+  if (source.schemaVersion !== 1 || typeof source.sidebarOpen !== "boolean" || typeof source.inspectorOpen !== "boolean" || typeof source.editorOpen !== "boolean") throw new Error("Invalid layout preferences.");
+  return Object.freeze({
+    schemaVersion: 1,
+    sidebarOpen: source.sidebarOpen,
+    sidebarWidth: width(source.sidebarWidth, 210, 380),
+    inspectorOpen: source.inspectorOpen,
+    inspectorWidth: width(source.inspectorWidth, 300, 600),
+    editorOpen: source.editorOpen,
+    editorWidth: width(source.editorWidth, 280, 600),
+  });
+}
+
+export async function getLayoutPreferences(): Promise<LayoutPreferencesV1> {
+  try {
+    return decodeLayoutPreferences(await strictInvoke<unknown>("get_layout_preferences", {}));
+  } catch {
+    return DEFAULT_LAYOUT;
+  }
+}
+
+export async function setLayoutPreferences(preferences: LayoutPreferencesV1): Promise<LayoutPreferencesV1> {
+  return decodeLayoutPreferences(await strictInvoke<unknown>("set_layout_preferences", { preferences }));
+}
 
 // ---- Windows computer-use readiness ------------------------------------
 

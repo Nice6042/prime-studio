@@ -66,6 +66,6 @@ describe("Studio application state", () => {
     );
 
     expect(screen.getByRole("main")).toHaveAccessibleName("Harness architecture");
-    expect(screen.getByText("Harness architecture")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Harness architecture" })).toBeVisible();
   });
 });

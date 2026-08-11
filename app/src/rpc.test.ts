@@ -7,11 +7,13 @@ import {
   accountStatuses,
   commitRemoveAccount,
   getComputerUseReadiness,
+  getLayoutPreferences,
   getProviderProductSnapshot,
   listAccountsStrict,
   prepareRemoveAccount,
   schedulerProjection,
   setAppSetting,
+  setLayoutPreferences,
 } from "./rpc";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -351,6 +353,40 @@ describe("settings RPC", () => {
       key: "theme",
       value: "light",
     });
+  });
+
+  it("strictly reads and writes versioned layout preferences", async () => {
+    const layout = {
+      schemaVersion: 1 as const,
+      sidebarOpen: true,
+      sidebarWidth: 264,
+      inspectorOpen: true,
+      inspectorWidth: 384,
+      editorOpen: false,
+      editorWidth: 400,
+    };
+    invokeMock.mockResolvedValueOnce(layout).mockResolvedValueOnce(layout);
+
+    await expect(getLayoutPreferences()).resolves.toEqual(layout);
+    await expect(setLayoutPreferences(layout)).resolves.toEqual(layout);
+    expect(invokeMock).toHaveBeenNthCalledWith(1, "get_layout_preferences", {});
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "set_layout_preferences", { preferences: layout });
+  });
+
+  it("fails closed on malformed persisted layout but keeps a safe read default", async () => {
+    invokeMock.mockResolvedValueOnce({ schemaVersion: 1, sidebarOpen: true, extra: true });
+    await expect(getLayoutPreferences()).resolves.toMatchObject({ sidebarWidth: 264, inspectorWidth: 384 });
+
+    invokeMock.mockResolvedValueOnce({ schemaVersion: 1, sidebarOpen: true, extra: true });
+    await expect(setLayoutPreferences({
+      schemaVersion: 1,
+      sidebarOpen: true,
+      sidebarWidth: 264,
+      inspectorOpen: true,
+      inspectorWidth: 384,
+      editorOpen: false,
+      editorWidth: 400,
+    })).rejects.toThrow(/layout preferences/i);
   });
 });
 

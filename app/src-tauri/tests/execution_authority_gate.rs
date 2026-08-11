@@ -9,7 +9,7 @@ use prime_studio_lib::authority::{
 };
 use serde_json::{json, Value};
 
-const EXPECTED_TAURI_COMMANDS: [&str; 43] = [
+const EXPECTED_TAURI_COMMANDS: [&str; 45] = [
     "start_session",
     "attach_session",
     "detach_session",
@@ -45,6 +45,8 @@ const EXPECTED_TAURI_COMMANDS: [&str; 43] = [
     "scheduler_projection",
     "harness_bootstrap",
     "harness_projection",
+    "get_layout_preferences",
+    "set_layout_preferences",
     "set_app_setting",
     "kernel_status",
     "files_touched",
@@ -135,7 +137,10 @@ fn tauri_command_inventory_is_complete_unique_and_stable() {
     assert_eq!(registered, EXPECTED_TAURI_COMMANDS);
     assert_eq!(actual, EXPECTED_TAURI_COMMANDS);
     assert_eq!(actual, registered);
-    assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 43);
+    assert_eq!(
+        actual.iter().copied().collect::<HashSet<_>>().len(),
+        EXPECTED_TAURI_COMMANDS.len()
+    );
     assert_eq!(
         source.matches(".invoke_handler(").count(),
         1,
@@ -206,6 +211,7 @@ fn tauri_policy_keeps_only_offline_account_configuration_reads_and_owned_stop_pa
         (TauriCommand::SchedulerProjection, OfflineRead),
         (TauriCommand::HarnessBootstrap, OfflineRead),
         (TauriCommand::HarnessProjection, OfflineRead),
+        (TauriCommand::GetLayoutPreferences, OfflineRead),
         (TauriCommand::ComputerUseReadiness, OfflineRead),
     ];
 
@@ -251,12 +257,21 @@ fn persisted_local_configuration_waits_for_write_enforcement() {
         CommandAuthority::Effects(&[LocalConfigurationWrite])
     );
     assert_eq!(
-        authorize_tauri_command(&AuthorityGate::phase_zero(), TauriCommand::SetAppSetting),
-        Err(AuthorityError::ReadinessNotEnforced {
-            effect: LocalConfigurationWrite,
-            readiness: SecurityReadiness::Unavailable,
-        })
+        TauriCommand::SetLayoutPreferences.authority(),
+        CommandAuthority::Effects(&[LocalConfigurationWrite])
     );
+    for command in [
+        TauriCommand::SetAppSetting,
+        TauriCommand::SetLayoutPreferences,
+    ] {
+        assert_eq!(
+            authorize_tauri_command(&AuthorityGate::phase_zero(), command),
+            Err(AuthorityError::ReadinessNotEnforced {
+                effect: LocalConfigurationWrite,
+                readiness: SecurityReadiness::Unavailable,
+            })
+        );
+    }
 }
 
 #[test]

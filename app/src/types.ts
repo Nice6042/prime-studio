@@ -286,6 +286,16 @@ export interface AppSettings {
   lastSection?: string | null;
 }
 
+export interface LayoutPreferencesV1 {
+  readonly schemaVersion: 1;
+  readonly sidebarOpen: boolean;
+  readonly sidebarWidth: number;
+  readonly inspectorOpen: boolean;
+  readonly inspectorWidth: number;
+  readonly editorOpen: boolean;
+  readonly editorWidth: number;
+}
+
 /** Read-only scheduler availability projected by the native authority. */
 export interface SchedulerProjection {
   schemaVersion: 1;

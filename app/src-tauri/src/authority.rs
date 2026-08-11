@@ -270,6 +270,8 @@ pub enum TauriCommand {
     SchedulerProjection,
     HarnessBootstrap,
     HarnessProjection,
+    GetLayoutPreferences,
+    SetLayoutPreferences,
     SetAppSetting,
     KernelStatus,
     FilesTouched,
@@ -280,7 +282,7 @@ pub enum TauriCommand {
     ComputerUseReadiness,
 }
 
-pub const ALL_TAURI_COMMANDS: [TauriCommand; 43] = [
+pub const ALL_TAURI_COMMANDS: [TauriCommand; 45] = [
     TauriCommand::StartSession,
     TauriCommand::AttachSession,
     TauriCommand::DetachSession,
@@ -316,6 +318,8 @@ pub const ALL_TAURI_COMMANDS: [TauriCommand; 43] = [
     TauriCommand::SchedulerProjection,
     TauriCommand::HarnessBootstrap,
     TauriCommand::HarnessProjection,
+    TauriCommand::GetLayoutPreferences,
+    TauriCommand::SetLayoutPreferences,
     TauriCommand::SetAppSetting,
     TauriCommand::KernelStatus,
     TauriCommand::FilesTouched,
@@ -371,6 +375,8 @@ impl TauriCommand {
             Self::SchedulerProjection => "scheduler_projection",
             Self::HarnessBootstrap => "harness_bootstrap",
             Self::HarnessProjection => "harness_projection",
+            Self::GetLayoutPreferences => "get_layout_preferences",
+            Self::SetLayoutPreferences => "set_layout_preferences",
             Self::SetAppSetting => "set_app_setting",
             Self::KernelStatus => "kernel_status",
             Self::FilesTouched => "files_touched",
@@ -402,7 +408,9 @@ impl TauriCommand {
             }
             Self::KernelStatus => CommandAuthority::Effects(&[OpaqueInterpreter]),
             Self::FilesTouched => CommandAuthority::Effects(&[LocalGitProcess]),
-            Self::SetAppSetting => CommandAuthority::Effects(&[LocalConfigurationWrite]),
+            Self::SetAppSetting | Self::SetLayoutPreferences => {
+                CommandAuthority::Effects(&[LocalConfigurationWrite])
+            }
             Self::PickDirectory
             | Self::ReadWorkspaceFile
             | Self::ListWorkspaceFiles
@@ -432,6 +440,7 @@ impl TauriCommand {
             | Self::SchedulerProjection
             | Self::HarnessBootstrap
             | Self::HarnessProjection
+            | Self::GetLayoutPreferences
             | Self::ComputerUseReadiness => CommandAuthority::OfflineRead,
         }
     }
