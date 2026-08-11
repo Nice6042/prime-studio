@@ -35,4 +35,12 @@ describe("SettingsShell", () => {
     expect(screen.getByText(/Account-wide usage is unavailable/)).toBeVisible();
     expect(screen.queryByText(/^Current chat$/i)).not.toBeInTheDocument();
   });
+
+  it("retains hardened account management while disabling unverified session creation", () => {
+    render(<SettingsShell section="accounts" onBack={() => undefined} onSection={() => undefined} compatibility={unavailable} accounts={[{ id: "account-1", label: "Work", provider: "openai-codex", agentDir: "C:\\fixture", createdAt: 1 }]} />);
+    expect(screen.getByRole("heading", { name: "Accounts", level: 1 })).toBeVisible();
+    expect(screen.getByText("Work")).toBeVisible();
+    expect(screen.getByRole("button", { name: "New session" })).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: "Account name" })).toBeVisible();
+  });
 });

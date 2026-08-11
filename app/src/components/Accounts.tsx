@@ -132,6 +132,7 @@ export function Accounts({
   accounts,
   onChanged,
   onUse,
+  newSessionDisabledReason,
   defaultAccount,
   onDefaultAccount,
 }: {
@@ -140,6 +141,7 @@ export function Accounts({
   onChanged: (refreshed?: Account[]) => void;
   /** Open a new session on this account (a session's account is fixed at spawn). */
   onUse: (id: string) => void;
+  newSessionDisabledReason?: string;
   defaultAccount: string | null;
   onDefaultAccount: (id: string | null) => void;
 }) {
@@ -384,7 +386,7 @@ export function Accounts({
                       >
                         {!unavailable && state === "signedOut" ? "Log in" : "Re-login"}
                       </button>
-                      <button className="btn" onClick={() => onUse(a.id)} title="New session on this account">
+                      <button className="btn" onClick={() => onUse(a.id)} disabled={Boolean(newSessionDisabledReason)} title={newSessionDisabledReason ?? "New session on this account"}>
                         New session
                       </button>
                       <button

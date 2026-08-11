@@ -1,5 +1,7 @@
 import type { HarnessCompatibility } from "../../shared/ipc/harness.generated";
 import type { ReactNode } from "react";
+import { Accounts } from "../../components/Accounts";
+import type { Account } from "../../types";
 
 function SettingGroup({ title, children }: { readonly title: string; readonly children: ReactNode }) {
   return <section className="studio-setting-group"><h2>{title}</h2><div className="studio-setting-card">{children}</div></section>;
@@ -27,6 +29,22 @@ export function ComposerSettings() {
 
 export function AccountUsageSettings() {
   return <><div className="studio-usage-summary"><div><span>Account usage</span><strong>Unavailable</strong><small>No account-wide accounting projection is connected.</small></div><div className="studio-usage-period" aria-label="Usage period"><button type="button" disabled>7 days</button><button type="button" disabled>30 days</button><button type="button" disabled>90 days</button></div></div><Unavailable>Account-wide usage is unavailable until a verified provider accounting source is connected. Current-chat token usage remains in the Harness panel.</Unavailable><SettingGroup title="Breakdown"><Row label="Providers and models" description="No verified account usage rows are available." /><Row label="CSV export" description="Export stays disabled until bounded account rows and a user-selected destination are available."><button type="button" disabled>Export CSV</button></Row></SettingGroup></>;
+}
+
+export function AccountsSettings({ accounts, defaultAccount, onChanged, onDefaultAccount }: {
+  readonly accounts: readonly Account[];
+  readonly defaultAccount: string | null;
+  readonly onChanged: (accounts?: Account[]) => void;
+  readonly onDefaultAccount: (accountId: string | null) => void;
+}) {
+  return <div className="studio-accounts-settings"><Accounts
+    accounts={[...accounts]}
+    onChanged={onChanged}
+    onUse={() => undefined}
+    newSessionDisabledReason="New session activation is not connected yet."
+    defaultAccount={defaultAccount}
+    onDefaultAccount={onDefaultAccount}
+  /></div>;
 }
 
 export function HarnessSettings({ compatibility }: { readonly compatibility: HarnessCompatibility }) {

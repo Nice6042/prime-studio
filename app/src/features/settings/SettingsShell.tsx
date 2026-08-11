@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 
 import type { HarnessCompatibility } from "../../shared/ipc/harness.generated";
-import type { AppSettings } from "../../types";
+import type { Account, AppSettings } from "../../types";
 import {
   AboutSettings,
+  AccountsSettings,
   AccountUsageSettings,
   AppearanceSettings,
   ComposerSettings,
@@ -17,16 +18,19 @@ import {
 import { isStudioSettingsSection, searchSettingsSections, settingsSections, type StudioSettingsSectionId } from "./settingsRegistry";
 import "./settings.css";
 
-function SettingsPage({ section, compatibility, settings, onSetting }: {
+function SettingsPage({ section, compatibility, settings, onSetting, accounts = [], onAccountsChanged }: {
   readonly section: StudioSettingsSectionId;
   readonly compatibility: HarnessCompatibility;
   readonly settings?: AppSettings;
   readonly onSetting?: (key: keyof AppSettings, value: string | null) => void;
+  readonly accounts?: readonly Account[];
+  readonly onAccountsChanged?: (accounts?: Account[]) => void;
 }) {
   switch (section) {
     case "general": return <GeneralSettings />;
     case "appearance": return <AppearanceSettings theme={settings?.theme ?? "system"} onTheme={(value) => onSetting?.("theme", value)} />;
     case "composer": return <ComposerSettings />;
+    case "accounts": return <AccountsSettings accounts={accounts} defaultAccount={settings?.defaultAccount ?? null} onChanged={onAccountsChanged ?? (() => undefined)} onDefaultAccount={(accountId) => onSetting?.("defaultAccount", accountId)} />;
     case "usage": return <AccountUsageSettings />;
     case "harness": return <HarnessSettings compatibility={compatibility} />;
     case "models": return <ModelsSettings compatibility={compatibility} />;
@@ -37,13 +41,15 @@ function SettingsPage({ section, compatibility, settings, onSetting }: {
   }
 }
 
-export function SettingsShell({ section, onSection, onBack, compatibility, settings, onSetting }: {
+export function SettingsShell({ section, onSection, onBack, compatibility, settings, onSetting, accounts = [], onAccountsChanged }: {
   readonly section: string | null;
   readonly onSection: (section: StudioSettingsSectionId) => void;
   readonly onBack: () => void;
   readonly compatibility: HarnessCompatibility;
   readonly settings?: AppSettings;
   readonly onSetting?: (key: keyof AppSettings, value: string | null) => void;
+  readonly accounts?: readonly Account[];
+  readonly onAccountsChanged?: (accounts?: Account[]) => void;
 }) {
   const active = isStudioSettingsSection(section) ? section : "general";
   const [query, setQuery] = useState("");
@@ -57,7 +63,7 @@ export function SettingsShell({ section, onSection, onBack, compatibility, setti
       <nav aria-label="Settings sections">{groups.map((group) => <section key={group}><h2>{group}</h2>{visible.filter((candidate) => candidate.group === group).map((candidate) => <button type="button" key={candidate.id} aria-current={active === candidate.id ? "page" : undefined} onClick={() => onSection(candidate.id)}><span>{candidate.label}</span><small>{candidate.description}</small></button>)}</section>)}</nav>
     </aside>
     <section className="studio-settings-content" aria-labelledby="studio-settings-title">
-      <div className="studio-settings-page"><header><p>Settings</p><h1 id="studio-settings-title">{definition.label}</h1><span>{definition.description}</span></header><SettingsPage section={active} compatibility={compatibility} settings={settings} onSetting={onSetting} /></div>
+      <div className="studio-settings-page"><header><p>Settings</p><h1 id="studio-settings-title">{definition.label}</h1><span>{definition.description}</span></header><SettingsPage section={active} compatibility={compatibility} settings={settings} onSetting={onSetting} accounts={accounts} onAccountsChanged={onAccountsChanged} /></div>
     </section>
   </main>;
 }

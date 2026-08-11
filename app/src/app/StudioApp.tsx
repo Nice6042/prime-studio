@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import * as rpc from "../rpc";
-import type { AppSettings, LayoutPreferencesV1 } from "../types";
+import type { Account, AppSettings, LayoutPreferencesV1 } from "../types";
 import { RuntimeStatusBar } from "../features/shell/RuntimeStatusBar";
 import { TitleBar } from "../features/shell/TitleBar";
 import { WorkspaceShell } from "../features/shell/WorkspaceShell";
@@ -70,6 +70,7 @@ export function StudioApp() {
   });
   const [query, setQuery] = useState("");
   const [settings, setSettings] = useState<AppSettings>({});
+  const [accounts, setAccounts] = useState<readonly Account[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteOpener, setPaletteOpener] = useState<HTMLElement | null>(null);
   const [activeSheet, setActiveSheet] = useState<"sidebar" | "inspector" | "editor" | null>(null);
@@ -102,6 +103,7 @@ export function StudioApp() {
   useEffect(() => {
     let active = true;
     void rpc.getAppSettings().then((next) => { if (active) setSettings(next); });
+    void rpc.listAccounts().then((next) => { if (active) setAccounts(next); });
     return () => { active = false; };
   }, []);
 
@@ -204,6 +206,11 @@ export function StudioApp() {
       onBack={() => store.dispatch({ type: "route/workspace" })}
       compatibility={compatibility}
       settings={settings}
+      accounts={accounts}
+      onAccountsChanged={(next) => {
+        if (next) setAccounts(next);
+        else void rpc.listAccounts().then(setAccounts).catch(() => undefined);
+      }}
       onSetting={(key, value) => {
         void rpc.setAppSetting(key, value).then(setSettings).catch(() => undefined);
       }}
