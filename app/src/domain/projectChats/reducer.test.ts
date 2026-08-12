@@ -223,6 +223,16 @@ describe("project chat domain", () => {
     });
   });
 
+  it("rejects binding one daemon resident session to multiple Studio chats", () => {
+    let state = apply(createInitialProjectChatState(), { type: "chat.create", projectId: PERSONAL_PROJECT_ID, chatId: "chat:first", title: "First" });
+    state = apply(state, { type: "chat.create", projectId: PERSONAL_PROJECT_ID, chatId: "chat:second", title: "Second" });
+    const binding = { kind: "prime-session" as const, accountId: null, sessionId: "daemon-active-1", sessionFile: "daemon-chat-1.jsonl", agentId: "daemon-chat-1" };
+    state = apply(state, { type: "chat.bind-prime-session", projectId: PERSONAL_PROJECT_ID, chatId: "chat:first", binding });
+    expect(transitionProjectChatState(state, { type: "chat.bind-prime-session", projectId: PERSONAL_PROJECT_ID, chatId: "chat:second", binding })).toMatchObject({
+      status: "rejected", reason: "session-already-bound",
+    });
+  });
+
   it.each([
     ["non-ASCII", "project:\u00e9"],
     ["129-byte", "p".repeat(129)],

@@ -539,6 +539,9 @@ export function transitionProjectChatState(
           ? unchanged(state, "same-binding")
           : rejected(state, "chat-already-bound");
       }
+      if (state.projects.some((project) => project.chats.some((chat) =>
+        chat.id !== found.chat.id && chat.binding?.sessionId === command.binding.sessionId
+      ))) return rejected(state, "session-already-bound");
       return applied(
         state,
         replaceProject(state, {
