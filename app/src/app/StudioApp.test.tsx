@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createInitialProjectChatState, transitionProjectChatState } from "../domain/projectChats";
 import { createStudioStore, initialStudioState, reduceStudio } from "../shared/state/store";
@@ -9,6 +9,7 @@ import { StudioApp } from "./StudioApp";
 import type { RootSessionProjection } from "../entities/harness/types";
 import type { StudioOperation } from "../contracts/studioOperations";
 import type { HarnessInspectorAdapter } from "../features/harness/adapter";
+import * as rpc from "../rpc";
 
 const chat = {
   id: "chat-1",
@@ -197,6 +198,25 @@ describe("Studio application state", () => {
     await userEvent.click(screen.getByRole("button", { name: "Back to chat" }));
     expect(store.getSnapshot().navigation.selectedChatId).toBe(chat.id);
     expect(screen.getByRole("main", { name: "Harness architecture" })).toBeVisible();
+  });
+
+  it("wires Settings usage export to the native user-selected save boundary", async () => {
+    const exportSpy = vi.spyOn(rpc, "exportAccountUsageCsv").mockResolvedValue({ status: "cancelled" });
+    const store = createStudioStore(initialStudioState({ chats: [chat] }));
+    store.dispatch({ type: "route/settings", section: "usage" });
+    render(<AppProviders store={store}><StudioApp /></AppProviders>);
+    await userEvent.click(await screen.findByRole("button", { name: "Export CSV" }));
+    await waitFor(() => expect(exportSpy).toHaveBeenCalledWith(expect.stringMatching(/^timestamp,provider/), 7));
+    expect(await screen.findByRole("status")).toHaveTextContent("Export cancelled");
+    exportSpy.mockRestore();
+  });
+
+  it("keeps the editor explicitly unsupported when no identity-bound artifact ref exists", async () => {
+    const store = createStudioStore(initialStudioState({ chats: [chat] }));
+    store.dispatch({ type: "chat/open", chatId: chat.id });
+    render(<AppProviders store={store}><StudioApp /></AppProviders>);
+    await userEvent.click(screen.getByRole("button", { name: "Open editor" }));
+    expect(screen.getByText(/No identity-bound native or Harness artifact reference/i)).toBeVisible();
   });
 
   it("opens the centralized command palette and routes enabled commands", async () => {

@@ -15,6 +15,9 @@ import {
   schedulerProjection,
   setAppSetting,
   setLayoutPreferences,
+  exportAccountUsageCsv,
+  openEditorArtifact,
+  saveEditorArtifact,
 } from "./rpc";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -47,6 +50,55 @@ describe("account usage RPC", () => {
   ])("rejects malformed rows instead of projecting zero usage", async (rows) => {
     invokeMock.mockResolvedValueOnce(rows);
     await expect(accountUsageSeriesStrict("work", 7)).rejects.toThrow(/usage snapshot/i);
+  });
+
+  it("exports only bounded CSV and range data through a user-selected native save", async () => {
+    invokeMock.mockResolvedValueOnce({ status: "cancelled" });
+    const csv = "timestamp,provider,cost,input,output,cache_read,cache_write\r\n";
+
+    await expect(exportAccountUsageCsv(csv, 30)).resolves.toEqual({ status: "cancelled" });
+    expect(invokeMock).toHaveBeenCalledWith("export_account_usage_csv", {
+      request: { csv, rangeDays: 30 },
+    });
+    expect(invokeMock.mock.calls[0]?.[1]).not.toHaveProperty("destination");
+  });
+});
+
+describe("identity-bound editor RPC", () => {
+  beforeEach(() => invokeMock.mockReset());
+
+  const artifactRef = {
+    brokerId: "broker-1",
+    rootSessionId: "session-1",
+    artifactId: "artifact-1",
+    revision: 1,
+  } as const;
+
+  it("opens by native artifact identity without renderer path authority", async () => {
+    invokeMock.mockResolvedValueOnce({ kind: "unsupported", reason: "No native reference." });
+    await expect(openEditorArtifact(artifactRef)).resolves.toEqual({ kind: "unsupported", reason: "No native reference." });
+    expect(invokeMock).toHaveBeenCalledWith("editor_artifact_open", {
+      request: { artifactRef },
+    });
+    expect(invokeMock.mock.calls[0]?.[1]).not.toHaveProperty("path");
+  });
+
+  it("saves with exact identity and revision and preserves conflict outcomes", async () => {
+    invokeMock.mockResolvedValueOnce({ kind: "conflict", message: "changed on disk" });
+    await expect(saveEditorArtifact({
+      ref: artifactRef,
+      expectedIdentity: `sha256:${"a".repeat(64)}`,
+      expectedRevision: 1,
+      content: "edited",
+    })).resolves.toEqual({ kind: "conflict", message: "changed on disk" });
+    expect(invokeMock).toHaveBeenCalledWith("editor_artifact_save", {
+      request: {
+        ref: artifactRef,
+        expectedIdentity: `sha256:${"a".repeat(64)}`,
+        expectedRevision: 1,
+        content: "edited",
+      },
+    });
   });
 });
 

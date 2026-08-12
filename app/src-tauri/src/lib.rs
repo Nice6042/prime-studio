@@ -12,7 +12,7 @@ pub mod app_state;
 pub mod authority;
 mod bounded_io;
 pub mod browser;
-mod commands;
+pub mod commands;
 pub mod computer_use;
 pub mod harness;
 mod process_env_policy;
@@ -36,10 +36,12 @@ use bounded_io::{
 use browser::{
     BrowserBroker, BrowserIntentAdmission, BrowserIntentAdmissionRequest, BrowserSecurityStatus,
 };
+use commands::editor::{editor_artifact_open, editor_artifact_save, ArtifactAuthority};
 use commands::harness::{
     harness_attach_session, harness_bootstrap, harness_projection, harness_session_command,
 };
 use commands::settings::{get_layout_preferences, set_layout_preferences};
+use commands::usage::export_account_usage_csv;
 use computer_use::{ComputerUseBroker, ComputerUseReadinessProjection};
 use project_catalog::{CatalogSnapshot, ProjectCatalog};
 use provider_product::provider_product_snapshot_from_registry;
@@ -2624,6 +2626,7 @@ struct AppState {
     scheduler: SchedulerService,
     harness: app_state::HarnessState,
     project_catalog: ProjectCatalog,
+    artifacts: ArtifactAuthority,
 }
 
 impl AppState {
@@ -2643,6 +2646,7 @@ impl AppState {
             scheduler: SchedulerService::open(scheduler_state_path()),
             harness: app_state::HarnessState::default(),
             project_catalog: ProjectCatalog::new(project_catalog_path()),
+            artifacts: ArtifactAuthority::default(),
         }
     }
 }
@@ -3868,6 +3872,9 @@ pub fn run() {
             get_layout_preferences,
             set_layout_preferences,
             set_app_setting,
+            export_account_usage_csv,
+            editor_artifact_open,
+            editor_artifact_save,
             kernel_status,
             files_touched,
             pick_directory,

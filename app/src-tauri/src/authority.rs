@@ -278,6 +278,9 @@ pub enum TauriCommand {
     GetLayoutPreferences,
     SetLayoutPreferences,
     SetAppSetting,
+    ExportAccountUsageCsv,
+    EditorArtifactOpen,
+    EditorArtifactSave,
     KernelStatus,
     FilesTouched,
     PickDirectory,
@@ -287,7 +290,7 @@ pub enum TauriCommand {
     ComputerUseReadiness,
 }
 
-pub const ALL_TAURI_COMMANDS: [TauriCommand; 49] = [
+pub const ALL_TAURI_COMMANDS: [TauriCommand; 52] = [
     TauriCommand::StartSession,
     TauriCommand::AttachSession,
     TauriCommand::DetachSession,
@@ -330,6 +333,9 @@ pub const ALL_TAURI_COMMANDS: [TauriCommand; 49] = [
     TauriCommand::GetLayoutPreferences,
     TauriCommand::SetLayoutPreferences,
     TauriCommand::SetAppSetting,
+    TauriCommand::ExportAccountUsageCsv,
+    TauriCommand::EditorArtifactOpen,
+    TauriCommand::EditorArtifactSave,
     TauriCommand::KernelStatus,
     TauriCommand::FilesTouched,
     TauriCommand::PickDirectory,
@@ -391,6 +397,9 @@ impl TauriCommand {
             Self::GetLayoutPreferences => "get_layout_preferences",
             Self::SetLayoutPreferences => "set_layout_preferences",
             Self::SetAppSetting => "set_app_setting",
+            Self::ExportAccountUsageCsv => "export_account_usage_csv",
+            Self::EditorArtifactOpen => "editor_artifact_open",
+            Self::EditorArtifactSave => "editor_artifact_save",
             Self::KernelStatus => "kernel_status",
             Self::FilesTouched => "files_touched",
             Self::PickDirectory => "pick_directory",
@@ -439,6 +448,8 @@ impl TauriCommand {
             Self::HarnessAttachSession | Self::HarnessSessionCommand => {
                 CommandAuthority::VerifiedBroker
             }
+            Self::ExportAccountUsageCsv => CommandAuthority::SafetyControl,
+            Self::EditorArtifactOpen | Self::EditorArtifactSave => CommandAuthority::VerifiedBroker,
             Self::NoteAgent | Self::ProjectCatalogApply => CommandAuthority::LocalBookkeeping,
             Self::SendRpc => CommandAuthority::DynamicRawRpc,
             Self::GetProviderProductSnapshot

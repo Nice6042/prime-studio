@@ -29,6 +29,7 @@ import type {
   UsageRow,
   WorkspaceFile,
 } from "./types";
+import type { ArtifactOpenResult, ArtifactRef, ArtifactSaveRequest, ArtifactSaveResult } from "./entities/editor/types";
 
 // The versioned Harness projection is the only new integration surface.
 // Legacy session methods below remain isolated until verified activation.
@@ -495,6 +496,40 @@ export const accountUsage = (id: string, since?: number) =>
 /** Per-event usage rows for the last `days` days — the usage page's chart source. */
 export const accountUsageSeries = (id: string, days: number) =>
   safeInvoke<UsageRow[]>("account_usage_series", { id, days }, []);
+
+export type UsageCsvExportResult =
+  | Readonly<{ status: "cancelled" }>
+  | Readonly<{ status: "saved"; path: string; rows: number; bytes: number }>;
+
+function decodeUsageCsvExportResult(value: unknown): UsageCsvExportResult {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("usage export result is invalid");
+  const result = value as Record<string, unknown>;
+  if (result.status === "cancelled" && Reflect.ownKeys(result).length === 1) return Object.freeze({ status: "cancelled" });
+  if (result.status === "saved" && Reflect.ownKeys(result).length === 4 && typeof result.path === "string" && result.path.length > 0 && result.path.length <= 32_768 && Number.isSafeInteger(result.rows) && (result.rows as number) >= 0 && (result.rows as number) <= 100_000 && Number.isSafeInteger(result.bytes) && (result.bytes as number) >= 0 && (result.bytes as number) <= 8 * 1024 * 1024) {
+    return Object.freeze({ status: "saved", path: result.path, rows: result.rows as number, bytes: result.bytes as number });
+  }
+  throw new Error("usage export result is invalid");
+}
+
+export async function exportAccountUsageCsv(csv: string, rangeDays: 7 | 30 | 90): Promise<UsageCsvExportResult> {
+  if (typeof csv !== "string" || csv.length > 8 * 1024 * 1024 || ![7, 30, 90].includes(rangeDays)) throw new Error("usage export request is invalid");
+  return decodeUsageCsvExportResult(await strictInvoke<unknown>("export_account_usage_csv", { request: { csv, rangeDays } }));
+}
+
+function validArtifactRef(ref: ArtifactRef): boolean {
+  const id = /^[A-Za-z0-9_.:-]{1,128}$/;
+  return Boolean(ref && id.test(ref.brokerId) && id.test(ref.rootSessionId) && id.test(ref.artifactId) && Number.isSafeInteger(ref.revision) && ref.revision > 0);
+}
+
+export async function openEditorArtifact(artifactRef: ArtifactRef): Promise<ArtifactOpenResult> {
+  if (!validArtifactRef(artifactRef)) throw new Error("artifact reference is invalid");
+  return strictInvoke<ArtifactOpenResult>("editor_artifact_open", { request: { artifactRef } });
+}
+
+export async function saveEditorArtifact(request: ArtifactSaveRequest): Promise<ArtifactSaveResult> {
+  if (!validArtifactRef(request.ref) || request.expectedRevision !== request.ref.revision || !/^sha256:[0-9a-f]{64}$/.test(request.expectedIdentity) || request.content.length > 2 * 1024 * 1024 || request.content.includes("\0")) throw new Error("artifact save request is invalid");
+  return strictInvoke<ArtifactSaveResult>("editor_artifact_save", { request });
+}
 
 const USAGE_ROW_KEYS = ["ts", "provider", "cost", "input", "output", "cacheRead", "cacheWrite"] as const;
 const MAX_USAGE_ROWS = 100_000;

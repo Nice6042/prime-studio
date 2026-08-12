@@ -53,4 +53,22 @@ describe("EditorPane", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("changed on disk");
     expect(screen.getByRole("textbox", { name: "File content" })).toHaveValue("old changed");
   });
+
+  it("advances the expected native revision and identity after each exact save", async () => {
+    const onArtifactSave = vi.fn()
+      .mockResolvedValueOnce({ kind: "saved", revision: 2, identity: "sha256:second" })
+      .mockResolvedValueOnce({ kind: "saved", revision: 3, identity: "sha256:third" });
+    render(<EditorPane onClose={() => undefined} artifact={{ label: "notes.txt", ref: { brokerId: "b", rootSessionId: "s", artifactId: "a", revision: 1 }, identity: "sha256:first", content: "first", writable: true, diff: [] }} onArtifactSave={onArtifactSave} />);
+    await userEvent.click(screen.getByRole("tab", { name: "Edit" }));
+    const editor = screen.getByRole("textbox", { name: "File content" });
+    await userEvent.type(editor, " second");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await userEvent.type(editor, " third");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(onArtifactSave).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      expectedRevision: 2,
+      expectedIdentity: "sha256:second",
+      content: "first second third",
+    }));
+  });
 });

@@ -47,7 +47,7 @@ describe("AccountUsageSettings", () => {
   });
 
   it("renders an accessible SVG chart and exports a formula-safe truth table", async () => {
-    const onExportCsv = vi.fn(async (_csv: string, _range: 7 | 30 | 90) => undefined);
+    const onExportCsv = vi.fn(async (_csv: string, _range: 7 | 30 | 90) => ({ status: "saved" as const, path: "chosen.csv", rows: 2, bytes: 120 }));
     render(<AccountUsageSettings accounts={accounts} onExportCsv={onExportCsv} />);
     expect(await screen.findByRole("img", { name: /Daily cost over 7 days/ })).toHaveAttribute("data-chart", "account-usage");
     await userEvent.click(screen.getByRole("button", { name: "Export CSV" }));
@@ -56,5 +56,12 @@ describe("AccountUsageSettings", () => {
 
     expect(buildAccountUsageCsv([{ ts: 1, provider: "=HYPERLINK(\"x\")", cost: 1, input: 2, output: 3, cacheRead: 4, cacheWrite: 5 }]))
       .toContain("\"'=HYPERLINK(\"\"x\"\")\"");
+  });
+
+  it("reports native save-dialog cancellation explicitly", async () => {
+    const onExportCsv = vi.fn(async () => ({ status: "cancelled" as const }));
+    render(<AccountUsageSettings accounts={accounts} onExportCsv={onExportCsv} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Export CSV" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Export cancelled");
   });
 });

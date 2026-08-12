@@ -334,6 +334,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       onSetting={(key, value) => {
         void rpc.setAppSetting(key, value).then(setSettings).catch(() => undefined);
       }}
+      onExportUsageCsv={rpc.exportAccountUsageCsv}
     />{paletteOpen && <CommandPalette admissionConnected={admissionConnected} onRun={runCommand} onClose={() => setPaletteOpen(false)} restoreFocusTo={paletteOpener} chats={paletteChats} messages={paletteMessages} onOpenChat={openCatalogChat} onOpenMessage={(chatId) => openCatalogChat(chatId)} />}
     {createProjectOpen && <CreateProjectDialog onCancel={() => setCreateProjectOpen(false)} onCreate={(name, folderPath) => { createProject(name, folderPath); setCreateProjectOpen(false); }} />}</>;
   }
@@ -535,6 +536,9 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       />}
       editorContent={<EditorPane
         onClose={() => { changeLayout({ editorOpen: false }); setActiveSheet(null); }}
+        artifact={null}
+        onArtifactSave={rpc.saveEditorArtifact}
+        unsupportedReason="No identity-bound native or Harness artifact reference is available for this editor."
         canvas={canvas?.chatId === navigation.selectedChatId ? canvas : null}
         onCanvasApply={canvas ? (content) => {
           const revision = canvas.displayRevision + 1;

@@ -26,7 +26,7 @@ interface SettingsSharedProps {
   readonly onSetting?: (key: keyof AppSettings, value: string | null) => void;
   readonly accounts?: readonly Account[];
   readonly onAccountsChanged?: (accounts?: Account[]) => void;
-  readonly onExportUsageCsv?: (csv: string, rangeDays: 7 | 30 | 90) => Promise<void>;
+  readonly onExportUsageCsv?: (csv: string, rangeDays: 7 | 30 | 90) => Promise<Readonly<{ status: "cancelled" }> | Readonly<{ status: "saved"; path: string; rows: number; bytes: number }>>;
   readonly projectCatalog?: ProjectChatState;
   readonly catalogOperation?: WorkspaceOperationState;
   readonly onRestoreProject?: (projectId: string) => void;

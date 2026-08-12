@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ButtonHTMLAttributes } from "react";
 
 import { createControlBinding } from "../../contracts/studioOperations";
-import type { ArtifactRef } from "../../entities/editor/types";
+import type { ArtifactDocument, ArtifactSaveRequest, ArtifactSaveResult } from "../../entities/editor/types";
 import "./editor.css";
 
 export interface CanvasDocument {
@@ -11,32 +11,7 @@ export interface CanvasDocument {
   readonly content: string;
 }
 
-export interface StructuredDiffRow {
-  readonly kind: "context" | "add" | "delete";
-  readonly oldLine: number | null;
-  readonly newLine: number | null;
-  readonly text: string;
-}
-
-export interface ArtifactDocument {
-  readonly label: string;
-  readonly ref: ArtifactRef;
-  readonly identity: string;
-  readonly content: string;
-  readonly writable: boolean;
-  readonly diff: readonly StructuredDiffRow[];
-}
-
-export type ArtifactSaveResult =
-  | Readonly<{ kind: "saved"; revision: number; identity: string }>
-  | Readonly<{ kind: "conflict" | "error"; message: string }>;
-
-export interface ArtifactSaveRequest {
-  readonly ref: ArtifactRef;
-  readonly expectedRevision: number;
-  readonly expectedIdentity: string;
-  readonly content: string;
-}
+export type { ArtifactDocument, ArtifactSaveRequest, ArtifactSaveResult } from "../../entities/editor/types";
 
 const controls = {
   close: createControlBinding("editor.close", "layout.editor.close"),
@@ -50,27 +25,34 @@ function ControlButton({ binding, ...props }: ButtonHTMLAttributes<HTMLButtonEle
   return <button {...props} data-control-id={binding.controlId} data-action={binding.action} />;
 }
 
-export function EditorPane({ onClose, artifact, onArtifactSave, canvas, onCanvasApply }: {
+export function EditorPane({ onClose, artifact, onArtifactSave, canvas, onCanvasApply, unsupportedReason }: {
   readonly onClose: () => void;
   readonly artifact?: ArtifactDocument | null;
   readonly onArtifactSave?: (request: ArtifactSaveRequest) => Promise<ArtifactSaveResult>;
   readonly canvas?: CanvasDocument | null;
   readonly onCanvasApply?: (content: string) => void;
+  readonly unsupportedReason?: string;
 }) {
   const document = artifact ?? canvas ?? null;
   const [mode, setMode] = useState<"diff" | "edit">(artifact ? "diff" : "edit");
   const [content, setContent] = useState(document?.content ?? "");
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<{ kind: "status" | "error"; text: string } | null>(null);
+  const [savedRevision, setSavedRevision] = useState(artifact?.ref.revision ?? 0);
+  const [savedIdentity, setSavedIdentity] = useState(artifact?.identity ?? "");
+  const [baseline, setBaseline] = useState(document?.content ?? "");
 
   useEffect(() => {
     setMode(artifact ? "diff" : "edit");
     setContent(document?.content ?? "");
     setSaving(false);
     setNotice(null);
+    setSavedRevision(artifact?.ref.revision ?? 0);
+    setSavedIdentity(artifact?.identity ?? "");
+    setBaseline(document?.content ?? "");
   }, [artifact, canvas, document?.content]);
 
-  const dirty = Boolean(document && content !== document.content);
+  const dirty = Boolean(document && content !== baseline);
   const counts = useMemo(() => artifact?.diff.reduce((total, row) => ({ add: total.add + Number(row.kind === "add"), delete: total.delete + Number(row.kind === "delete") }), { add: 0, delete: 0 }) ?? { add: 0, delete: 0 }, [artifact]);
 
   const saveArtifact = async () => {
@@ -78,8 +60,13 @@ export function EditorPane({ onClose, artifact, onArtifactSave, canvas, onCanvas
     setSaving(true);
     setNotice(null);
     try {
-      const result = await onArtifactSave({ ref: artifact.ref, expectedRevision: artifact.ref.revision, expectedIdentity: artifact.identity, content });
-      if (result.kind === "saved") setNotice({ kind: "status", text: `Saved revision ${result.revision}` });
+      const result = await onArtifactSave({ ref: { ...artifact.ref, revision: savedRevision }, expectedRevision: savedRevision, expectedIdentity: savedIdentity, content });
+      if (result.kind === "saved") {
+        setSavedRevision(result.revision);
+        setSavedIdentity(result.identity);
+        setBaseline(content);
+        setNotice({ kind: "status", text: `Saved revision ${result.revision}` });
+      }
       else setNotice({ kind: "error", text: result.message });
     } catch {
       setNotice({ kind: "error", text: "Save failed. Your unsaved content is still here; retry after checking the file authority." });
@@ -99,7 +86,7 @@ export function EditorPane({ onClose, artifact, onArtifactSave, canvas, onCanvas
       {artifact && <ControlButton binding={controls.diff} type="button" role="tab" aria-selected={mode === "diff"} onClick={() => setMode("diff")}>Diff</ControlButton>}
       <ControlButton binding={controls.edit} type="button" role="tab" aria-selected={mode === "edit"} onClick={() => setMode("edit")}>{canvas ? "Canvas" : "Edit"}</ControlButton>
     </div>
-    {!document ? <div className="studio-editor-empty"><svg aria-hidden="true" width="32" height="32" viewBox="0 0 24 24"><path d="M4 4h16v16H4zM8 8h8M8 12h6M8 16h4" /></svg><strong>No verified file or Canvas revision</strong><p>Open an identity-bound file from Harness activity, or create a display-only Canvas revision from a parent response.</p></div>
+    {!document ? <div className="studio-editor-empty"><svg aria-hidden="true" width="32" height="32" viewBox="0 0 24 24"><path d="M4 4h16v16H4zM8 8h8M8 12h6M8 16h4" /></svg><strong>No verified file or Canvas revision</strong><p>{unsupportedReason ?? "Open an identity-bound file from Harness activity, or create a display-only Canvas revision from a parent response."}</p></div>
       : artifact && mode === "diff" ? <div className="studio-diff" role="table" aria-label={`Diff for ${artifact.label}`}>
         {artifact.diff.length === 0 ? <p className="studio-editor-zero">No structured changes were reported for this revision.</p> : artifact.diff.map((row, index) => <div role="row" className={`studio-diff-row studio-diff-${row.kind}`} key={`${index}:${row.oldLine}:${row.newLine}`}>
           <span role="cell" aria-label={row.oldLine == null ? "No old line" : `Old line ${row.oldLine}`}>{row.oldLine ?? ""}</span>
@@ -108,7 +95,7 @@ export function EditorPane({ onClose, artifact, onArtifactSave, canvas, onCanvas
           <code role="cell" data-diff-kind={row.kind}>{row.text || " "}</code>
         </div>)}
       </div> : <div className="studio-source-editor">
-        <div className="studio-editor-meta"><span>{artifact ? `Revision ${artifact.ref.revision}` : `Display revision ${canvas!.displayRevision}`}</span><span>{dirty ? "Unsaved changes" : "No unsaved changes"}</span></div>
+        <div className="studio-editor-meta"><span>{artifact ? `Revision ${savedRevision}` : `Display revision ${canvas!.displayRevision}`}</span><span>{dirty ? "Unsaved changes" : "No unsaved changes"}</span></div>
         <textarea aria-label={artifact ? "File content" : "Canvas content"} spellCheck={false} value={content} readOnly={Boolean(artifact && !artifact.writable)} onChange={(event) => { setContent(event.target.value.slice(0, 2 * 1024 * 1024)); setNotice(null); }} />
         {canvas && <p>Canvas changes affect Studio presentation only. Applying a revision does not rewrite Harness history.</p>}
         {artifact && !artifact.writable && <p role="status">This artifact is read-only because no verified write authority is available.</p>}

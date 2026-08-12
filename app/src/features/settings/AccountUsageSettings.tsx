@@ -55,7 +55,7 @@ function linePath(values: readonly number[], peak: number, width = 720, height =
 
 export function AccountUsageSettings({ accounts, onExportCsv, loadUsage = rpc.accountUsageSeriesStrict }: {
   readonly accounts: readonly Account[];
-  readonly onExportCsv?: (csv: string, rangeDays: WindowDays) => Promise<void>;
+  readonly onExportCsv?: (csv: string, rangeDays: WindowDays) => Promise<Readonly<{ status: "cancelled" }> | Readonly<{ status: "saved"; path: string; rows: number; bytes: number }>>;
   readonly loadUsage?: (accountId: string, days: WindowDays) => Promise<UsageRow[]>;
 }) {
   const [days, setDays] = useState<WindowDays>(7);
@@ -93,7 +93,7 @@ export function AccountUsageSettings({ accounts, onExportCsv, loadUsage = rpc.ac
   const exportCsv = async () => {
     if (!onExportCsv || loading) return;
     setNotice(null);
-    try { await onExportCsv(buildAccountUsageCsv(rows), days); setNotice("Usage CSV exported."); }
+    try { const result = await onExportCsv(buildAccountUsageCsv(rows), days); setNotice(result.status === "cancelled" ? "Export cancelled." : "Usage CSV exported."); }
     catch { setNotice("Export failed. Choose a writable destination and try again."); }
   };
 
