@@ -62,7 +62,9 @@ describe("Studio operation contract", () => {
     expect(validateControlBindings([
       createControlBinding("new-chat", "catalog.chat.create"),
       createControlBinding("voice", "composer.voice.start", "Voice capture is not implemented upstream."),
-    ])).toEqual({ valid: true, count: 2 });
+      createControlBinding("file-menu", "surface.popover.toggle"),
+      createControlBinding("queue-accordion", "surface.accordion.toggle"),
+    ])).toEqual({ valid: true, count: 4 });
 
     expect(() => validateControlBindings([
       { controlId: "missing-action", action: "" as StudioActionId, disabledReason: null },
@@ -74,7 +76,7 @@ describe("Studio operation contract", () => {
 
   it("catalogues all controls with a non-noop authority and a result contract", () => {
     const descriptors = Object.values(STUDIO_ACTIONS);
-    expect(descriptors.length).toBeGreaterThanOrEqual(80);
+    expect(descriptors).toHaveLength(121);
     expect(descriptors.every((descriptor) => String(descriptor.owner.kind) !== "noop")).toBe(true);
     expect(descriptors.every((descriptor) => descriptor.outcomes.length > 0)).toBe(true);
   });

@@ -69,6 +69,15 @@ usage and configuration remain in Settings.
   usable at narrow desktop sizes and 200% zoom.
 - ChatGPT Desktop and the supplied Prime Studio prototype are interaction references, not sources
   of code, branding, icons, copy, or proprietary assets. The implementation must remain original.
+- The owner-supplied `Prime Studio App Concept.zip` is the acceptance authority for product
+  topology, feature completeness, state coverage, control placement, visual tokens, and interaction
+  grammar. Its HTML and runtime source stay outside the repository and are never copied.
+- The package contains 13 settings destinations despite one handoff paragraph saying 12. The
+  implemented navigation is General, Appearance, Composer, Harness, Usage, Models, Accounts,
+  Tools, Git, Environments, Privacy & security, Keyboard shortcuts, and About.
+- Prototype-only no-ops, simulated timers/data, global context leakage, archive/delete conflation,
+  and pane-width violations are defects to replace with closed actions and truthful product state;
+  they are not fidelity requirements.
 
 ## Brand Commitments
 
@@ -90,6 +99,10 @@ usage and configuration remain in Settings.
   views covering the shell, parent chat, Harness overview, child detail, current-chat usage,
   activity, settings, and account usage. These are behavioral and visual references only and are
   not imported into the repository.
+- The exact reviewed package SHA-256 is
+  `7EE3AC5496A93A9EDAB444873DAEF3632E9684173AE315116DEA2A01531E77A9`.
+  Its reference README, HTML, and generic renderer hashes are recorded in the package-fidelity
+  contract so future audits can detect an accidental source change.
 - The installed Prime Harness exposes a daemon protocol with protocol/schema identity,
   capability negotiation, snapshots, event sequences, resident sessions, child-agent state,
   model catalogs, extension UI, and recovery semantics. The repository's older RPC assumptions

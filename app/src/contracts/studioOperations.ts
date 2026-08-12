@@ -25,6 +25,8 @@ export interface StudioActionPayloadMap {
   "layout.editor.resize": Readonly<{ width: number }>;
   "layout.editor.close": EmptyPayload;
   "overlay.topmost.close": EmptyPayload;
+  "surface.popover.toggle": Readonly<{ popoverId: string | null }>;
+  "surface.accordion.toggle": Readonly<{ accordionId: string }>;
   "route.workspace.open": EmptyPayload;
   "route.settings.open": Readonly<{ section?: string }>;
   "route.settings.back": EmptyPayload;
@@ -183,6 +185,7 @@ export const STUDIO_ACTIONS = Object.freeze({
   "layout.sidebar.toggle": R("layout_preferences"), "layout.sidebar.resize": R("layout_preferences"), "layout.sidebar.reset": R("layout_preferences"),
   "layout.inspector.toggle": R("layout_preferences"), "layout.inspector.resize": R("layout_preferences"), "layout.inspector.reset": R("layout_preferences"),
   "layout.editor.toggle": R("layout_preferences"), "layout.editor.resize": R("layout_preferences"), "layout.editor.close": R("layout_preferences"), "overlay.topmost.close": R(),
+  "surface.popover.toggle": R(), "surface.accordion.toggle": R(),
   "route.workspace.open": R(), "route.settings.open": R(), "route.settings.back": R(), "route.archived.open": R(), "route.external-docs.open": N("external_url"),
   "catalog.project.create": D("project_catalog"), "catalog.project.toggle": R("layout_preferences"), "catalog.chat.create": D("project_catalog"), "catalog.chat.select": R(),
   "catalog.chat.rename": D("project_catalog"), "catalog.chat.duplicate": D("project_catalog"), "catalog.chat.move": D("project_catalog"), "catalog.chat.pin-toggle": D("project_catalog"),
