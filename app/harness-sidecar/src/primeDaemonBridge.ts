@@ -23,6 +23,7 @@ interface DaemonHelloLike {
 }
 
 export interface DaemonClientPort {
+  readonly hello?: DaemonHelloLike;
   connect(timeoutMs?: number): Promise<void>;
   waitForHello(timeoutMs?: number): Promise<DaemonHelloLike>;
   request(command: Readonly<Record<string, unknown>>, timeoutMs?: number): Promise<unknown>;
@@ -76,7 +77,7 @@ export interface PrimeHarnessInspectorDetails {
 }
 
 interface BoundConnection {
-  readonly connection: DaemonConnectionPort;
+  connection: DaemonConnectionPort;
   sequence: number;
   initialized: boolean;
   publishedUpstreamSequence: number | null;
@@ -431,30 +432,55 @@ export class PrimeDaemonBridge {
   }
 
   async negotiate(): Promise<DaemonHelloLike> {
-    if (this.#hello) { await this.#runtimeClosure?.verify(); return this.#hello; }
+    await this.#runtimeClosure?.verify();
     const compatibility = decideCompatibility(this.#identity);
     if (compatibility.status !== "ready" && compatibility.status !== "degraded") throw new Error("runtime identity is incompatible");
-    await this.#client.connect(5_000);
+    if (!this.#hello) await this.#client.connect(5_000);
     try {
-      const hello = await this.#client.waitForHello(5_000);
-      if (hello.protocol.name !== this.#identity.protocolName || hello.protocol.version !== this.#identity.protocolVersion) throw new Error("daemon protocol mismatch");
-      if (hello.schemaRevision !== this.#identity.schemaRevision || hello.schemaId !== this.#identity.schemaId) throw new Error("daemon schema mismatch");
-      if (hello.appVersion !== this.#identity.packageVersion) throw new Error("daemon version mismatch");
-      if (this.#expectedSocketPath && hello.socketPath.toLocaleLowerCase("en-US") !== this.#expectedSocketPath.toLocaleLowerCase("en-US")) throw new Error("daemon socket identity mismatch");
-      if (this.#expectedDaemonEntrypoint) {
-        const observed = hello.runtime?.entrypointPath;
-        if (!observed || resolve(observed).toLocaleLowerCase("en-US") !== this.#expectedDaemonEntrypoint.toLocaleLowerCase("en-US")) throw new Error("daemon executable identity mismatch");
+      const hello = this.#client.hello ?? await this.#client.waitForHello(5_000);
+      this.#validateHello(hello);
+      if (this.#hello && this.#hello.supervisorGeneration !== hello.supervisorGeneration) {
+        await Promise.all([...this.#connections.entries()].map(async ([activeSessionId, bound]) => {
+          bound.unsubscribe?.();
+          await bound.connection.dispose();
+          bound.connection = await this.#attachPort(this.#client, activeSessionId);
+          delete bound.unsubscribe;
+          const unsubscribe = bound.connection.subscribe?.(() => {
+            bound.eventRevision += 1n;
+            bound.dirty = true;
+          });
+          if (unsubscribe) bound.unsubscribe = unsubscribe;
+          bound.dirty = true;
+        }));
       }
-      if (!hello.supervisorGeneration || !/^[!-~]{1,128}$/u.test(hello.supervisorGeneration)) throw new Error("daemon generation is unavailable");
-      if (hello.serverCapabilities.length > 128 || new Set(hello.serverCapabilities).size !== hello.serverCapabilities.length) throw new Error("daemon capabilities are invalid");
-      if (hello.serverCapabilities.some((item) => typeof item !== "string" || !KNOWN_SERVER_CAPABILITIES.has(item))) throw new Error("daemon capability is unknown");
-      if (REQUIRED_SERVER_CAPABILITIES.some((item) => !hello.serverCapabilities.includes(item))) throw new Error("daemon capability is missing");
       this.#hello = Object.freeze({ ...hello, serverCapabilities: Object.freeze([...hello.serverCapabilities]) });
       return this.#hello;
     } catch (error) {
+      await Promise.all([...this.#connections.values()].map(async (bound) => {
+        bound.unsubscribe?.();
+        await bound.connection.dispose().catch(() => undefined);
+      }));
+      this.#connections.clear();
+      this.#operationDispatchers.clear();
+      this.#hello = null;
       this.#client.close();
       throw error;
     }
+  }
+
+  #validateHello(hello: DaemonHelloLike): void {
+    if (hello.protocol.name !== this.#identity.protocolName || hello.protocol.version !== this.#identity.protocolVersion) throw new Error("daemon protocol mismatch");
+    if (hello.schemaRevision !== this.#identity.schemaRevision || hello.schemaId !== this.#identity.schemaId) throw new Error("daemon schema mismatch");
+    if (hello.appVersion !== this.#identity.packageVersion) throw new Error("daemon version mismatch");
+    if (this.#expectedSocketPath && hello.socketPath.toLocaleLowerCase("en-US") !== this.#expectedSocketPath.toLocaleLowerCase("en-US")) throw new Error("daemon socket identity mismatch");
+    if (this.#expectedDaemonEntrypoint) {
+      const observed = hello.runtime?.entrypointPath;
+      if (!observed || resolve(observed).toLocaleLowerCase("en-US") !== this.#expectedDaemonEntrypoint.toLocaleLowerCase("en-US")) throw new Error("daemon executable identity mismatch");
+    }
+    if (!hello.supervisorGeneration || !/^[!-~]{1,128}$/u.test(hello.supervisorGeneration)) throw new Error("daemon generation is unavailable");
+    if (hello.serverCapabilities.length > 128 || new Set(hello.serverCapabilities).size !== hello.serverCapabilities.length) throw new Error("daemon capabilities are invalid");
+    if (hello.serverCapabilities.some((item) => typeof item !== "string" || !KNOWN_SERVER_CAPABILITIES.has(item))) throw new Error("daemon capability is unknown");
+    if (REQUIRED_SERVER_CAPABILITIES.some((item) => !hello.serverCapabilities.includes(item))) throw new Error("daemon capability is missing");
   }
 
   async bootstrap(): Promise<ScenarioResponse> {

@@ -207,6 +207,32 @@ test("refresh reports a generation transition and bootstrap publishes the replac
   assert.equal(boot.type === "bootstrap_result" ? boot.sessions[0]?.cursor.sequence : -1, 1);
 });
 
+test("generation recovery revalidates the live daemon hello before rebootstrap", async () => {
+  const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
+  let eventGeneration = "event-generation-1";
+  let upstreamSequence = 4;
+  const validHello = (supervisorGeneration: string) => ({ type: "daemon_hello" as const, socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration, clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] });
+  let liveHello = validHello("supervisor-1");
+  const state = { activeSessionId: "root", cwd: "C:\\work", thinkingLevel: "high", serviceTier: "auto", availableThinkingLevels: [], isStreaming: false, isCompacting: false, isBashRunning: false, retryAttempt: 0, steeringMode: "all", followUpMode: "all", sessionId: "chat", leafId: null, autoCompactionEnabled: true, messageCount: 0, sessionActions: {}, compactionCount: 0, goal: {}, scopedModels: [], activeToolNames: [] };
+  const connection = () => ({ async getInitialSnapshot() { return { state, messages: [], children: [], lastEventCursor: { generation: eventGeneration, sequence: upstreamSequence } }; }, async getState() { return state; }, async getMessages() { return []; }, async getQueue() { return {}; }, async getResourceSnapshot() { return {}; }, async getSessionStats() { return { tokens: {}, cost: 0 }; }, async getToolDefinition() { return undefined; }, async prompt() {}, async steer() {}, async followUp() {}, async abort() {}, async dispose() {} });
+  const client = {
+    get hello() { return liveHello; }, async connect() {}, async waitForHello() { return liveHello; },
+    async request(command: { type: string }) { return { type: "response", command: command.type, success: true, data: { sessions: [{ activeSessionId: "root", isSessionActive: true }] } }; }, close() {},
+  };
+  const bridge = new PrimeDaemonBridge({
+    identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
+    client, attach: async () => connection(),
+  });
+  const first = await bridge.attach("root");
+  eventGeneration = "event-generation-2";
+  upstreamSequence = 1;
+  liveHello = validHello("supervisor-2");
+  const refresh = await bridge.handle({ type: "refresh_session", sessionId: "root", knownCursor: first.cursor });
+  assert.equal(refresh.type === "error" ? refresh.code : "", "generation_changed");
+  liveHello = { ...validHello("supervisor-2"), schemaRevision: 99 };
+  await assert.rejects(() => bridge.bootstrap(), /schema mismatch/u);
+});
+
 test("full operation catalog is closed and unsupported upstream operations are explicit", async () => {
   const { STUDIO_HARNESS_ACTIONS, StudioHarnessOperationDispatcher, dispatchStudioHarnessOperation } = await import("../src/studioHarnessOperations.js");
   assert.ok(STUDIO_HARNESS_ACTIONS.includes("harness.session.prompt"));
