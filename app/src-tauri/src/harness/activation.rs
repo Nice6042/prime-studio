@@ -72,7 +72,7 @@ const PRODUCTION_RESOURCE_PINS: &[(&str, &str)] = &[
     ),
     (
         "primeDaemonBridge.js",
-        "sha256:606e036cc4a29f024cecfb2a8a6216b1b2deaf617ae29bb2e82fbdfb322b7594",
+        "sha256:56cf16b2a8e2e350825db7034ea1d660caf769573a90c278b4468ff7fe6c7169",
     ),
     (
         "redaction.js",

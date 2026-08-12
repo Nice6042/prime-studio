@@ -8,6 +8,7 @@ import { discoverRuntime, type RuntimeIdentity } from "./runtimeDiscovery.js";
 import { loadReviewedPrimeAdapter } from "./reviewedPrimeAdapter.js";
 import { parseStudioHarnessOperation, StudioHarnessOperationDispatcher, type StudioHarnessOperationOutcome } from "./studioHarnessOperations.js";
 import type { RuntimeClosureLock } from "./runtimeClosure.js";
+import { lockVerifiedRuntimeClosure } from "./runtimeClosure.js";
 
 interface DaemonHelloLike {
   readonly type: "daemon_hello";
@@ -769,24 +770,30 @@ export async function loadVerifiedPrimeDaemonBridge(packageRoot: string): Promis
   const daemonDigest = `sha256:${createHash("sha256").update(daemonBytes).digest("hex")}`;
   const { DAEMON_V7_SCHEMA13_PROFILE } = await import("./profiles/daemon-v7-schema13.js");
   if (daemonDigest !== DAEMON_V7_SCHEMA13_PROFILE.daemonEntrypointDigest) throw new Error("daemon entrypoint identity mismatch");
-  const namespace = await loadReviewedPrimeAdapter();
-  const Client = namespace.DaemonClient;
-  const Connection = namespace.DaemonAgentConnection;
-  const socket = namespace.defaultDaemonSocketPath;
-  if (typeof Client !== "function" || typeof Connection !== "function" || typeof socket !== "function") {
-    throw new Error("runtime bridge exports are unavailable");
+  const runtimeClosure = await lockVerifiedRuntimeClosure(root);
+  try {
+    const namespace = await loadReviewedPrimeAdapter();
+    const Client = namespace.DaemonClient;
+    const Connection = namespace.DaemonAgentConnection;
+    const socket = namespace.defaultDaemonSocketPath;
+    if (typeof Client !== "function" || typeof Connection !== "function" || typeof socket !== "function") {
+      throw new Error("runtime bridge exports are unavailable");
+    }
+    const socketPath = (socket as () => string)();
+    if (typeof socketPath !== "string" || socketPath.length < 1 || socketPath.length > 4096) {
+      throw new Error("daemon socket path is invalid");
+    }
+    const client = new (Client as new (path: string) => DaemonClientPort)(socketPath);
+    return new PrimeDaemonBridge({
+      identity,
+      client,
+      runtimeClosure,
+      expectedSocketPath: socketPath,
+      expectedDaemonEntrypoint: daemonEntrypoint,
+      attach: async (daemonClient, activeSessionId) => (Connection as unknown as { attach(client: DaemonClientPort, session: string, options: object): Promise<DaemonConnectionPort> }).attach(daemonClient, activeSessionId, { supportsExtensionUi: true }),
+    });
+  } catch (error) {
+    await runtimeClosure.close();
+    throw error;
   }
-  const socketPath = (socket as () => string)();
-  if (typeof socketPath !== "string" || socketPath.length < 1 || socketPath.length > 4096) {
-    throw new Error("daemon socket path is invalid");
-  }
-  let client: DaemonClientPort;
-  client = new (Client as new (path: string) => DaemonClientPort)(socketPath);
-  return new PrimeDaemonBridge({
-    identity,
-    client,
-    expectedSocketPath: socketPath,
-    expectedDaemonEntrypoint: daemonEntrypoint,
-    attach: async (daemonClient, activeSessionId) => (Connection as unknown as { attach(client: DaemonClientPort, session: string, options: object): Promise<DaemonConnectionPort> }).attach(daemonClient, activeSessionId, { supportsExtensionUi: true }),
-  });
 }

@@ -2713,6 +2713,10 @@ fn project_catalog_apply(
     expected_revision: u64,
     command: project_catalog::ProjectChatCommand,
 ) -> Result<CatalogSnapshot, String> {
+    let coordinator = state.harness.resident_transaction();
+    let _transaction = coordinator
+        .lock()
+        .map_err(|_| "Catalog transaction is unavailable".to_owned())?;
     state
         .project_catalog
         .apply(expected_revision, command)
