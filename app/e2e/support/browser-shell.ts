@@ -63,6 +63,7 @@ export const test = base.extend<ShellFixtures>({
         inspectorWidth: 384,
         editorOpen: false,
         editorWidth: 400,
+        expandedProjectIds: ["project:personal"],
       };
       let artifactRevision = 1;
       let artifactIdentity = `sha256:${"a".repeat(64)}`;
