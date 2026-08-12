@@ -1,7 +1,8 @@
 # Prime Studio Package Fidelity Contract
 
-**Status:** authoritative implementation acceptance contract  
-**Package:** `Prime Studio App Concept.zip`  
+**Status:** authoritative implementation acceptance contract
+
+**Package:** `Prime Studio App Concept.zip`
 **Package SHA-256:** `7EE3AC5496A93A9EDAB444873DAEF3632E9684173AE315116DEA2A01531E77A9`
 
 ## Source boundary
