@@ -12,8 +12,10 @@ pub use super::projections::{BootProjection, ProjectionFreshness, RootSessionPro
 use super::recovery::{RecoveredSession, RecoveryRecord};
 use super::sidecar::{validate_root_snapshot, HarnessError, SidecarHandle};
 
+#[cfg(feature = "test-support-bin")]
 const TEST_RUNTIME_DIGEST: &str =
     "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+#[cfg(feature = "test-support-bin")]
 const TEST_PROFILE: &str = "daemon-v7-schema13";
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
