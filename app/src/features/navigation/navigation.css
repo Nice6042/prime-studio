@@ -39,6 +39,9 @@
 .chat-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-working, .chat-unread { margin-inline-start: auto; inline-size: 7px; block-size: 7px; border-radius: 50%; background: var(--accent, #8b7cf6); }
 .chat-unread { background: currentColor; }
+.chat-status { margin-inline-start: auto; overflow: hidden; max-inline-size: 88px; color: #e2b34e; font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
+.chat-status-failed, .chat-status-disconnected { color: #ff8f93; }
+.chat-status-stopped { color: #9a9aa6; }
 .project-archived { display: flex; align-items: center; gap: 9px; inline-size: 100%; min-block-size: 34px; margin-block-start: 12px; padding: 7px 8px; border: 0; border-radius: 7px; color: #9a9aa6; background: transparent; font: inherit; }
 .project-archived svg { inline-size: 14px; }
 .project-archived:hover { color: #c9c9d1; background: #1d1d22; }

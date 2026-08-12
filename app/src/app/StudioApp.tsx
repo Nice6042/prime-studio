@@ -27,7 +27,7 @@ import { SettingsShell } from "../features/settings/SettingsShell";
 import { ArchivedCatalogSettings } from "../features/settings/ArchivedCatalogSettings";
 import { CommandPalette } from "../features/command-palette/CommandPalette";
 import type { PaletteChat, PaletteMessage } from "../features/command-palette/searchIndex";
-import { studioCommands, type StudioCommandId } from "../entities/commands/commandRegistry";
+import { operationForStudioCommand, shortcutStudioCommand, studioCommands, type StudioCommandId } from "../entities/commands/commandRegistry";
 import { EditorPane } from "../features/editor/EditorPane";
 import type { ArtifactDocument } from "../entities/editor/types";
 import type { StudioOperation, StudioOperationOutcome } from "../contracts/studioOperations";
@@ -100,6 +100,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     inspectorWidth: 384,
     editorOpen: false,
     editorWidth: 400,
+    expandedProjectIds: [],
   });
   const [query, setQuery] = useState("");
   const [settings, setSettings] = useState<AppSettings>({});
@@ -160,7 +161,10 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   useEffect(() => {
     let active = true;
     void rpc.getLayoutPreferences().then((preferences) => {
-      if (active) setLayout(preferences);
+      if (active) {
+        setLayout(preferences);
+        setExpandedProjectIds(new Set(preferences.expandedProjectIds));
+      }
     });
     return () => { active = false; };
   }, []);
@@ -478,7 +482,12 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         else if (operation.payload.popoverId === null) setCreateProjectOpen(false);
         else return { status: "unavailable", reason: `Popover ${operation.payload.popoverId} is unavailable.` };
         break;
-      case "catalog.project.toggle": setExpandedProjectIds((current) => { const next = new Set(current); if (next.has(operation.payload.projectId)) next.delete(operation.payload.projectId); else next.add(operation.payload.projectId); return next; }); break;
+      case "catalog.project.toggle": {
+        const next = new Set(expandedProjectIds);
+        if (next.has(operation.payload.projectId)) next.delete(operation.payload.projectId); else next.add(operation.payload.projectId);
+        setExpandedProjectIds(next);
+        return changeLayout({ expandedProjectIds: [...next].sort() });
+      }
       case "catalog.chat.select": store.dispatch({ type: "project-chat/command", command: { type: "selection.select-chat", projectId: operation.payload.projectId, chatId: operation.payload.chatId } }); break;
       case "conversation.user-edit.start":
       case "conversation.user-edit.cancel":
@@ -642,15 +651,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const runCommand = (id: StudioCommandId) => {
     const command = studioCommands.find((candidate) => candidate.id === id);
     if (!command) return;
-    const operation: StudioOperation = id === "chat.new" ? { action: "catalog.chat.create", payload: { projectId: store.getSnapshot().projectCatalog.selectedProjectId } }
-      : id === "project.new" ? { action: "surface.popover.toggle", payload: { popoverId: "create-project" } }
-        : id === "archived.open" ? { action: "route.archived.open", payload: {} }
-          : id === "settings.open" ? { action: "route.settings.open", payload: {} }
-            : id === "settings.usage" ? { action: "usage.account.open", payload: {} }
-              : id === "sidebar.toggle" ? { action: "layout.sidebar.toggle", payload: {} }
-                : id === "inspector.toggle" ? { action: "layout.inspector.toggle", payload: {} }
-                  : { action: "palette.open", payload: {} };
-    void dispatchOperation(operation);
+    void dispatchOperation(operationForStudioCommand(command, store.getSnapshot().projectCatalog.selectedProjectId));
   };
 
   const runTitleOperation = (operation: StudioOperation) => {
@@ -663,11 +664,10 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.isComposing || event.defaultPrevented || hasOpenStudioOverlay() || !event.ctrlKey || event.altKey || event.shiftKey) return;
-      const key = event.key.toLocaleLowerCase();
-      const command = key === "k" ? "palette.open" : key === "," ? "settings.open" : key === "b" ? "sidebar.toggle" : key === "j" ? "inspector.toggle" : key === "n" ? "chat.new" : null;
+      const command = shortcutStudioCommand(event);
       if (!command) return;
       event.preventDefault();
-      runCommand(command);
+      runCommand(command.id);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

@@ -646,12 +646,13 @@ const DEFAULT_LAYOUT: LayoutPreferencesV1 = Object.freeze({
   inspectorWidth: 384,
   editorOpen: false,
   editorWidth: 400,
+  expandedProjectIds: [],
 });
 
 function decodeLayoutPreferences(value: unknown): LayoutPreferencesV1 {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid layout preferences.");
   const source = value as Record<string, unknown>;
-  const keys = ["schemaVersion", "sidebarOpen", "sidebarWidth", "inspectorOpen", "inspectorWidth", "editorOpen", "editorWidth"];
+  const keys = ["schemaVersion", "sidebarOpen", "sidebarWidth", "inspectorOpen", "inspectorWidth", "editorOpen", "editorWidth", "expandedProjectIds"];
   const actual = Object.keys(source).sort();
   if (actual.length !== keys.length || actual.some((key, index) => key !== [...keys].sort()[index])) throw new Error("Invalid layout preferences.");
   const width = (candidate: unknown, minimum: number, maximum: number) => {
@@ -659,6 +660,8 @@ function decodeLayoutPreferences(value: unknown): LayoutPreferencesV1 {
     return candidate as number;
   };
   if (source.schemaVersion !== 1 || typeof source.sidebarOpen !== "boolean" || typeof source.inspectorOpen !== "boolean" || typeof source.editorOpen !== "boolean") throw new Error("Invalid layout preferences.");
+  if (!Array.isArray(source.expandedProjectIds) || source.expandedProjectIds.length > 100 || source.expandedProjectIds.some((id) => typeof id !== "string" || id.length === 0 || id.length > 160 || /[\u0000-\u001f\u007f-\u009f]/u.test(id))) throw new Error("Invalid layout preferences.");
+  const expandedProjectIds = Array.from(new Set(source.expandedProjectIds));
   return Object.freeze({
     schemaVersion: 1,
     sidebarOpen: source.sidebarOpen,
@@ -667,6 +670,7 @@ function decodeLayoutPreferences(value: unknown): LayoutPreferencesV1 {
     inspectorWidth: width(source.inspectorWidth, 300, 600),
     editorOpen: source.editorOpen,
     editorWidth: width(source.editorWidth, 280, 600),
+    expandedProjectIds: Object.freeze(expandedProjectIds),
   });
 }
 

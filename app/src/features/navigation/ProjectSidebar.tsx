@@ -161,6 +161,7 @@ export function ProjectSidebar({
                 type="button"
                 {...controlBinding(`sidebar-chat-${chat.id}`, "catalog.chat.select")}
                 className="chat-row"
+                data-session-status={chat.status}
                 aria-label={`${chat.title}${state}${unread}`}
                 aria-current={chat.selected ? "page" : undefined}
                 onClick={() => onSelectChat(chat.id)}
@@ -168,6 +169,7 @@ export function ProjectSidebar({
                 <NavigationIcon kind="chat" />
                 <span className="chat-title">{chat.title}</span>
                 {chat.status === "working" && <span className="chat-working" aria-hidden="true" />}
+                {chat.status !== "idle" && chat.status !== "working" && <span className={`chat-status chat-status-${chat.status}`}>{chat.status}</span>}
                 {chat.unread && <span className="chat-unread" aria-hidden="true" />}
               </button>
             </div>;

@@ -92,4 +92,15 @@ describe("workspace layout solver", () => {
       centerWidth: 740,
     });
   });
+
+  it.each([640, 820, 1280, 1600])("keeps primary center geometry valid at the required %ipx viewport", (viewport) => {
+    const layout = solveLayout({
+      viewport,
+      sidebar: { open: true, preferred: 264 },
+      inspector: { open: true, preferred: 384 },
+      editor: { open: true, preferred: 400 },
+    });
+    expect(layout.centerWidth).toBeGreaterThanOrEqual(viewport < 760 ? 0 : 340);
+    expect(layout.editor.width).toBeLessThanOrEqual(Math.max(400, Math.floor(viewport * 0.46)));
+  });
 });

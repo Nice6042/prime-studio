@@ -24,6 +24,7 @@ describe("ProjectSidebar", () => {
 
     expect(screen.getByRole("button", { name: /Prime Studio/i })).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("button", { name: /Harness integration.*working/i })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: /Harness integration.*working/i })).toHaveAttribute("data-session-status", "working");
     expect(screen.getByRole("button", { name: /Release checks.*unread/i })).toBeVisible();
 
     await userEvent.click(screen.getByRole("button", { name: /Release checks.*unread/i }));

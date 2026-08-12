@@ -313,6 +313,8 @@ export interface LayoutPreferencesV1 {
   readonly inspectorWidth: number;
   readonly editorOpen: boolean;
   readonly editorWidth: number;
+  /** Durable disclosure state, bounded and owned by the local Studio shell. */
+  readonly expandedProjectIds: readonly string[];
 }
 
 /** Read-only scheduler availability projected by the native authority. */

@@ -19,6 +19,8 @@ pub(crate) struct LayoutPreferencesV1 {
     inspector_width: u16,
     editor_open: bool,
     editor_width: u16,
+    #[serde(default)]
+    expanded_project_ids: Vec<String>,
 }
 
 impl Default for LayoutPreferencesV1 {
@@ -31,6 +33,7 @@ impl Default for LayoutPreferencesV1 {
             inspector_width: 384,
             editor_open: false,
             editor_width: 400,
+            expanded_project_ids: Vec::new(),
         }
     }
 }
@@ -43,6 +46,11 @@ impl LayoutPreferencesV1 {
         self.sidebar_width = self.sidebar_width.clamp(210, 380);
         self.inspector_width = self.inspector_width.clamp(300, 600);
         self.editor_width = self.editor_width.clamp(280, 600);
+        self.expanded_project_ids
+            .retain(|id| !id.is_empty() && id.len() <= 160 && !id.chars().any(char::is_control));
+        self.expanded_project_ids.sort();
+        self.expanded_project_ids.dedup();
+        self.expanded_project_ids.truncate(100);
         self
     }
 }
@@ -191,11 +199,20 @@ mod tests {
             inspector_width: u16::MAX,
             editor_open: true,
             editor_width: 0,
+            expanded_project_ids: vec![
+                "project-b".to_owned(),
+                "project-a".to_owned(),
+                "project-a".to_owned(),
+            ],
         }
         .normalized();
         assert_eq!(normalized.sidebar_width, 210);
         assert_eq!(normalized.inspector_width, 600);
         assert_eq!(normalized.editor_width, 280);
+        assert_eq!(
+            normalized.expanded_project_ids,
+            vec!["project-a", "project-b"]
+        );
         assert_eq!(
             LayoutPreferencesV1 {
                 schema_version: 2,

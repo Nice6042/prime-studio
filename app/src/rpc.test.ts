@@ -468,6 +468,7 @@ describe("settings RPC", () => {
       inspectorWidth: 384,
       editorOpen: false,
       editorWidth: 400,
+      expandedProjectIds: ["project-a", "project-b"],
     };
     invokeMock.mockResolvedValueOnce(layout).mockResolvedValueOnce(layout);
 
@@ -490,6 +491,7 @@ describe("settings RPC", () => {
       inspectorWidth: 384,
       editorOpen: false,
       editorWidth: 400,
+      expandedProjectIds: [],
     })).rejects.toThrow(/layout preferences/i);
   });
 });

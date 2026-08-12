@@ -1,22 +1,25 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import type { StudioOperation } from "../../contracts/studioOperations";
+import { operationForStudioCommand, studioCommands, type StudioCommandId } from "../../entities/commands/commandRegistry";
 import { usePopoverSurface } from "../../surfaceEscape";
 import { controlBinding } from "../conversation/controlBinding";
 
-const menus: readonly Readonly<{ label: string; items: readonly Readonly<{ label: string; hint?: string; operation: StudioOperation }>[] }>[] = [
-  { label: "File", items: [
-    { label: "New chat", hint: "Ctrl+N", operation: { action: "catalog.chat.create", payload: { projectId: "" } } },
-    { label: "Settings", hint: "Ctrl+,", operation: { action: "route.settings.open", payload: {} } },
-  ] },
+type MenuItem = Readonly<{ label: string; hint?: string; operation: StudioOperation }>;
+
+function commandMenuItem(id: StudioCommandId, label?: string): MenuItem {
+  const command = studioCommands.find((candidate) => candidate.id === id);
+  if (!command) throw new Error(`Missing Studio command ${id}.`);
+  return { label: label ?? command.label, hint: command.shortcuts[0], operation: operationForStudioCommand(command, "") };
+}
+
+const menus: readonly Readonly<{ label: string; items: readonly MenuItem[] }>[] = [
+  { label: "File", items: [commandMenuItem("chat.new"), commandMenuItem("settings.open", "Settings")] },
   { label: "Edit", items: [
     { label: "Undo", hint: "Ctrl+Z", operation: { action: "history.undo", payload: {} } },
     { label: "Redo", hint: "Ctrl+Y", operation: { action: "history.redo", payload: {} } },
   ] },
-  { label: "View", items: [
-    { label: "Toggle sidebar", hint: "Ctrl+B", operation: { action: "layout.sidebar.toggle", payload: {} } },
-    { label: "Toggle Harness", hint: "Ctrl+J", operation: { action: "layout.inspector.toggle", payload: {} } },
-  ] },
+  { label: "View", items: [commandMenuItem("sidebar.toggle", "Toggle sidebar"), commandMenuItem("inspector.toggle")] },
   { label: "Window", items: [
     { label: "Minimize", operation: { action: "window.minimize", payload: {} } },
     { label: "Maximize", operation: { action: "window.maximize-toggle", payload: {} } },

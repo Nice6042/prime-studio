@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { studioCommands } from "./commandRegistry";
+import { operationForStudioCommand, shortcutStudioCommand, studioCommands } from "./commandRegistry";
 
 describe("studio command registry", () => {
   it("has unique IDs and shortcuts", () => {
@@ -12,5 +12,14 @@ describe("studio command registry", () => {
   it("keeps durable chat creation available without a live Harness session", () => {
     const create = studioCommands.find((command) => command.id === "chat.new")!;
     expect(create.availability({ admissionConnected: false })).toEqual({ enabled: true });
+  });
+
+  it("derives the menu, palette, and shortcut operation from one command definition", () => {
+    const command = shortcutStudioCommand({ ctrlKey: true, metaKey: false, altKey: false, shiftKey: false, key: "n" });
+    expect(command?.id).toBe("chat.new");
+    expect(operationForStudioCommand(command!, "project-current")).toEqual({
+      action: "catalog.chat.create",
+      payload: { projectId: "project-current" },
+    });
   });
 });

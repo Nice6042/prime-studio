@@ -24,4 +24,13 @@ describe("editor store", () => {
     const state = reduceEditorState(createEditorState(), { type: "canvas/open", chatId: "chat-1", messageId: "message-1", displayRevision: 1, content: "draft" });
     expect(state.tabs[0]).toMatchObject({ kind: "canvas", writable: true, brokerRef: null });
   });
+
+  it("restores a draft only for its exact resident session and artifact identity", () => {
+    let state = reduceEditorState(createEditorState(), { type: "artifact/open", ref: artifact, label: "file.ts", content: "first", identity: "sha256:one", writable: true });
+    state = reduceEditorState(state, { type: "buffer/change", tabId: state.activeTabId!, content: "first draft" });
+    state = reduceEditorState(state, { type: "artifact/open", ref: { ...artifact, rootSessionId: "session-2" }, label: "file.ts", content: "second", identity: "sha256:two", writable: true });
+    const artifacts = state.tabs.filter((tab) => tab.kind === "artifact");
+    expect(artifacts.find((tab) => tab.ref.rootSessionId === "session-1")?.content).toBe("first draft");
+    expect(artifacts.find((tab) => tab.ref.rootSessionId === "session-2")?.content).toBe("second");
+  });
 });
