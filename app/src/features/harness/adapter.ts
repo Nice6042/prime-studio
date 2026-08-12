@@ -1,3 +1,5 @@
+import type { StudioOperation, StudioOperationOutcome } from "../../contracts/studioOperations";
+
 export type HarnessActivityKind = "agent" | "tool" | "file" | "system";
 
 export interface HarnessContextWindow {
@@ -99,4 +101,3 @@ export function compactTokenCount(value: number): string {
   const digits = value >= 100_000 ? 0 : 1;
   return `${(value / 1_000).toFixed(digits).replace(/\.0$/, "")}k`;
 }
-import type { StudioOperation, StudioOperationOutcome } from "../../contracts/studioOperations";
