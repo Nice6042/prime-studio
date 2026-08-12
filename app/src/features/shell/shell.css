@@ -81,9 +81,14 @@
   .studio-titlebar > strong { flex: none; max-inline-size: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .studio-title-menus, .studio-title-current { display: none; }
   .studio-titlebar-actions { display: flex; min-inline-size: 0; overflow: hidden; }
+  .studio-command-trigger { flex: none; min-inline-size: 30px; }
   .studio-window-controls { flex: none; margin-inline-start: auto; margin-inline-end: -8px; }
   .studio-window-controls > button { min-inline-size: 36px; }
   .studio-statusbar { min-block-size: 24px; overflow-x: auto; overflow-y: hidden; white-space: nowrap; scrollbar-width: thin; }
   .studio-statusbar > * { flex: none; }
   .studio-statusbar-spacer { display: none; }
+}
+
+@media (max-width: 400px) {
+  .studio-titlebar > strong { display: none; }
 }
