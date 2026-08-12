@@ -6,12 +6,26 @@ that a production-ready package was released.
 
 ## [Unreleased]
 
-This is an admission-only development snapshot, not a working Prime Studio release. Production
-starts with elevated effect classes unavailable, and Prime session process construction fails
-closed before CLI discovery or spawn. Browser-shell results use mocked Tauri IPC and are
-presentation evidence only.
+This is a development snapshot, not a supported Prime Studio release. The new product shell and
+typed fake-Harness integration are working; production still starts with elevated effect classes
+unavailable until a reviewed exact runtime profile can mint a scoped native activation receipt.
 
 ### Added (source-level)
+
+- A single responsive three-pane product shell: projects and chats on the left, parent-only
+  conversation and composer in the center, and a resizable Harness inspector on the right.
+- Harness overview, selected-child transcript/activity/files, queue, tools, context sources,
+  activity, and current-chat usage without leaking child content into the parent conversation.
+- Editor/canvas, Settings (including separate account usage), command palette, themes, persisted
+  bounded pane widths, keyboard navigation, compact focus-managed sheets, and accessible states.
+- A generated Studio Harness Protocol contract, verified Node sidecar, Rust ownership/chronology
+  broker, closed Tauri client, cursor-bound attach and session-command operations, and recovery
+  records.
+- A deterministic fake daemon shared by sidecar, Rust, browser, and native-development tests.
+  The actual Tauri window can admit a synthetic prompt, render its response, update current-chat
+  usage, and show child detail only in the inspector.
+- A production bundle boundary check rejecting legacy entry selection, raw renderer RPC, direct
+  runtime imports, open command unions, renderer Node primitives, and legacy Harness markers.
 
 - Layered prime-agent CLI-resolution code: configured path -> `PRIME_STUDIO_CLI` /
   `PRIME_AGENT_CLI` -> `prime-agent` on PATH -> per-OS default install locations ->
@@ -37,13 +51,19 @@ admitted or usable through the production application.
   admitted.
 - `verified_prime_process_spec` independently refuses to construct a production Prime process
   until verified-runtime and environment-policy results are integrated.
-- Browser-shell tests inject a browser-only Tauri IPC fixture; they do not launch or package Tauri,
-  execute the Rust backend, connect to Prime, or establish provider/workspace readiness.
+- Browser-shell tests inject a typed mutable Tauri projection fixture; native debug smoke runs the
+  real Tauri/Rust/sidecar path against only the deterministic fake daemon. Neither establishes
+  provider, real-runtime, credential, or workspace readiness.
 - No current release candidate is declared. The source-only bootstrap is conditional and every
   binary distribution surface remains blocked by
   `docs/open-source-release-readiness.manifest.json`.
 
 ### Changed
+
+- `App.tsx` now has one product entry and cannot select the former legacy shell by environment.
+- Protocol documentation now describes the versioned SHP adapter boundary instead of the obsolete
+  `--background`/`-d` discovery assumptions.
+- The native catalog path now matches the hardened `projects-v2.json` catalog contract.
 
 - The Windows `--require windowshide-shim.cjs` argument-building code is optional and includes the
   shim only when present; this code is not reachable through a verified production Prime launch.

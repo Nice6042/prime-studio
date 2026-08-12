@@ -21,7 +21,7 @@ node scripts/generate-third-party-artifacts.mjs --check
 node scripts/generate-third-party-artifacts.mjs --write
 ```
 
-- npm lock SHA-256: `d87cdb159dec185611187ec1da829577d53a774f9ee25f3d9ba53f5aaa1db05b`
+- npm lock SHA-256: `4f676307300f7b3319bfea335c06f47970fc4a284710405bbac00d47e79e31e9`
 - Cargo lock SHA-256: `9e2d632e05a47236db99f6be518297b381efaecc11537bf1d382df3748220f89`
 - Cargo target: `x86_64-pc-windows-msvc`
 - Cargo scope: normal and build dependencies reachable from the workspace package;

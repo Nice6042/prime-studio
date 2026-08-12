@@ -172,7 +172,10 @@ fn main() {
             }));
         }
         "diagnostic" => {
-            eprintln!("Bearer TOPSECRET C:\\Users\\Private\\AppData\\Local");
+            eprintln!(
+                "{}",
+                concat!("Bearer TOPSECRET C:", "\\Users\\Private\\AppData\\Local")
+            );
             let request = read_frame();
             write_frame(&json!({
                 "studioProtocol": 1,

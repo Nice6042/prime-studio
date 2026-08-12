@@ -8,6 +8,18 @@
 
 **Tech Stack:** Rust/Tauri, Node sidecar, fake daemon fixtures, React/Playwright, Cargo/CI/repository policy.
 
+## Current execution record
+
+ACT-01's core integrated path is implemented: the fake daemon, sidecar, Rust broker, typed Tauri
+commands, shared browser scenario, cursor-bound prompt admission, and disposable native-window
+smoke are green. The fixture currently covers bootstrap, attach, prompt/steer/follow-up/abort,
+projection replacement, usage changes, and child-detail isolation; the larger hostile scenario
+matrix below remains the acceptance target.
+
+ACT-02 is not complete and therefore production remains unavailable. ACT-03 is complete at the
+renderer entry and production-bundle boundary, but intentionally not at destructive legacy Rust
+removal. ACT-04 and the final production activation/release gates remain open.
+
 ## Global Constraints
 
 - Never test activation against the user's normal OS profile, credentials, sessions, or workspace.

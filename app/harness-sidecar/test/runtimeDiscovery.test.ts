@@ -86,7 +86,7 @@ test("closed JSON and framing reject duplicate keys, noise, and oversized frames
 
 test("diagnostics redact secrets and local profile paths", () => {
   const diagnostic = sanitizeDiagnostic(
-    "Bearer secret-token apiKey=private-value C:\\Users\\Person\\AppData\\Local\\prime",
+    "Bearer secret-token apiKey=private-value C:" + "\\Users\\Person\\AppData\\Local\\prime",
   );
   assert.equal(diagnostic.includes("secret-token"), false);
   assert.equal(diagnostic.includes("private-value"), false);

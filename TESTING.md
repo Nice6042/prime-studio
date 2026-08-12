@@ -27,10 +27,16 @@ cd app
 npm test
 npm run check
 npm run build
+npm run check:harness-contract
+npm run check:harness-boundaries
+npm run test:harness-sidecar
 ```
 
 `npm test` runs the Vitest suite. `npm run check` replays reducer invariants.
-`npm run build` performs TypeScript compilation and a production Vite build.
+`npm run build` compiles the sidecar, performs TypeScript compilation, and creates a
+production Vite build. The two Harness checks prove generated contract parity and
+reject forbidden legacy/runtime markers in the product renderer and built bundle.
+The sidecar suite exercises closed SHP framing and the deterministic fake daemon.
 
 Run a focused test with Vitest arguments after `--`, for example:
 
@@ -58,8 +64,25 @@ $env:PRIME_STUDIO_BROWSER_PORT = '43173'
 npm run test:browser-shell:strict
 ```
 
-This suite uses mocked IPC. Passing it provides no evidence about the Tauri backend,
-Prime process, provider, credentials, filesystem effects, or packaged application.
+This suite uses a typed mutable IPC fixture that mirrors the fake-daemon scenario.
+It covers the three-pane workspace, keyboard/focus behavior, narrow sheets,
+accessibility, typed prompt admission, current-chat usage, and child-detail isolation.
+Passing it provides no evidence about the Tauri backend, Prime process, provider,
+credentials, filesystem effects, or packaged application.
+
+## Harness integration layers
+
+The Harness path is tested in increasing levels of authority:
+
+1. contract-generation and decoder tests;
+2. Node sidecar and fake-daemon tests;
+3. Rust broker, chronology, ownership, framing, and recovery tests;
+4. browser-shell product behavior against the shared scenario; and
+5. an optional native debug smoke in a disposable profile.
+
+The first four layers run without a provider or user data. The fifth uses the actual
+Tauri window and Rust broker but still uses only the deterministic fake daemon. None
+is proof that a real runtime profile is activated.
 
 ## Rust checks
 
@@ -169,6 +192,22 @@ $env:PRIME_STUDIO_DAEMON_SOCKET = $null
 npm run tauri dev
 ```
 
+To exercise the debug fake Harness through the actual native window, first build the
+sidecar and set all three variables to verified absolute paths inside the checked-out
+repository:
+
+```powershell
+npm run build:harness-sidecar
+$env:PRIME_STUDIO_DEBUG_HARNESS_NODE = (Get-Command node).Source
+$env:PRIME_STUDIO_DEBUG_HARNESS_ENTRY = (Resolve-Path '.\harness-sidecar\dist\src\index.js').Path
+$env:PRIME_STUDIO_DEBUG_HARNESS_SCENARIO = (Resolve-Path '.\harness-sidecar\dist\test\fixtures\fakeDaemonScenario.js').Path
+npm run tauri dev
+```
+
+All three are required and debug builds only. An unset or invalid path leaves the
+Harness unavailable. Never substitute a real runtime, profile, session, or workspace
+in this recipe.
+
 Do not copy a real `.prime` directory into this root. Close the dedicated PowerShell
 after the app exits so the modified environment is discarded. If the disposable
 directory is later removed, resolve and inspect that exact directory again before any
@@ -198,6 +237,7 @@ and executable path; do not terminate by image name.
 
 - A unit test demonstrates only the boundary it directly exercises.
 - A mocked browser test is not a native integration test.
+- A native fake-Harness smoke is not production runtime activation.
 - A build is not a signed or reproducible release.
 - A historical acceptance record is not evidence for the current revision.
 - Any change to source, dependencies, workflow, notices, or packaging invalidates the

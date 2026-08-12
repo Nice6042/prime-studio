@@ -1,108 +1,145 @@
 # Architecture
 
-Prime Studio is a single desktop application with a React webview and a Rust Tauri
-backend. It is currently structured as a fail-closed development snapshot rather than
-an activated Prime client.
+Prime Studio is a Windows-first desktop application with a React webview, a Rust
+Tauri trust boundary, and a Studio-owned Node sidecar that adapts a separately
+installed Prime Harness. It is a working development shell with a deterministic fake
+full-stack integration and a fail-closed production activation boundary.
 
 ## Runtime boundary
 
 ```text
-React presentation and domain state
-        |
-        | typed Tauri IPC request
+React product shell and projection stores
+        | closed Tauri DTOs
         v
-pre-dispatch command classification
-        |
-        +-- offline reads, local bookkeeping, account management,
-        |   and safety controls -> command-specific validation
-        |
-        +-- elevated effects -> authority readiness check -> denied
-                                      (all unavailable at startup)
-
-Prime process request
-        -> verified process specification
-        -> explicit error before executable, arguments, environment, or spawn
+Rust command classification + Harness broker
+        | ownership, cursor chronology, bounded frames, recovery
+        v
+verified Studio Node sidecar
+        | versioned Studio Harness Protocol adapter
+        v
+supported Prime Harness profile
+        | production activation currently unavailable
+        v
+separately installed Prime Agent runtime
 ```
 
-Frontend code cannot promote effect readiness. A future activation path must obtain
-enforced readiness from a trusted verifier and preserve command-specific validation;
-changing UI state alone is never authority.
+Frontend code cannot promote effect readiness. Compatibility is descriptive, not
+authority. A production capability needs a private native activation receipt bound to
+the exact runtime, Node executable, sidecar, protocol/schema/profile, security epoch,
+and scope. Changing UI state or accepting an adapter handshake is insufficient.
 
-## Frontend
+## Product frontend
 
-`app/src/` contains:
+The renderer starts at `app/src/App.tsx`, which always mounts
+`app/src/app/StudioApp.tsx`. There is no environment-selectable legacy app entry.
 
-- React surfaces for sessions, accounts, settings, usage, fleet, artifacts, and tool
-  activity;
-- reducers and domain types for deterministic state transitions;
-- strict provider, browser, orchestration, and project-chat contracts;
-- a Tauri RPC wrapper that converts unavailable commands into explicit UI states; and
-- unit, component, security, and characterization tests.
+The product frontend is split into:
 
-Several surfaces render synthetic or unavailable states in the browser harness. A
-component's presence is not evidence that its native effect is active.
+- `app/`: composition, providers, workspace routing, and layout;
+- `entities/`: project, chat, parent-message, and Harness projection models;
+- `features/`: project navigation, parent conversation, composer, Harness inspector,
+  editor canvas, command palette, and Settings surfaces; and
+- `shared/`: closed IPC decoding, generated contracts, state store, and primitives.
 
-The webview stores only small UI values such as generated-name sequence and seen-state
-in browser local storage. Native settings are owned by the backend.
+The three-pane shell deliberately separates information channels:
 
-## Backend
+1. projects, chat history, search, and create-chat entry points live on the left;
+2. only the parent conversation and composer live in the center; and
+3. child agents, child transcripts, tools, queue, resources, activity, and
+   current-chat usage live in the right Harness inspector.
+
+Selecting a child never injects its private work log into the parent transcript.
+Account-wide usage lives in Settings and is not inferred from one chat. At compact
+widths the side panes become focus-managed sheets; desktop widths are persisted and
+bounded. Editor/canvas and command-palette surfaces preserve the same projection
+ownership rules.
+
+## Native backend
 
 `app/src-tauri/src/` is the native trust boundary. Important modules include:
 
 | Module | Responsibility |
 |---|---|
-| `authority.rs` | Classifies Tauri and raw-RPC commands and denies unavailable effects before dispatch |
-| `lib.rs` | Wires commands, local settings, session reads, and the current process hard stop |
-| `session_process.rs` | Models bounded process lifecycle and session ownership |
-| `process_env_policy.rs` | Constructs an explicit child-process environment policy |
+| `authority.rs` | Classifies Tauri and legacy commands and denies unavailable effects before dispatch |
+| `commands/harness.rs` | Typed bootstrap, projection, attach, and session-command endpoints |
+| `harness/` | Verifies sidecar resources, validates SHP, binds ownership/cursors, and projects sessions |
+| `lib.rs` | Wires commands, app state, catalog startup, recovery, and debug-only fixture installation |
+| `project_catalog.rs` | Validates and persists the confined `projects-v2.json` catalog |
+| `runtime_manifest.rs` | Verifies a pinned runtime artifact closure; it does not activate execution |
+| `session_process.rs` | Provides bounded process lifecycle primitives retained for migration |
+| `process_env_policy.rs` | Constructs explicit child-process environment policy |
 | `bounded_io.rs` | Applies byte, line, record, and directory bounds to local input |
 | `accounts/` | Handles account metadata, transactional removal, and recovery |
-| `runtime_manifest.rs` | Verifies a pinned runtime artifact closure; it does not activate execution |
 | `provider_product.rs` | Produces bounded provider-product state from local metadata |
-| `project_catalog.rs` | Validates and persists project catalog state |
-| `scheduler.rs` | Persists local scheduler state with revision checks |
+| `scheduler.rs` | Persists scheduler state with revision checks |
 
-These modules use strict decoding, explicit bounds, path-containment checks, and
-fail-closed errors at trust boundaries. Tests exercise additional implementations and
-fixtures that production construction may not make reachable.
+These domains use strict decoding, explicit bounds, path-containment checks, and
+fail-closed errors. Test-only constructors and fixtures are not production authority.
 
-## Local data flow
+## Harness sidecar and protocol
 
-The backend derives the operating-system user and configuration roots, then performs
-bounded reads of Prime-owned metadata and session files. It may persist Prime Studio
-settings and scheduler state under the application's configuration directory. Account
-removal uses a prepare-and-commit transaction with recovery records; it is the most
-destructive local surface and must be tested only against disposable synthetic data.
+`app/harness-sidecar/` is not part of renderer authority. Rust starts it only from
+verified absolute resources and communicates through bounded LF-delimited Studio
+Harness Protocol frames. The checked-in contract generates both Rust and TypeScript
+shapes.
 
-See [PRIVACY.md](PRIVACY.md) for the user-facing data inventory and the files under
-`docs/security/` for detailed security invariants.
+The Rust broker additionally enforces:
 
-## Browser-shell test boundary
+- Studio-owned session and child identity;
+- exact runtime-generation and monotonically increasing sequence cursors;
+- idempotent command identifiers and uncertain-outcome handling;
+- bounded snapshots, strings, collections, and frames;
+- a closed compatibility profile and command union; and
+- recovery records that cannot be forged by the renderer.
 
-`app/e2e/` starts a Vite preview and injects a browser-only Tauri IPC fixture. It
-checks rendered behavior and accessibility without loading the Rust backend, starting
-a Prime process, accessing credentials, or touching a real workspace. See
-`app/e2e/README.md` for the exact boundary.
+A debug build may install the deterministic fake profile only when every explicit
+Node, sidecar, and scenario path is present, absolute, hash-verified, and held. A
+normal build does not install it. See [PROTOCOL.md](PROTOCOL.md).
 
-## Build boundary
+## Browser and native verification
 
-The frontend is compiled by TypeScript and Vite. Tauri embeds the frontend output and
-builds the Rust application. A successful local build proves compilation only. It
-does not prove runtime activation, provenance, reproducibility, signing, installer
-safety, update safety, or release eligibility.
+`app/e2e/` starts a Vite preview and injects browser-only typed Tauri projections. It
+checks layout, keyboard behavior, accessibility, narrow sheets, inspector routing,
+chat submission, usage updates, and child-detail isolation without credentials or a
+real workspace.
 
-## Adding a capability
+The browser fixture and native fake-daemon path share the scenario contract and both
+exercise mutable cursor-bound prompt admission. Native smoke verification additionally
+proves the actual Tauri window, Rust broker, sidecar, catalog, composer response,
+usage update, and child-detail isolation. Neither test activates a provider.
+
+## Local data and persistence
+
+Native code owns settings, projects, chats, session bindings, and account metadata.
+The webview stores only bounded presentation preferences such as pane widths and
+theme. Prime-owned session files remain outside Studio's persistence authority.
+
+Account removal uses a prepare-and-commit transaction with recovery records and is
+the most destructive local surface. It must be tested only against disposable
+synthetic data. See [PRIVACY.md](PRIVACY.md) and `docs/security/`.
+
+## Build and release boundary
+
+TypeScript/Vite compilation and Rust/Tauri compilation prove only that the candidate
+builds. They do not prove runtime activation, provenance, signing, installer safety,
+update safety, or release eligibility. The boundary checker rejects legacy app-entry
+selection, renderer raw RPC, direct runtime imports, open command unions, Node
+primitives in product renderer code, and legacy markers in the production bundle.
+
+## Adding or updating a capability
 
 A production capability is incomplete until all of the following agree:
 
-1. a strict external contract and bounded decoder;
-2. command classification and an explicit effect class;
-3. a trusted readiness verifier;
-4. path, process, credential, and data-flow constraints;
-5. negative authorization and malformed-input tests;
-6. truthful unavailable and error states in the UI;
-7. privacy, security, and architecture documentation; and
-8. release evidence for the exact candidate revision.
+1. a strict external adapter contract and bounded decoder;
+2. a closed generated renderer DTO;
+3. command classification and an explicit effect class;
+4. a trusted native readiness verifier and scoped activation receipt;
+5. path, process, credential, ownership, chronology, and data-flow constraints;
+6. malformed, stale, replay, mismatch, timeout, and update tests;
+7. truthful ready/degraded/read-only/unavailable UI states;
+8. privacy, security, architecture, testing, and compatibility documentation; and
+9. release evidence for the exact candidate revision.
 
-Do not infer activation from a protocol type, test adapter, UI control, or dormant
-backend function.
+Do not infer production activation from a protocol type, fake adapter, UI control, or
+dormant backend function. Unknown future Harness profiles must degrade safely; they
+must never fall back to raw RPC.

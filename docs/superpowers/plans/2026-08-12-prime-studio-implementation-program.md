@@ -8,6 +8,25 @@
 
 **Tech Stack:** Tauri 2.11.5, Rust 1.97, React 19.1, TypeScript 5.8, Vite 7, Node 22.x, Vitest, Playwright/axe, Node test runner, Cargo.
 
+## Implementation status
+
+The current implementation has reached **M5 Integrated**:
+
+- the single responsive product shell, project/chat navigation, parent-only conversation,
+  composer, Harness inspector, child-detail isolation, current-chat usage, editor/canvas,
+  Settings/account usage, command palette, themes, persistence, compact sheets, and accessibility
+  checks are implemented;
+- the generated SHP contract, Node sidecar, Rust broker, ownership/cursor validation, typed Tauri
+  client, deterministic fake daemon, browser projection, and native debug integration are wired;
+- an actual disposable-profile Tauri window admitted a typed fake-Harness prompt, rendered the
+  parent response, advanced current-chat usage, and kept child detail in the right inspector; and
+- the production bundle has a CI boundary gate against legacy renderer integration.
+
+**M6 Activated is intentionally incomplete.** No production activation receipt is minted for the
+installed Prime Agent runtime. **M7 Closure is partial:** the product entry and bundle are migrated,
+but hardened legacy backend domains remain until exact production activation and parity allow safe
+removal. This status is a security boundary, not a schedule shortcut.
+
 ## Global Constraints
 
 - Baseline is public `main` commit `2540d1d8c5c58b5d9d29d0a6ccc63d826ec24d50`.
