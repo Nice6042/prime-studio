@@ -445,7 +445,7 @@ fn scheduler_state_path() -> PathBuf {
 }
 
 fn project_catalog_path() -> PathBuf {
-    config_dir().join("project-catalog.json")
+    config_dir().join("projects-v2.json")
 }
 
 fn read_settings() -> Settings {
@@ -3850,6 +3850,16 @@ pub fn run() {
 mod tests {
     use super::*;
     use std::io::{BufRead as _, BufReader};
+
+    #[test]
+    fn app_state_uses_the_catalog_services_exact_confined_leaf_name() {
+        assert_eq!(
+            project_catalog_path()
+                .file_name()
+                .and_then(|name| name.to_str()),
+            Some("projects-v2.json")
+        );
+    }
 
     #[test]
     fn app_state_projects_unavailable_and_verified_admission_only_through_the_same_path() {
