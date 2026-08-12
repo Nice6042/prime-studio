@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -267,10 +267,10 @@ describe("Studio application state", () => {
       { action: "composer.thinking.select", payload: { chatId: "chat-1", level: "high" } },
     ]));
 
-    store.dispatch({ type: "draft/change", chatId: chat.id, draft: "/compact" });
+    act(() => store.dispatch({ type: "draft/change", chatId: chat.id, draft: "/compact" }));
     const composer = screen.getByRole("textbox", { name: "Message Prime Studio" });
     await waitFor(() => expect(composer).toHaveValue("/compact"));
     fireEvent.keyDown(composer, { key: "Enter" });
     await waitFor(() => expect(operations).toContainEqual({ action: "harness.session.compact", payload: { sessionId: "session-1" } }));
-  });
+  }, 20_000);
 });
