@@ -5,8 +5,8 @@ use uuid::Uuid;
 
 use super::compatibility::decide_compatibility;
 use super::generated::{
-    CommandOutcome, HarnessCompatibility, HarnessCursor, HarnessEvent, RootSessionSnapshot,
-    SessionCommandKind, StudioRequest, StudioResponse,
+    CommandOutcome, HarnessCompatibility, HarnessCursor, HarnessEvent, HarnessStudioAction,
+    RootSessionSnapshot, SessionCommandKind, StudioOperationStatus, StudioRequest, StudioResponse,
 };
 pub use super::projections::{BootProjection, ProjectionFreshness, RootSessionProjection};
 use super::recovery::{RecoveredSession, RecoveryRecord};
@@ -62,6 +62,30 @@ pub struct SessionCommandRequest {
 pub struct SessionCommandResult {
     pub outcome: CommandOutcome,
     pub session: RootSessionProjection,
+}
+
+pub struct InspectorRequest {
+    pub session_id: String,
+}
+
+pub struct StudioOperationRequest {
+    pub session_id: String,
+    pub operation_id: String,
+    pub action: HarnessStudioAction,
+    pub payload_json: String,
+    pub expected_cursor: Option<HarnessCursor>,
+    pub idempotency_key: Option<String>,
+}
+
+pub struct StudioOperationResult {
+    pub operation_id: String,
+    pub status: StudioOperationStatus,
+    pub command_id: Option<String>,
+    pub position: Option<u64>,
+    pub revision: Option<String>,
+    pub reason: Option<String>,
+    pub retryable: Option<bool>,
+    pub session: Option<RootSessionProjection>,
 }
 
 pub struct HarnessBroker {
@@ -332,6 +356,130 @@ impl HarnessBroker {
             .project(&request.session_id)
             .ok_or(HarnessError::OwnershipViolation)?;
         Ok(SessionCommandResult { outcome, session })
+    }
+
+    pub async fn inspector(&mut self, request: InspectorRequest) -> Result<String, HarnessError> {
+        if self.state != BrokerState::Live
+            || !valid_id(&request.session_id)
+            || !self.ownership.contains_key(&request.session_id)
+        {
+            return Err(HarnessError::OwnershipViolation);
+        }
+        let sidecar = self.sidecar.clone().ok_or(HarnessError::StateViolation)?;
+        let response = sidecar
+            .request(
+                StudioRequest::Inspector {
+                    session_id: request.session_id.clone(),
+                },
+                Instant::now() + Duration::from_secs(10),
+            )
+            .await?;
+        let StudioResponse::InspectorResult { details_json } = response else {
+            return Err(HarnessError::ProtocolViolation);
+        };
+        if details_json.chars().count() > 131_072 {
+            return Err(HarnessError::ProtocolViolation);
+        }
+        Ok(details_json)
+    }
+
+    pub async fn execute_operation(
+        &mut self,
+        request: StudioOperationRequest,
+    ) -> Result<StudioOperationResult, HarnessError> {
+        if self.state != BrokerState::Live
+            || !valid_id(&request.session_id)
+            || !valid_id(&request.operation_id)
+            || request.payload_json.chars().count() > 131_072
+            || request
+                .idempotency_key
+                .as_ref()
+                .is_some_and(|value| !valid_id(value))
+            || !self.ownership.contains_key(&request.session_id)
+        {
+            return Err(HarnessError::OwnershipViolation);
+        }
+        if let Some(expected) = &request.expected_cursor {
+            if expected.sequence > MAX_SAFE_INTEGER
+                || self
+                    .committed
+                    .get(&request.session_id)
+                    .is_none_or(|snapshot| snapshot.cursor != *expected)
+            {
+                return Err(HarnessError::ChronologyViolation);
+            }
+        }
+        let sidecar = self.sidecar.clone().ok_or(HarnessError::StateViolation)?;
+        let response = sidecar
+            .request(
+                StudioRequest::StudioOperation {
+                    session_id: request.session_id.clone(),
+                    operation_id: request.operation_id.clone(),
+                    action: request.action,
+                    payload_json: request.payload_json,
+                    expected_cursor: request.expected_cursor,
+                    idempotency_key: request.idempotency_key,
+                },
+                Instant::now() + Duration::from_secs(30),
+            )
+            .await;
+        let response = match response {
+            Ok(response) => response,
+            Err(HarnessError::DeadlineExceeded { uncertain: true }) => {
+                self.mark_unknown_outcome();
+                return Err(HarnessError::DeadlineExceeded { uncertain: true });
+            }
+            Err(error) => return Err(error),
+        };
+        let StudioResponse::StudioOperationResult {
+            operation_id,
+            status,
+            command_id,
+            position,
+            revision,
+            reason,
+            retryable,
+            snapshot,
+        } = response
+        else {
+            return Err(HarnessError::ProtocolViolation);
+        };
+        if operation_id != request.operation_id {
+            return Err(HarnessError::ProtocolViolation);
+        }
+        let successful = matches!(
+            &status,
+            StudioOperationStatus::Accepted
+                | StudioOperationStatus::Queued
+                | StudioOperationStatus::Updated
+                | StudioOperationStatus::Cancelled
+        );
+        if successful != snapshot.is_some() {
+            return Err(HarnessError::ProtocolViolation);
+        }
+        if matches!(&status, StudioOperationStatus::UnknownOutcome) {
+            self.mark_unknown_outcome();
+        }
+        let session = if let Some(snapshot) = snapshot {
+            let admission = self.admit_event(HarnessEvent::Snapshot { snapshot })?;
+            self.apply_event(admission)?;
+            Some(
+                self.project(&request.session_id)
+                    .ok_or(HarnessError::OwnershipViolation)?,
+            )
+        } else {
+            None
+        };
+        Ok(StudioOperationResult {
+            operation_id,
+            status,
+            command_id,
+            position,
+            revision,
+            reason,
+            retryable,
+            session,
+        })
     }
 
     pub fn begin_snapshot(&mut self, expected: usize) -> Result<(), HarnessError> {

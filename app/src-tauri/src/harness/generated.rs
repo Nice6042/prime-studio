@@ -1,4 +1,4 @@
-// Generated from harness-v1.schema.json; SHA-256: d3e6996fca8c4a63fc1bd6890c8c65aab21dfec14db657b559cf5ec0a329ac38
+// Generated from harness-v1.schema.json; SHA-256: b1349997402e85ed24f4c16e50944bc1fbc88c22a77a6888ec87a790579d405e
 // Do not edit by hand. Run npm run generate:harness-contract.
 
 use std::collections::HashSet;
@@ -149,6 +149,47 @@ pub enum StudioRequest {
         kind: SessionCommandKind,
         text: String,
     },
+    Inspector { #[serde(rename = "sessionId")] session_id: String },
+    StudioOperation {
+        #[serde(rename = "sessionId")] session_id: String,
+        #[serde(rename = "operationId")] operation_id: String,
+        action: HarnessStudioAction,
+        #[serde(rename = "payloadJson")] payload_json: String,
+        #[serde(rename = "expectedCursor")] expected_cursor: Option<HarnessCursor>,
+        #[serde(rename = "idempotencyKey")] idempotency_key: Option<String>,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum HarnessStudioAction {
+    #[serde(rename = "conversation.user-version.create")] ConversationUserVersionCreate,
+    #[serde(rename = "conversation.response.regenerate")] ConversationResponseRegenerate,
+    #[serde(rename = "conversation.branch.create")] ConversationBranchCreate,
+    #[serde(rename = "conversation.files.review")] ConversationFilesReview,
+    #[serde(rename = "conversation.archive-fork")] ConversationArchiveFork,
+    #[serde(rename = "conversation.history.page")] ConversationHistoryPage,
+    #[serde(rename = "composer.model.select")] ComposerModelSelect,
+    #[serde(rename = "composer.thinking.select")] ComposerThinkingSelect,
+    #[serde(rename = "composer.slash.execute")] ComposerSlashExecute,
+    #[serde(rename = "harness.session.prompt")] HarnessSessionPrompt,
+    #[serde(rename = "harness.session.follow-up")] HarnessSessionFollowUp,
+    #[serde(rename = "harness.session.steer")] HarnessSessionSteer,
+    #[serde(rename = "harness.session.abort")] HarnessSessionAbort,
+    #[serde(rename = "harness.session.export")] HarnessSessionExport,
+    #[serde(rename = "harness.session.compact")] HarnessSessionCompact,
+    #[serde(rename = "harness.child.stop")] HarnessChildStop,
+    #[serde(rename = "harness.child.transcript-page")] HarnessChildTranscriptPage,
+    #[serde(rename = "harness.queue.run-now")] HarnessQueueRunNow,
+    #[serde(rename = "harness.queue.remove")] HarnessQueueRemove,
+    #[serde(rename = "harness.tool.set-enabled")] HarnessToolSetEnabled,
+    #[serde(rename = "harness.context-source.open")] HarnessContextSourceOpen,
+    #[serde(rename = "harness.overload.retry")] HarnessOverloadRetry,
+    #[serde(rename = "harness.extension.respond")] HarnessExtensionRespond,
+    #[serde(rename = "usage.current.refresh")] UsageCurrentRefresh,
+    #[serde(rename = "activity.file.open")] ActivityFileOpen,
+    #[serde(rename = "editor.artifact.open")] EditorArtifactOpen,
+    #[serde(rename = "settings.harness-policy.set")] SettingsHarnessPolicySet,
+    #[serde(rename = "settings.tool.set-enabled")] SettingsToolSetEnabled,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -159,6 +200,10 @@ pub enum SessionCommandKind { Prompt, Steer, FollowUp, Abort }
 #[serde(rename_all = "snake_case")]
 pub enum CommandOutcome { Accepted, Queued, Reconciled }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioOperationStatus { Accepted, Queued, Updated, Cancelled, Unavailable, Rejected, UnknownOutcome }
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case", tag = "type")]
 pub enum StudioResponse {
@@ -166,6 +211,12 @@ pub enum StudioResponse {
     BootstrapResult { compatibility: HarnessCompatibility, sessions: Vec<RootSessionSnapshot> },
     SnapshotResult { snapshot: Box<RootSessionSnapshot> },
     CommandResult { #[serde(rename = "commandId")] command_id: String, outcome: CommandOutcome, snapshot: Box<RootSessionSnapshot> },
+    InspectorResult { #[serde(rename = "detailsJson")] details_json: String },
+    StudioOperationResult {
+        #[serde(rename = "operationId")] operation_id: String, status: StudioOperationStatus,
+        #[serde(rename = "commandId")] command_id: Option<String>, position: Option<u64>, revision: Option<String>,
+        reason: Option<String>, retryable: Option<bool>, snapshot: Option<Box<RootSessionSnapshot>>,
+    },
     Error { code: String, message: String },
 }
 

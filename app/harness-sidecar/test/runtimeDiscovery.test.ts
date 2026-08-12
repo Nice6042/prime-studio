@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { createHash } from "node:crypto";
 import { decodeFrame, encodeFrame, parseClosedJson } from "../src/framing.js";
 import { sanitizeDiagnostic } from "../src/redaction.js";
 import { RuntimeDiscoveryError, discoverRuntime } from "../src/runtimeDiscovery.js";
@@ -18,11 +19,27 @@ async function fixture(name: string): Promise<{ root: string; dispose(): Promise
   return { root, dispose: () => rm(parent, { recursive: true, force: true }) };
 }
 
+async function fixtureProfile(root: string) {
+  const manifest = await readFile(join(root, "package.json"));
+  const entrypoint = await readFile(join(root, "dist", "index.js"));
+  return {
+    packageName: "prime-agent" as const,
+    packageVersion: "0.7.1",
+    packageDigest: `sha256:${createHash("sha256").update(manifest).digest("hex")}`,
+    entrypointDigest: `sha256:${createHash("sha256").update(entrypoint).digest("hex")}`,
+    protocolName: "prime-agent.daemon",
+    protocolVersion: 7,
+    schemaRevision: 13,
+    schemaId: "protocol-7-schema-13-816309b1cd50",
+    supportedCapabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] as const,
+  };
+}
+
 test("discovers a credential-free closed runtime identity", async (context) => {
   const ready = await fixture("runtime-ready");
   context.after(ready.dispose);
 
-  const identity = await discoverRuntime(ready.root);
+  const identity = await discoverRuntime(ready.root, await fixtureProfile(ready.root));
   assert.deepEqual(identity.capabilities, [
     "attach_snapshot",
     "event_sequence",
@@ -48,7 +65,7 @@ test("rejects a runtime package root reached through a reparse point", async (co
   await symlink(ready.root, link, "junction");
   context.after(ready.dispose);
 
-  await assert.rejects(discoverRuntime(link), (error: unknown) =>
+  await assert.rejects(discoverRuntime(link, await fixtureProfile(ready.root)), (error: unknown) =>
     error instanceof RuntimeDiscoveryError && error.code === "runtime_path_untrusted");
 });
 
@@ -64,12 +81,23 @@ test("rejects wrong package identity, callable protocol exports, and oversized m
   await assert.rejects(discoverRuntime(wrongName.root), (error: unknown) =>
     error instanceof RuntimeDiscoveryError && error.code === "runtime_identity_mismatch");
 
-  await assert.rejects(discoverRuntime(callable.root), (error: unknown) =>
+  await assert.rejects(discoverRuntime(callable.root, await fixtureProfile(callable.root)), (error: unknown) =>
     error instanceof RuntimeDiscoveryError && error.code === "unsupported_runtime");
 
   await writeFile(join(huge.root, "package.json"), " ".repeat(256 * 1024 + 1));
   await assert.rejects(discoverRuntime(huge.root), (error: unknown) =>
     error instanceof RuntimeDiscoveryError && error.code === "runtime_metadata_too_large");
+});
+
+test("rejects tampered runtime bytes before importing executable exports", async (context) => {
+  const ready = await fixture("runtime-ready");
+  context.after(ready.dispose);
+  const expected = await fixtureProfile(ready.root);
+  const marker = join(dirname(ready.root), "imported.txt");
+  await writeFile(join(ready.root, "dist", "index.js"), `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "executed");`);
+  await assert.rejects(discoverRuntime(ready.root, expected), (error: unknown) =>
+    error instanceof RuntimeDiscoveryError && error.code === "runtime_identity_mismatch");
+  await assert.rejects(stat(marker), /ENOENT/);
 });
 
 test("closed JSON and framing reject duplicate keys, noise, and oversized frames", () => {

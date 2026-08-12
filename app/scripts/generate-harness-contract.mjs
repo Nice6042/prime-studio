@@ -182,17 +182,28 @@ export interface RootSessionSnapshot {
   usage: CurrentChatUsage;
 }
 
+export type HarnessStudioAction =
+  | "conversation.user-version.create" | "conversation.response.regenerate" | "conversation.branch.create" | "conversation.files.review" | "conversation.archive-fork" | "conversation.history.page"
+  | "composer.model.select" | "composer.thinking.select" | "composer.slash.execute"
+  | "harness.session.prompt" | "harness.session.follow-up" | "harness.session.steer" | "harness.session.abort" | "harness.session.export" | "harness.session.compact"
+  | "harness.child.stop" | "harness.child.transcript-page" | "harness.queue.run-now" | "harness.queue.remove" | "harness.tool.set-enabled" | "harness.context-source.open"
+  | "harness.overload.retry" | "harness.extension.respond" | "usage.current.refresh" | "activity.file.open" | "editor.artifact.open" | "settings.harness-policy.set" | "settings.tool.set-enabled";
+
 export type StudioRequest =
   | { type: "discover_runtime" }
   | { type: "bootstrap" }
   | { type: "attach_session"; sessionId: string }
-  | { type: "session_command"; sessionId: string; commandId: string; expectedCursor: HarnessCursor; kind: "prompt" | "steer" | "follow_up" | "abort"; text: string };
+  | { type: "session_command"; sessionId: string; commandId: string; expectedCursor: HarnessCursor; kind: "prompt" | "steer" | "follow_up" | "abort"; text: string }
+  | { type: "inspector"; sessionId: string }
+  | { type: "studio_operation"; sessionId: string; operationId: string; action: HarnessStudioAction; payloadJson: string; expectedCursor: HarnessCursor | null; idempotencyKey: string | null };
 
 export type StudioResponse =
   | { type: "discover_runtime_result"; runtime: RuntimeIdentity | null; compatibility: HarnessCompatibility }
   | { type: "bootstrap_result"; compatibility: HarnessCompatibility; sessions: readonly RootSessionSnapshot[] }
   | { type: "snapshot_result"; snapshot: RootSessionSnapshot }
   | { type: "command_result"; commandId: string; outcome: "accepted" | "queued" | "reconciled"; snapshot: RootSessionSnapshot }
+  | { type: "inspector_result"; detailsJson: string }
+  | { type: "studio_operation_result"; operationId: string; status: "accepted" | "queued" | "updated" | "cancelled" | "unavailable" | "rejected" | "unknown_outcome"; commandId: string | null; position: number | null; revision: string | null; reason: string | null; retryable: boolean | null; snapshot: RootSessionSnapshot | null }
   | { type: "error"; code: string; message: string };
 
 export type HarnessEvent =
@@ -361,6 +372,47 @@ pub enum StudioRequest {
         kind: SessionCommandKind,
         text: String,
     },
+    Inspector { #[serde(rename = "sessionId")] session_id: String },
+    StudioOperation {
+        #[serde(rename = "sessionId")] session_id: String,
+        #[serde(rename = "operationId")] operation_id: String,
+        action: HarnessStudioAction,
+        #[serde(rename = "payloadJson")] payload_json: String,
+        #[serde(rename = "expectedCursor")] expected_cursor: Option<HarnessCursor>,
+        #[serde(rename = "idempotencyKey")] idempotency_key: Option<String>,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum HarnessStudioAction {
+    #[serde(rename = "conversation.user-version.create")] ConversationUserVersionCreate,
+    #[serde(rename = "conversation.response.regenerate")] ConversationResponseRegenerate,
+    #[serde(rename = "conversation.branch.create")] ConversationBranchCreate,
+    #[serde(rename = "conversation.files.review")] ConversationFilesReview,
+    #[serde(rename = "conversation.archive-fork")] ConversationArchiveFork,
+    #[serde(rename = "conversation.history.page")] ConversationHistoryPage,
+    #[serde(rename = "composer.model.select")] ComposerModelSelect,
+    #[serde(rename = "composer.thinking.select")] ComposerThinkingSelect,
+    #[serde(rename = "composer.slash.execute")] ComposerSlashExecute,
+    #[serde(rename = "harness.session.prompt")] HarnessSessionPrompt,
+    #[serde(rename = "harness.session.follow-up")] HarnessSessionFollowUp,
+    #[serde(rename = "harness.session.steer")] HarnessSessionSteer,
+    #[serde(rename = "harness.session.abort")] HarnessSessionAbort,
+    #[serde(rename = "harness.session.export")] HarnessSessionExport,
+    #[serde(rename = "harness.session.compact")] HarnessSessionCompact,
+    #[serde(rename = "harness.child.stop")] HarnessChildStop,
+    #[serde(rename = "harness.child.transcript-page")] HarnessChildTranscriptPage,
+    #[serde(rename = "harness.queue.run-now")] HarnessQueueRunNow,
+    #[serde(rename = "harness.queue.remove")] HarnessQueueRemove,
+    #[serde(rename = "harness.tool.set-enabled")] HarnessToolSetEnabled,
+    #[serde(rename = "harness.context-source.open")] HarnessContextSourceOpen,
+    #[serde(rename = "harness.overload.retry")] HarnessOverloadRetry,
+    #[serde(rename = "harness.extension.respond")] HarnessExtensionRespond,
+    #[serde(rename = "usage.current.refresh")] UsageCurrentRefresh,
+    #[serde(rename = "activity.file.open")] ActivityFileOpen,
+    #[serde(rename = "editor.artifact.open")] EditorArtifactOpen,
+    #[serde(rename = "settings.harness-policy.set")] SettingsHarnessPolicySet,
+    #[serde(rename = "settings.tool.set-enabled")] SettingsToolSetEnabled,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -371,6 +423,10 @@ pub enum SessionCommandKind { Prompt, Steer, FollowUp, Abort }
 #[serde(rename_all = "snake_case")]
 pub enum CommandOutcome { Accepted, Queued, Reconciled }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StudioOperationStatus { Accepted, Queued, Updated, Cancelled, Unavailable, Rejected, UnknownOutcome }
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case", tag = "type")]
 pub enum StudioResponse {
@@ -378,6 +434,12 @@ pub enum StudioResponse {
     BootstrapResult { compatibility: HarnessCompatibility, sessions: Vec<RootSessionSnapshot> },
     SnapshotResult { snapshot: Box<RootSessionSnapshot> },
     CommandResult { #[serde(rename = "commandId")] command_id: String, outcome: CommandOutcome, snapshot: Box<RootSessionSnapshot> },
+    InspectorResult { #[serde(rename = "detailsJson")] details_json: String },
+    StudioOperationResult {
+        #[serde(rename = "operationId")] operation_id: String, status: StudioOperationStatus,
+        #[serde(rename = "commandId")] command_id: Option<String>, position: Option<u64>, revision: Option<String>,
+        reason: Option<String>, retryable: Option<bool>, snapshot: Option<Box<RootSessionSnapshot>>,
+    },
     Error { code: String, message: String },
 }
 
