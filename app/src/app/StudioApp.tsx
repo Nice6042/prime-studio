@@ -24,9 +24,10 @@ import { SettingsShell } from "../features/settings/SettingsShell";
 import { ArchivedCatalogSettings } from "../features/settings/ArchivedCatalogSettings";
 import { CommandPalette } from "../features/command-palette/CommandPalette";
 import type { PaletteChat, PaletteMessage } from "../features/command-palette/searchIndex";
-import type { StudioCommandId } from "../entities/commands/commandRegistry";
+import { studioCommands, type StudioCommandId } from "../entities/commands/commandRegistry";
 import { EditorPane } from "../features/editor/EditorPane";
-import type { StudioOperation } from "../contracts/studioOperations";
+import type { StudioOperation, StudioOperationOutcome } from "../contracts/studioOperations";
+import { createStudioOperationDispatcher } from "../contracts/dispatcher/studioOperationDispatcher";
 import { useStudioSelector, useStudioStore } from "./AppProviders";
 
 let bootstrapPromise: ReturnType<typeof rpc.bootstrapHarness> | null = null;
@@ -100,6 +101,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     () => new Set(projectCatalog.projects.filter((project) => !project.archived).map((project) => project.id)),
   );
   const [catalogOperation, setCatalogOperation] = useState<WorkspaceOperationState>({ phase: "idle" });
+  const [operationFeedback, setOperationFeedback] = useState<string | null>(null);
 
   const sessionStates = useMemo(() => Object.fromEntries(
     Object.values(sessions).map((session) => [session.chatId, session.state]),
@@ -126,7 +128,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
 
   const openCatalogChat = (chatId: string) => {
     const project = projectCatalog.projects.find((candidate) => candidate.chats.some((chat) => chat.id === chatId && !chat.archived));
-    if (project) store.dispatch({ type: "project-chat/command", command: { type: "selection.select-chat", projectId: project.id, chatId } });
+    if (project) void dispatchOperation({ action: "catalog.chat.select", payload: { projectId: project.id, chatId } });
   };
 
   useEffect(() => {
@@ -193,10 +195,16 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     return () => { active = false; };
   }, [store]);
 
-  const changeLayout = (patch: Partial<LayoutPreferencesV1>) => {
+  const changeLayout = async (patch: Partial<LayoutPreferencesV1>): Promise<StudioOperationOutcome> => {
     const next = { ...layout, ...patch };
     setLayout(next);
-    void rpc.setLayoutPreferences(next).catch(() => undefined);
+    try {
+      const persisted = await rpc.setLayoutPreferences(next);
+      setLayout(persisted);
+      return { status: "updated", revision: JSON.stringify(persisted) };
+    } catch {
+      return { status: "rejected", reason: "The layout changed for this session but could not be saved.", retryable: true };
+    }
   };
 
   const openPalette = () => {
@@ -204,58 +212,205 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     setPaletteOpen(true);
   };
 
-  const applyCatalog = async (command: Parameters<typeof applyProjectCatalogCommand>[1], label: string) => {
+  const applyCatalog = async (command: Parameters<typeof applyProjectCatalogCommand>[1], label: string): Promise<StudioOperationOutcome> => {
     const revision = store.getSnapshot().catalogRevision;
     if (revision === null) {
       setCatalogOperation({ phase: "error", message: `${label} failed because the project catalog is unavailable.` });
-      return;
+      return { status: "unavailable", reason: `${label} failed because the project catalog is unavailable.` };
     }
     setCatalogOperation({ phase: "pending", label });
     try {
       const snapshot = await applyProjectCatalogCommand(revision, command);
       store.dispatch({ type: "project-catalog/loaded", snapshot });
       setCatalogOperation({ phase: "success", message: `${label} complete.` });
+      return { status: "updated", revision: snapshot.revision };
     } catch {
       setCatalogOperation({ phase: "error", message: `${label} failed. Retry the action.` });
+      return { status: "rejected", reason: `${label} failed. Retry the action.`, retryable: true };
     }
   };
+
+  const durableExecutor = async (operation: StudioOperation): Promise<StudioOperationOutcome> => {
+    const catalog = store.getSnapshot().projectCatalog;
+    const locateChat = (chatId: string) => catalog.projects.find((project) => project.chats.some((candidate) => candidate.id === chatId));
+    switch (operation.action) {
+      case "catalog.project.create":
+        return applyCatalog({ type: "project.create", projectId: `project-${crypto.randomUUID()}`, name: operation.payload.title, folderPath: operation.payload.folderPath ?? "" }, "Creating project");
+      case "catalog.project.restore":
+        return applyCatalog({ type: "project.restore", projectId: operation.payload.projectId }, "Restoring project");
+      case "catalog.chat.create": {
+        const projectId = operation.payload.projectId || catalog.selectedProjectId;
+        return applyCatalog({ type: "chat.create", projectId, chatId: `chat-${crypto.randomUUID()}`, title: "New chat" }, "Creating chat");
+      }
+      case "catalog.chat.rename": {
+        const project = locateChat(operation.payload.chatId);
+        return project ? applyCatalog({ type: "chat.rename", projectId: project.id, chatId: operation.payload.chatId, title: operation.payload.title }, "Renaming chat") : { status: "unavailable", reason: "The selected chat is no longer available." };
+      }
+      case "catalog.chat.duplicate": {
+        const project = locateChat(operation.payload.chatId);
+        const source = project?.chats.find((chat) => chat.id === operation.payload.chatId);
+        return project && source ? applyCatalog({ type: "chat.duplicate", projectId: project.id, chatId: source.id, newChatId: `chat-${crypto.randomUUID()}`, title: `${source.title} copy` }, "Duplicating chat") : { status: "unavailable", reason: "The selected chat is no longer available." };
+      }
+      case "catalog.chat.move": {
+        const project = locateChat(operation.payload.chatId);
+        return project ? applyCatalog({ type: "chat.move", projectId: project.id, chatId: operation.payload.chatId, targetProjectId: operation.payload.projectId }, "Moving chat") : { status: "unavailable", reason: "The selected chat is no longer available." };
+      }
+      case "catalog.chat.pin-toggle": {
+        const project = locateChat(operation.payload.chatId);
+        const source = project?.chats.find((chat) => chat.id === operation.payload.chatId);
+        return project && source ? applyCatalog({ type: "chat.set-pinned", projectId: project.id, chatId: source.id, pinned: !source.pinned }, source.pinned ? "Unpinning chat" : "Pinning chat") : { status: "unavailable", reason: "The selected chat is no longer available." };
+      }
+      case "catalog.chat.archive":
+      case "catalog.chat.delete":
+      case "catalog.chat.restore": {
+        const project = locateChat(operation.payload.chatId);
+        if (!project) return { status: "unavailable", reason: "The selected chat is no longer available." };
+        const type = operation.action === "catalog.chat.archive" ? "chat.archive" : operation.action === "catalog.chat.delete" ? "chat.delete" : "chat.restore";
+        const label = operation.action === "catalog.chat.archive" ? "Archiving chat" : operation.action === "catalog.chat.delete" ? "Deleting chat" : "Restoring chat";
+        return applyCatalog({ type, projectId: project.id, chatId: operation.payload.chatId }, label);
+      }
+      case "conversation.user-version.select":
+      case "conversation.assistant-version.select":
+        store.dispatch({ type: "conversation/version-selected", chatId: operation.payload.chatId, messageId: operation.payload.messageId, kind: operation.action === "conversation.user-version.select" ? "user" : "assistant", version: operation.payload.version });
+        return { status: "updated", revision: operation.payload.version };
+      case "settings.preference.set": {
+        const next = await rpc.setAppSetting(operation.payload.key as keyof AppSettings, String(operation.payload.value));
+        setSettings(next);
+        return { status: "updated", revision: JSON.stringify(next) };
+      }
+      case "settings.preference.reset": {
+        const next = await rpc.setAppSetting(operation.payload.key as keyof AppSettings, null);
+        setSettings(next);
+        return { status: "updated", revision: JSON.stringify(next) };
+      }
+      default:
+        return { status: "unavailable", reason: `${operation.action} has no registered durable implementation.` };
+    }
+  };
+
+  const rendererExecutor = async (operation: StudioOperation): Promise<StudioOperationOutcome> => {
+    switch (operation.action) {
+      case "layout.sidebar.toggle": return changeLayout({ sidebarOpen: !layout.sidebarOpen });
+      case "layout.sidebar.resize": return changeLayout({ sidebarWidth: operation.payload.width });
+      case "layout.sidebar.reset": return changeLayout({ sidebarWidth: 264 });
+      case "layout.inspector.toggle": return changeLayout({ inspectorOpen: !layout.inspectorOpen });
+      case "layout.inspector.resize": return changeLayout({ inspectorWidth: operation.payload.width });
+      case "layout.inspector.reset": return changeLayout({ inspectorWidth: 384 });
+      case "layout.editor.toggle": return changeLayout({ editorOpen: !layout.editorOpen });
+      case "layout.editor.resize": return changeLayout({ editorWidth: operation.payload.width });
+      case "layout.editor.close": setActiveSheet(null); return changeLayout({ editorOpen: false });
+      case "route.settings.open": store.dispatch({ type: "route/settings", section: operation.payload.section }); break;
+      case "route.archived.open": store.dispatch({ type: "route/settings", section: "archived" }); break;
+      case "route.settings.back":
+      case "route.workspace.open": store.dispatch({ type: "route/workspace" }); break;
+      case "usage.account.open": store.dispatch({ type: "route/settings", section: "usage" }); break;
+      case "palette.open": openPalette(); break;
+      case "palette.close": setPaletteOpen(false); break;
+      case "surface.popover.toggle":
+        if (operation.payload.popoverId === "create-project") setCreateProjectOpen(true);
+        else if (operation.payload.popoverId === null) setCreateProjectOpen(false);
+        else return { status: "unavailable", reason: `Popover ${operation.payload.popoverId} is unavailable.` };
+        break;
+      case "catalog.project.toggle": setExpandedProjectIds((current) => { const next = new Set(current); if (next.has(operation.payload.projectId)) next.delete(operation.payload.projectId); else next.add(operation.payload.projectId); return next; }); break;
+      case "catalog.chat.select": store.dispatch({ type: "project-chat/command", command: { type: "selection.select-chat", projectId: operation.payload.projectId, chatId: operation.payload.chatId } }); break;
+      case "conversation.user-edit.start":
+      case "conversation.user-edit.cancel":
+      case "conversation.work-details.toggle":
+      case "harness.tab.select":
+      case "harness.child.open":
+      case "harness.child.back":
+      case "harness.child.tab-select":
+      case "activity.filter.select":
+      case "activity.row.toggle":
+      case "activity.child.open":
+      case "editor.mode.select":
+      case "editor.content.change":
+      case "settings.search.change":
+      case "settings.section.select":
+      case "usage.account.range-select":
+      case "usage.account.series-toggle":
+      case "surface.accordion.toggle":
+      case "overlay.topmost.close":
+      case "toast.dismiss": break;
+      case "conversation.suggestion.fill":
+      case "composer.draft.change": store.dispatch({ type: "draft/change", chatId: operation.payload.chatId, draft: operation.payload.text }); break;
+      case "composer.attachment.remove": store.dispatch({ type: "attachments/change", chatId: operation.payload.chatId, attachments: (attachments[operation.payload.chatId] ?? []).filter((attachment) => attachment.id !== operation.payload.attachmentId) }); break;
+      default: return { status: "unavailable", reason: `${operation.action} has no registered renderer implementation.` };
+    }
+    return { status: "updated", revision: Date.now() };
+  };
+
+  const nativeExecutor = async (operation: StudioOperation): Promise<StudioOperationOutcome> => {
+    switch (operation.action) {
+      case "window.minimize": await getCurrentWindow().minimize(); break;
+      case "window.maximize-toggle": await getCurrentWindow().toggleMaximize(); break;
+      case "window.close": await getCurrentWindow().close(); break;
+      case "route.external-docs.open": await openUrl(operation.payload.document === "support" ? "https://github.com/Nice6042/prime-studio/blob/main/SUPPORT.md" : "https://www.npmjs.com/package/prime-agent"); break;
+      case "conversation.response.copy": await navigator.clipboard.writeText(operation.payload.text); break;
+      case "activity.command.copy": await navigator.clipboard.writeText(operation.payload.command); break;
+      case "history.undo": if (!document.execCommand("undo")) return { status: "rejected", reason: "Undo is unavailable in the active surface.", retryable: false }; break;
+      case "history.redo": if (!document.execCommand("redo")) return { status: "rejected", reason: "Redo is unavailable in the active surface.", retryable: false }; break;
+      default: return { status: "unavailable", reason: `${operation.action} has no registered native implementation.` };
+    }
+    return { status: "updated", revision: Date.now() };
+  };
+
+  const harnessExecutor = async (operation: StudioOperation): Promise<StudioOperationOutcome> => {
+    if (operation.action === "harness.session.prompt" || operation.action === "harness.session.follow-up" || operation.action === "harness.session.steer" || operation.action === "harness.session.abort") {
+      const sessionId = operation.payload.sessionId;
+      const session = Object.values(store.getSnapshot().sessions).find((candidate) => candidate.sessionId === sessionId);
+      if (!session) return { status: "unavailable", reason: "The selected Harness session is no longer attached." };
+      const kind = operation.action === "harness.session.prompt" ? "prompt" : operation.action === "harness.session.follow-up" ? "follow_up" : operation.action === "harness.session.steer" ? "steer" : "abort";
+      const text = operation.action === "harness.session.abort" ? "" : operation.payload.text;
+      const result = await rpc.sendHarnessCommand({ sessionId, commandId: `studio-${crypto.randomUUID()}`, expectedCursor: session.cursor, kind, text });
+      store.dispatch({ type: "harness/session-projected", session: result.session });
+      if (kind !== "abort") store.dispatch({ type: "draft/change", chatId: session.chatId, draft: "" });
+      if (result.outcome === "queued") return { status: "queued", commandId: result.commandId, position: null };
+      return result.outcome === "accepted" ? { status: "accepted", commandId: result.commandId } : { status: "updated", revision: result.session.cursor.sequence };
+    }
+    return harnessAdapter.availability.status === "available"
+      ? harnessAdapter.execute(operation)
+      : { status: "unavailable", reason: harnessAdapter.availability.reason };
+  };
+
+  const dispatchOperation = createStudioOperationDispatcher({
+    harness: harnessExecutor,
+    studioDurable: durableExecutor,
+    renderer: rendererExecutor,
+    native: nativeExecutor,
+    onOutcome: (_operation, outcome) => {
+      if (outcome.status === "unavailable" || outcome.status === "rejected" || outcome.status === "unknown_outcome") setOperationFeedback(outcome.reason);
+    },
+  });
 
   const createChat = () => {
     const projectId = store.getSnapshot().projectCatalog.selectedProjectId;
-    void applyCatalog({ type: "chat.create", projectId, chatId: `chat-${crypto.randomUUID()}`, title: "New chat" }, "Creating chat");
+    void dispatchOperation({ action: "catalog.chat.create", payload: { projectId } });
   };
 
   const createProject = (name: string, folderPath: string) => {
-    void applyCatalog({ type: "project.create", projectId: `project-${crypto.randomUUID()}`, name, folderPath }, "Creating project");
+    void dispatchOperation({ action: "catalog.project.create", payload: { title: name, folderPath } });
   };
 
   const runCommand = (id: StudioCommandId) => {
-    switch (id) {
-      case "chat.new": createChat(); return;
-      case "project.new": setCreateProjectOpen(true); return;
-      case "archived.open": store.dispatch({ type: "route/settings", section: "archived" }); return;
-      case "palette.open": openPalette(); return;
-      case "settings.open": store.dispatch({ type: "route/settings" }); return;
-      case "settings.usage": store.dispatch({ type: "route/settings", section: "usage" }); return;
-      case "sidebar.toggle": changeLayout({ sidebarOpen: !layout.sidebarOpen }); return;
-      case "inspector.toggle": changeLayout({ inspectorOpen: !layout.inspectorOpen }); return;
-    }
+    const command = studioCommands.find((candidate) => candidate.id === id);
+    if (!command) return;
+    const operation: StudioOperation = id === "chat.new" ? { action: "catalog.chat.create", payload: { projectId: store.getSnapshot().projectCatalog.selectedProjectId } }
+      : id === "project.new" ? { action: "surface.popover.toggle", payload: { popoverId: "create-project" } }
+        : id === "archived.open" ? { action: "route.archived.open", payload: {} }
+          : id === "settings.open" ? { action: "route.settings.open", payload: {} }
+            : id === "settings.usage" ? { action: "usage.account.open", payload: {} }
+              : id === "sidebar.toggle" ? { action: "layout.sidebar.toggle", payload: {} }
+                : id === "inspector.toggle" ? { action: "layout.inspector.toggle", payload: {} }
+                  : { action: "palette.open", payload: {} };
+    void dispatchOperation(operation);
   };
 
   const runTitleOperation = (operation: StudioOperation) => {
-    switch (operation.action) {
-      case "catalog.chat.create": createChat(); return;
-      case "route.settings.open": store.dispatch({ type: "route/settings" }); return;
-      case "layout.sidebar.toggle": changeLayout({ sidebarOpen: !layout.sidebarOpen }); return;
-      case "layout.inspector.toggle": changeLayout({ inspectorOpen: !layout.inspectorOpen }); return;
-      case "window.minimize": void getCurrentWindow().minimize(); return;
-      case "window.maximize-toggle": void getCurrentWindow().toggleMaximize(); return;
-      case "window.close": void getCurrentWindow().close(); return;
-      case "route.external-docs.open": void openUrl(operation.payload.document === "support" ? "https://github.com/Nice6042/prime-studio/blob/main/SUPPORT.md" : "https://www.npmjs.com/package/prime-agent"); return;
-      case "history.undo": document.execCommand("undo"); return;
-      case "history.redo": document.execCommand("redo"); return;
-      default: return;
-    }
+    const normalized = operation.action === "catalog.chat.create" ? { ...operation, payload: { projectId: store.getSnapshot().projectCatalog.selectedProjectId } } as StudioOperation : operation;
+    void dispatchOperation(normalized).then((outcome) => {
+      if (outcome.status === "unavailable" || outcome.status === "rejected" || outcome.status === "unknown_outcome") setAdmissionMessage(outcome.reason);
+    });
   };
 
   useEffect(() => {
@@ -271,7 +426,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  const openSettings = () => store.dispatch({ type: "route/settings" });
+  const openSettings = () => { void dispatchOperation({ action: "route.settings.open", payload: {} }); };
   const admissionConnected = Boolean(
     selectedSession
     && selectedSession.freshness === "live"
@@ -285,24 +440,19 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         onSearch={setQuery}
         onSelectChat={(chatId) => {
           const project = projectCatalog.projects.find((candidate) => candidate.chats.some((chat) => chat.id === chatId));
-          if (project) store.dispatch({ type: "project-chat/command", command: { type: "selection.select-chat", projectId: project.id, chatId } });
+          if (project) void dispatchOperation({ action: "catalog.chat.select", payload: { projectId: project.id, chatId } });
         }}
-        onToggleProject={(projectId) => setExpandedProjectIds((current) => {
-          const next = new Set(current);
-          if (next.has(projectId)) next.delete(projectId);
-          else next.add(projectId);
-          return next;
-        })}
+        onToggleProject={(projectId) => { void dispatchOperation({ action: "catalog.project.toggle", payload: { projectId } }); }}
         onNewChat={createChat}
         onNewProject={createProject}
         newChatDisabledReason={catalogOperation.phase === "pending" ? catalogOperation.label : undefined}
         onOpenSearch={openPalette}
-        onOpenArchived={() => store.dispatch({ type: "route/settings", section: "archived" })}
-        onCollapse={() => changeLayout({ sidebarOpen: false })}
+        onOpenArchived={() => { void dispatchOperation({ action: "route.archived.open", payload: {} }); }}
+        onCollapse={() => { if (layout.sidebarOpen) void dispatchOperation({ action: "layout.sidebar.toggle", payload: {} }); }}
         onOpenSettings={openSettings}
       />
     : <CollapsedSidebar
-        onExpand={() => changeLayout({ sidebarOpen: true })}
+        onExpand={() => { if (!layout.sidebarOpen) void dispatchOperation({ action: "layout.sidebar.toggle", payload: {} }); }}
         onNewChat={createChat}
         newChatDisabledReason={catalogOperation.phase === "pending" ? catalogOperation.label : undefined}
         onOpenSearch={openPalette}
@@ -311,7 +461,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const sidebarRailContent = <CollapsedSidebar
     onExpand={() => {
       sheetOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-      changeLayout({ sidebarOpen: true });
+      if (!layout.sidebarOpen) void dispatchOperation({ action: "layout.sidebar.toggle", payload: {} });
       if (viewport < 760) setActiveSheet("sidebar");
     }}
     onNewChat={createChat}
@@ -322,29 +472,27 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
 
   if (navigation.route === "settings") {
     if (navigation.settingsSection === "archived") {
-      return <main className="studio-settings" aria-label="Archived chats">
+      return <>{operationFeedback && <p className="studio-operation-feedback" role="alert" aria-label="Studio operation failed">{operationFeedback}</p>}<main className="studio-settings" aria-label="Archived chats">
         <section className="studio-settings-content"><div className="studio-settings-page"><header><button type="button" className="studio-settings-back" aria-label="Back to chat" onClick={() => store.dispatch({ type: "route/workspace" })}>Back to chat</button><h1>Archived chats</h1><span>Restore archived projects and conversations.</span></header>
-          <ArchivedCatalogSettings catalog={projectCatalog} operation={catalogOperation} onRestoreProject={(projectId) => { void applyCatalog({ type: "project.restore", projectId }, "Restoring project"); }} onRestoreChat={(projectId, chatId) => { void applyCatalog({ type: "chat.restore", projectId, chatId }, "Restoring chat"); }} />
+          <ArchivedCatalogSettings catalog={projectCatalog} operation={catalogOperation} onRestoreProject={(projectId) => { void dispatchOperation({ action: "catalog.project.restore", payload: { projectId } }); }} onRestoreChat={(_projectId, chatId) => { void dispatchOperation({ action: "catalog.chat.restore", payload: { chatId } }); }} />
         </div></section>
-      </main>;
+      </main></>;
     }
-    return <><SettingsShell
+    return <>{operationFeedback && <p className="studio-operation-feedback" role="alert" aria-label="Studio operation failed">{operationFeedback}</p>}<SettingsShell
       section={navigation.settingsSection}
-      onSection={(section) => store.dispatch({ type: "route/settings", section })}
-      onBack={() => store.dispatch({ type: "route/workspace" })}
+      onSection={(section) => { void dispatchOperation({ action: "route.settings.open", payload: { section } }); }}
+      onBack={() => { void dispatchOperation({ action: "route.settings.back", payload: {} }); }}
       compatibility={compatibility}
       settings={settings}
       accounts={accounts}
       onAccountsChanged={(next) => {
         if (next) setAccounts(next);
-        else void rpc.listAccounts().then(setAccounts).catch(() => undefined);
+        else void rpc.listAccounts().then(setAccounts).catch(() => setOperationFeedback("Account status could not be refreshed."));
       }}
-      onSetting={(key, value) => {
-        void rpc.setAppSetting(key, value).then(setSettings).catch(() => undefined);
-      }}
+      onSetting={(key, value) => { void dispatchOperation(value === null ? { action: "settings.preference.reset", payload: { key } } : { action: "settings.preference.set", payload: { key, value } }); }}
       onExportUsageCsv={rpc.exportAccountUsageCsv}
-    />{paletteOpen && <CommandPalette admissionConnected={admissionConnected} onRun={runCommand} onClose={() => setPaletteOpen(false)} restoreFocusTo={paletteOpener} chats={paletteChats} messages={paletteMessages} onOpenChat={openCatalogChat} onOpenMessage={(chatId) => openCatalogChat(chatId)} />}
-    {createProjectOpen && <CreateProjectDialog onCancel={() => setCreateProjectOpen(false)} onCreate={(name, folderPath) => { createProject(name, folderPath); setCreateProjectOpen(false); }} />}</>;
+    />{paletteOpen && <CommandPalette admissionConnected={admissionConnected} onRun={runCommand} onClose={() => { void dispatchOperation({ action: "palette.close", payload: {} }); }} restoreFocusTo={paletteOpener} chats={paletteChats} messages={paletteMessages} onOpenChat={openCatalogChat} onOpenMessage={(chatId) => openCatalogChat(chatId)} />}
+    {createProjectOpen && <CreateProjectDialog onCancel={() => { void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} onCreate={(name, folderPath) => { createProject(name, folderPath); void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} />}</>;
   }
 
   const title = selectedChat?.title ?? "Prime Studio";
@@ -381,7 +529,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     }
     setAdmissionMessage(`${label}…`);
     try {
-      const outcome = await harnessAdapter.execute(operation);
+      const outcome = await dispatchOperation(operation);
       if (operationAccepted(outcome.status)) accepted?.();
       if (outcome.status === "unavailable" || outcome.status === "rejected" || outcome.status === "unknown_outcome") setAdmissionMessage(outcome.reason);
       else if (outcome.status === "queued") setAdmissionMessage(outcome.position === null ? `${label} queued.` : `${label} queued at position ${outcome.position}.`);
@@ -391,7 +539,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     }
   };
   const openCurrentUsage = () => {
-    changeLayout({ inspectorOpen: true });
+    if (!layout.inspectorOpen) void dispatchOperation({ action: "layout.inspector.toggle", payload: {} });
     setInspectorRouteRequest((current) => ({ id: (current?.id ?? 0) + 1, route: "usage" }));
   };
   const runSlashCommand = (command: SlashCommand["id"]) => {
@@ -417,18 +565,14 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     setAdmissionPhase(kind === "abort" ? "aborting" : "submitting");
     setAdmissionMessage("");
     try {
-      const result = await rpc.sendHarnessCommand({
-        sessionId: selectedSession.sessionId,
-        commandId: `studio-${crypto.randomUUID()}`,
-        expectedCursor: selectedSession.cursor,
-        kind,
-        text,
-      });
-      store.dispatch({ type: "harness/session-projected", session: result.session });
-      if (kind !== "abort") {
-        store.dispatch({ type: "draft/change", chatId: navigation.selectedChatId, draft: "" });
-      }
-      setAdmissionMessage(result.outcome === "queued" ? "Prompt queued." : result.outcome === "reconciled" ? "Command reconciled after reconnect." : "");
+      const operation: StudioOperation = kind === "abort" ? { action: "harness.session.abort", payload: { sessionId: selectedSession.sessionId } }
+        : kind === "follow_up" ? { action: "harness.session.follow-up", payload: { sessionId: selectedSession.sessionId, text } }
+          : kind === "steer" ? { action: "harness.session.steer", payload: { sessionId: selectedSession.sessionId, text } }
+            : { action: "harness.session.prompt", payload: { sessionId: selectedSession.sessionId, text } };
+      const outcome = await dispatchOperation(operation);
+      if (outcome.status === "queued") setAdmissionMessage(outcome.position === null ? "Prompt queued." : `Prompt queued at position ${outcome.position}.`);
+      else if (outcome.status === "unavailable" || outcome.status === "rejected" || outcome.status === "unknown_outcome") setAdmissionMessage(outcome.reason);
+      else setAdmissionMessage("");
     } catch {
       setAdmissionMessage("The Harness did not admit this command. Your draft was preserved.");
     } finally {
@@ -437,20 +581,21 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   };
   return <div className="studio-application">
     <TitleBar title={title} onOperation={runTitleOperation} actions={<>
-      <button type="button" className="studio-command-trigger" aria-label="Projects" aria-pressed={viewport < 760 ? activeSheet === "sidebar" : layout.sidebarOpen} onClick={(event) => { if (viewport < 760) { sheetOpener.current = event.currentTarget; changeLayout({ sidebarOpen: true }); setActiveSheet((value) => value === "sidebar" ? null : "sidebar"); } else changeLayout({ sidebarOpen: !layout.sidebarOpen }); }}><NavigationIcon kind="menu" /></button>
-      <button type="button" className="studio-command-trigger" aria-label="Harness" aria-pressed={viewport < 760 ? activeSheet === "inspector" : layout.inspectorOpen} onClick={(event) => { if (viewport < 760) { sheetOpener.current = event.currentTarget; changeLayout({ inspectorOpen: true }); setActiveSheet((value) => value === "inspector" ? null : "inspector"); } else changeLayout({ inspectorOpen: !layout.inspectorOpen }); }}><NavigationIcon kind="harness" /></button>
-      <button type="button" className="studio-command-trigger" aria-label={layout.editorOpen ? "Close editor" : "Open editor"} onClick={(event) => { if (!layout.editorOpen) sheetOpener.current = event.currentTarget; changeLayout({ editorOpen: !layout.editorOpen }); setActiveSheet(layout.editorOpen ? null : "editor"); }}><NavigationIcon kind="editor" /></button>
-      <button type="button" className="studio-command-trigger" aria-label="Open command palette" onClick={openPalette}><NavigationIcon kind="command" /></button>
+      <button type="button" className="studio-command-trigger" aria-label="Projects" aria-pressed={viewport < 760 ? activeSheet === "sidebar" : layout.sidebarOpen} onClick={(event) => { if (viewport < 760) { sheetOpener.current = event.currentTarget; if (!layout.sidebarOpen) void dispatchOperation({ action: "layout.sidebar.toggle", payload: {} }); setActiveSheet((value) => value === "sidebar" ? null : "sidebar"); } else void dispatchOperation({ action: "layout.sidebar.toggle", payload: {} }); }}><NavigationIcon kind="menu" /></button>
+      <button type="button" className="studio-command-trigger" aria-label="Harness" aria-pressed={viewport < 760 ? activeSheet === "inspector" : layout.inspectorOpen} onClick={(event) => { if (viewport < 760) { sheetOpener.current = event.currentTarget; if (!layout.inspectorOpen) void dispatchOperation({ action: "layout.inspector.toggle", payload: {} }); setActiveSheet((value) => value === "inspector" ? null : "inspector"); } else void dispatchOperation({ action: "layout.inspector.toggle", payload: {} }); }}><NavigationIcon kind="harness" /></button>
+      <button type="button" className="studio-command-trigger" aria-label={layout.editorOpen ? "Close editor" : "Open editor"} onClick={(event) => { if (!layout.editorOpen) sheetOpener.current = event.currentTarget; void dispatchOperation({ action: layout.editorOpen ? "layout.editor.close" : "layout.editor.toggle", payload: {} }); setActiveSheet(layout.editorOpen ? null : "editor"); }}><NavigationIcon kind="editor" /></button>
+      <button type="button" className="studio-command-trigger" aria-label="Open command palette" onClick={() => { void dispatchOperation({ action: "palette.open", payload: {} }); }}><NavigationIcon kind="command" /></button>
     </>} />
+    {operationFeedback && <p className="studio-operation-feedback" role="alert" aria-label="Studio operation failed">{operationFeedback}</p>}
     <WorkspaceShell
       viewport={viewport}
       sidebar={{ open: layout.sidebarOpen, preferred: layout.sidebarWidth }}
       inspector={{ open: layout.inspectorOpen, preferred: layout.inspectorWidth }}
       editor={{ open: layout.editorOpen, preferred: layout.editorWidth }}
       conversationLabel={title}
-      onSidebarPreferred={(sidebarWidth) => changeLayout({ sidebarWidth })}
-      onInspectorPreferred={(inspectorWidth) => changeLayout({ inspectorWidth })}
-      onEditorPreferred={(editorWidth) => changeLayout({ editorWidth })}
+      onSidebarPreferred={(sidebarWidth) => { void dispatchOperation({ action: "layout.sidebar.resize", payload: { width: sidebarWidth } }); }}
+      onInspectorPreferred={(inspectorWidth) => { void dispatchOperation({ action: "layout.inspector.resize", payload: { width: inspectorWidth } }); }}
+      onEditorPreferred={(editorWidth) => { void dispatchOperation({ action: "layout.editor.resize", payload: { width: editorWidth } }); }}
       activeSheet={activeSheet}
       sidebarContent={sidebarContent}
       sidebarRailContent={sidebarRailContent}
@@ -465,14 +610,14 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
             moveTargets={projectCatalog.projects.filter((candidate) => !candidate.archived && candidate.id !== project?.id).map((candidate) => ({ id: candidate.id, name: candidate.name }))}
             operation={catalogOperation}
             inspectorHidden={!layout.inspectorOpen}
-            onSelectChat={(chatId) => { if (project) store.dispatch({ type: "project-chat/command", command: { type: "selection.select-chat", projectId: project.id, chatId } }); }}
-            onSetPinned={(pinned) => { if (project) void applyCatalog({ type: "chat.set-pinned", projectId: project.id, chatId: selectedChat.id, pinned }, pinned ? "Pinning chat" : "Unpinning chat"); }}
-            onRename={(nextTitle) => { if (project) void applyCatalog({ type: "chat.rename", projectId: project.id, chatId: selectedChat.id, title: nextTitle }, "Renaming chat"); }}
-            onDuplicate={() => { if (project) void applyCatalog({ type: "chat.duplicate", projectId: project.id, chatId: selectedChat.id, newChatId: `chat-${crypto.randomUUID()}`, title: `${selectedChat.title} copy` }, "Duplicating chat"); }}
-            onMove={(targetProjectId) => { if (project) void applyCatalog({ type: "chat.move", projectId: project.id, chatId: selectedChat.id, targetProjectId }, "Moving chat"); }}
-            onArchive={() => { if (project) void applyCatalog({ type: "chat.archive", projectId: project.id, chatId: selectedChat.id }, "Archiving chat"); }}
-            onDelete={() => { if (project) void applyCatalog({ type: "chat.delete", projectId: project.id, chatId: selectedChat.id }, "Deleting chat"); }}
-            onOpenInspector={() => changeLayout({ inspectorOpen: true })}
+            onSelectChat={(chatId) => { if (project) void dispatchOperation({ action: "catalog.chat.select", payload: { projectId: project.id, chatId } }); }}
+            onSetPinned={() => { void dispatchOperation({ action: "catalog.chat.pin-toggle", payload: { chatId: selectedChat.id } }); }}
+            onRename={(nextTitle) => { void dispatchOperation({ action: "catalog.chat.rename", payload: { chatId: selectedChat.id, title: nextTitle } }); }}
+            onDuplicate={() => { void dispatchOperation({ action: "catalog.chat.duplicate", payload: { chatId: selectedChat.id } }); }}
+            onMove={(targetProjectId) => { void dispatchOperation({ action: "catalog.chat.move", payload: { chatId: selectedChat.id, projectId: targetProjectId } }); }}
+            onArchive={() => { void dispatchOperation({ action: "catalog.chat.archive", payload: { chatId: selectedChat.id } }); }}
+            onDelete={() => { void dispatchOperation({ action: "catalog.chat.delete", payload: { chatId: selectedChat.id } }); }}
+            onOpenInspector={() => { if (!layout.inspectorOpen) void dispatchOperation({ action: "layout.inspector.toggle", payload: {} }); }}
           />;
         })()}
         <ParentConversation
@@ -484,12 +629,12 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
           onOpenCanvas={navigation.selectedChatId ? (messageId, content) => {
             const existing = displayRevisions[navigation.selectedChatId!]?.[messageId];
             setCanvas({ chatId: navigation.selectedChatId!, messageId, displayRevision: existing?.revision ?? 1, content });
-            changeLayout({ editorOpen: true });
+            if (!layout.editorOpen) void dispatchOperation({ action: "layout.editor.toggle", payload: {} });
             setActiveSheet("editor");
           } : undefined}
-          onSuggestionFill={navigation.selectedChatId ? (text) => store.dispatch({ type: "draft/change", chatId: navigation.selectedChatId!, draft: text }) : undefined}
-          onSelectUserVersion={navigation.selectedChatId ? (messageId, version) => store.dispatch({ type: "conversation/version-selected", chatId: navigation.selectedChatId!, messageId, kind: "user", version }) : undefined}
-          onSelectAssistantVersion={navigation.selectedChatId ? (messageId, version) => store.dispatch({ type: "conversation/version-selected", chatId: navigation.selectedChatId!, messageId, kind: "assistant", version }) : undefined}
+          onSuggestionFill={navigation.selectedChatId ? (text) => { void dispatchOperation({ action: "conversation.suggestion.fill", payload: { chatId: navigation.selectedChatId!, text } }); } : undefined}
+          onSelectUserVersion={navigation.selectedChatId ? (messageId, version) => { void dispatchOperation({ action: "conversation.user-version.select", payload: { chatId: navigation.selectedChatId!, messageId, version } }); } : undefined}
+          onSelectAssistantVersion={navigation.selectedChatId ? (messageId, version) => { void dispatchOperation({ action: "conversation.assistant-version.select", payload: { chatId: navigation.selectedChatId!, messageId, version } }); } : undefined}
           onEditUserMessage={!archived && navigation.selectedChatId && adapterConnected && hasCapability("resident_sessions") ? (messageId, text) => {
             const chatId = navigation.selectedChatId!;
             void runAdapterOperation({ action: "conversation.user-version.create", payload: { chatId, messageId, text } }, "Edit", () => {
@@ -507,7 +652,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
           draft={draft}
           state={composerState}
           attachments={attachments[navigation.selectedChatId] ?? []}
-          onDraftChange={(nextDraft) => store.dispatch({ type: "draft/change", chatId: navigation.selectedChatId!, draft: nextDraft })}
+          onDraftChange={(nextDraft) => { void dispatchOperation({ action: "composer.draft.change", payload: { chatId: navigation.selectedChatId!, text: nextDraft } }); }}
           onAttachmentsChange={(nextAttachments) => store.dispatch({ type: "attachments/change", chatId: navigation.selectedChatId!, attachments: nextAttachments })}
           onSubmit={() => { void submitToHarness(
             selectedSession?.state === "working" || selectedSession?.state === "blocked"
@@ -538,12 +683,13 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         session={selectedSession}
         compatibility={compatibility}
         adapter={harnessAdapter}
+        onExecute={dispatchOperation}
         routeRequest={inspectorRouteRequest}
-        onCollapse={() => { changeLayout({ inspectorOpen: false }); setActiveSheet(null); }}
-        onOpenAccountUsage={() => store.dispatch({ type: "route/settings", section: "usage" })}
+        onCollapse={() => { if (layout.inspectorOpen) void dispatchOperation({ action: "layout.inspector.toggle", payload: {} }); setActiveSheet(null); }}
+        onOpenAccountUsage={() => { void dispatchOperation({ action: "usage.account.open", payload: {} }); }}
       />}
       editorContent={<EditorPane
-        onClose={() => { changeLayout({ editorOpen: false }); setActiveSheet(null); }}
+        onClose={() => { void dispatchOperation({ action: "layout.editor.close", payload: {} }); }}
         artifact={null}
         onArtifactSave={rpc.saveEditorArtifact}
         unsupportedReason="No identity-bound native or Harness artifact reference is available for this editor."
@@ -560,7 +706,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       model={composerProjection?.selectedModel ?? undefined}
       thinking={composerProjection?.selectedThinking ?? undefined}
     />
-    {paletteOpen && <CommandPalette admissionConnected={admissionConnected} onRun={runCommand} onClose={() => setPaletteOpen(false)} restoreFocusTo={paletteOpener} chats={paletteChats} messages={paletteMessages} onOpenChat={openCatalogChat} onOpenMessage={(chatId) => openCatalogChat(chatId)} />}
-    {createProjectOpen && <CreateProjectDialog onCancel={() => setCreateProjectOpen(false)} onCreate={(name, folderPath) => { createProject(name, folderPath); setCreateProjectOpen(false); }} />}
+    {paletteOpen && <CommandPalette admissionConnected={admissionConnected} onRun={runCommand} onClose={() => { void dispatchOperation({ action: "palette.close", payload: {} }); }} restoreFocusTo={paletteOpener} chats={paletteChats} messages={paletteMessages} onOpenChat={openCatalogChat} onOpenMessage={(chatId) => openCatalogChat(chatId)} />}
+    {createProjectOpen && <CreateProjectDialog onCancel={() => { void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} onCreate={(name, folderPath) => { createProject(name, folderPath); void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} />}
   </div>;
 }

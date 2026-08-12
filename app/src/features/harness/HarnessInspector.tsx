@@ -36,11 +36,12 @@ function outcomeMessage(outcome: StudioOperationOutcome): { kind: "status" | "al
   return { kind: "alert", text: outcome.reason };
 }
 
-export function HarnessInspector({ chatId, session, compatibility, adapter = unavailableHarnessInspectorAdapter, onOpenAccountUsage, onCollapse, routeRequest }: {
+export function HarnessInspector({ chatId, session, compatibility, adapter = unavailableHarnessInspectorAdapter, onExecute, onOpenAccountUsage, onCollapse, routeRequest }: {
   readonly chatId: string | null;
   readonly session: RootSessionProjection | null;
   readonly compatibility: HarnessCompatibility;
   readonly adapter?: HarnessInspectorAdapter;
+  readonly onExecute?: (operation: StudioOperation) => Promise<StudioOperationOutcome>;
   readonly onOpenAccountUsage?: () => void;
   readonly onCollapse?: () => void;
   readonly routeRequest?: Readonly<{ id: number; route: "overview" | "usage" | "activity" }>;
@@ -90,7 +91,7 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
     setPendingKey(key);
     if (!quiet) setFeedback(null);
     try {
-      const outcome = await adapter.execute(operation);
+      const outcome = await (onExecute ?? adapter.execute)(operation);
       const next = outcomeMessage(outcome);
       if (!quiet || next.kind === "alert") setFeedback(next);
       if (outcome.status !== "unavailable" && outcome.status !== "rejected" && outcome.status !== "unknown_outcome") {

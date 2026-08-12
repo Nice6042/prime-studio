@@ -301,4 +301,31 @@ describe("Studio application state", () => {
     fireEvent.keyDown(composer, { key: "Enter" });
     await waitFor(() => expect(operations).toContainEqual({ action: "harness.session.compact", payload: { sessionId: "session-1" } }));
   }, 20_000);
+
+  it("keeps renderer-owned Harness navigation out of the Harness adapter", async () => {
+    const operations: StudioOperation[] = [];
+    const store = createStudioStore(initialStudioState({
+      chats: [chat],
+      sessions: [rootSession],
+      compatibility: { status: "ready", profile: "verified", capabilities: ["attach_snapshot", "event_sequence"] },
+    }));
+    store.dispatch({ type: "chat/open", chatId: chat.id });
+    render(<AppProviders store={store}><StudioApp harnessAdapter={conversationAdapter(operations)} /></AppProviders>);
+
+    await userEvent.click(await screen.findByRole("tab", { name: "Usage" }));
+
+    expect(screen.getByText("Current chat")).toBeVisible();
+    expect(operations).not.toContainEqual(expect.objectContaining({ action: "harness.tab.select" }));
+  });
+
+  it("shows an explicit product-level failure when a rendered operation is unavailable", async () => {
+    const store = createStudioStore(initialStudioState({ chats: [chat] }));
+    store.dispatch({ type: "chat/open", chatId: chat.id });
+    render(<AppProviders store={store}><StudioApp /></AppProviders>);
+
+    await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Undo" }));
+
+    expect(await screen.findByRole("alert", { name: "Studio operation failed" })).toHaveTextContent(/Undo|execCommand/i);
+  });
 });

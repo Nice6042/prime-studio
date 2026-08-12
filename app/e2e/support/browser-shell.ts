@@ -55,6 +55,15 @@ export const test = base.extend<ShellFixtures>({
       const listeners = new Map<string, number[]>();
       let nextCallback = 1;
       let projectedHarnessSessions = scenario.sessions.map((session) => ({ ...session, freshness: "live" }));
+      let layoutPreferences = {
+        schemaVersion: 1,
+        sidebarOpen: true,
+        sidebarWidth: 264,
+        inspectorOpen: true,
+        inspectorWidth: 384,
+        editorOpen: false,
+        editorWidth: 400,
+      };
 
       const emit = (event: string, payload: unknown) => {
         for (const id of listeners.get(event) ?? []) {
@@ -222,16 +231,10 @@ export const test = base.extend<ShellFixtures>({
           case "harness_projection":
             return [];
           case "get_layout_preferences":
+            return { ...layoutPreferences };
           case "set_layout_preferences":
-            return {
-              schemaVersion: 1,
-              sidebarOpen: true,
-              sidebarWidth: 264,
-              inspectorOpen: true,
-              inspectorWidth: 384,
-              editorOpen: false,
-              editorWidth: 400,
-            };
+            layoutPreferences = { ...args?.preferences } as typeof layoutPreferences;
+            return { ...layoutPreferences };
           case "project_catalog_load":
             return {
               revision: 0,

@@ -33,7 +33,7 @@ export interface StudioActionPayloadMap {
   "route.archived.open": EmptyPayload;
   "route.external-docs.open": Readonly<{ document: "prime-agent" | "licenses" | "support" }>;
 
-  "catalog.project.create": Readonly<{ title: string }>;
+  "catalog.project.create": Readonly<{ title: string; folderPath?: string }>;
   "catalog.project.restore": IdentifierPayload<"projectId">;
   "catalog.project.toggle": IdentifierPayload<"projectId">;
   "catalog.chat.create": IdentifierPayload<"projectId">;
@@ -177,7 +177,7 @@ export interface StudioActionDescriptor {
 
 const H = (capability: HarnessCapability | "core_session"): StudioActionDescriptor => ({ owner: { kind: "harness", capability }, outcomes: ["accepted", "queued", "updated", "cancelled", "unavailable", "rejected", "unknown_outcome"] });
 const D = (store: Extract<StudioActionAuthority, { kind: "studio_durable" }>["store"]): StudioActionDescriptor => ({ owner: { kind: "studio_durable", store }, outcomes: ["updated", "unavailable", "rejected"] });
-const R = (persistence: Extract<StudioActionAuthority, { kind: "renderer" }>["persistence"] = "none"): StudioActionDescriptor => ({ owner: { kind: "renderer", persistence }, outcomes: ["updated", "rejected"] });
+const R = (persistence: Extract<StudioActionAuthority, { kind: "renderer" }>["persistence"] = "none"): StudioActionDescriptor => ({ owner: { kind: "renderer", persistence }, outcomes: ["updated", "unavailable", "rejected"] });
 const N = (boundary: Extract<StudioActionAuthority, { kind: "native" }>["boundary"]): StudioActionDescriptor => ({ owner: { kind: "native", boundary }, outcomes: ["updated", "cancelled", "unavailable", "rejected"] });
 const U = (reason: string): StudioActionDescriptor => ({ owner: { kind: "unsupported", reason }, outcomes: ["unavailable"] });
 

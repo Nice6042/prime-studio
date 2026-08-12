@@ -91,6 +91,19 @@ const compatibility = {
 afterEach(() => localStorage.clear());
 
 describe("HarnessInspector", () => {
+  it("uses the product dispatcher seam for actions while retaining the adapter for projections", async () => {
+    const source = adapter();
+    const onExecute = vi.fn(async () => ({ status: "updated" as const, revision: 2 }));
+    const user = userEvent.setup();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={source} onExecute={onExecute} />);
+    await screen.findByText("This chat");
+
+    await user.click(screen.getByRole("button", { name: "Compact context" }));
+
+    expect(onExecute).toHaveBeenCalledWith({ action: "harness.session.compact", payload: { sessionId: "root-a" } });
+    expect(source.execute).not.toHaveBeenCalled();
+  });
+
   it("recreates the complete overview hierarchy from current-session projections", async () => {
     render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={adapter()} />);
     const inspector = screen.getByRole("region", { name: "Harness inspector content" });
