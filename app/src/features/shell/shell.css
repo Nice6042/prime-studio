@@ -42,6 +42,7 @@
 .studio-sheet { position: absolute; inset-block: 0; z-index: 20; overflow: auto; background: var(--panel, #1b1b1b); box-shadow: 0 12px 36px rgb(0 0 0 / 0.35); }
 .studio-sheet-left { inset-inline-start: 0; }
 .studio-sheet-right { inset-inline-end: 0; }
+.studio-harness-sheet { inline-size: min(100%, 520px); }
 
 .studio-titlebar,
 .studio-statusbar { display: flex; align-items: center; min-block-size: 36px; padding-inline: 12px; border-block-end: 1px solid var(--line, #323232); }

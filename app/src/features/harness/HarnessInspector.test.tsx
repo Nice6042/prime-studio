@@ -45,6 +45,7 @@ const details: HarnessPanelDetails = {
   activity: [
     { id: "act-agent", occurredAtMs: 1_725_700_100_000, group: "Today", kind: "agent", title: "Review protocol spawned", detail: "rlm() child", childId: "child-1" },
     { id: "act-tool", occurredAtMs: 1_725_700_200_000, group: "Today", kind: "tool", title: "Workspace inspection", detail: "Completed", tool: { command: "rg --files", status: "succeeded", durationMs: 820, files: ["src/protocol.ts"] } },
+    { id: "act-system", occurredAtMs: 1_725_700_250_000, group: "Today", kind: "system", title: "Snapshot synchronized", detail: "Harness projection refreshed" },
     { id: "act-file", occurredAtMs: 1_725_700_300_000, group: "Yesterday", kind: "file", title: "Protocol updated", detail: "src/protocol.ts", filePath: "src/protocol.ts" },
   ],
   outputs: [{ id: "out-1", label: "Protocol report", path: "reports/protocol.md", kind: "file" }],
@@ -195,6 +196,17 @@ describe("HarnessInspector", () => {
       { action: "activity.command.copy", payload: { activityId: "act-tool", command: "rg --files" } },
       { action: "activity.file.open", payload: { sessionId: "root-a", activityId: "act-tool", fileId: "src/protocol.ts" } },
     ]));
+  });
+
+  it("routes system activity rows instead of leaving an interactive no-op", async () => {
+    const commands: StudioOperation[] = [];
+    const user = userEvent.setup();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={adapter(commands)} />);
+    await screen.findByText("This chat");
+    await user.click(screen.getByRole("tab", { name: "Activity" }));
+    await user.click(screen.getByRole("button", { name: /Snapshot synchronized/ }));
+
+    expect(commands).toContainEqual({ action: "activity.row.toggle", payload: { chatId: "chat-a", activityId: "act-system" } });
   });
 
   it("announces adapter errors and never presents an action as successful", async () => {

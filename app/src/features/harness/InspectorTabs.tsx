@@ -1,5 +1,6 @@
 import { useRef, type KeyboardEvent } from "react";
 
+import { createControlBinding } from "../../contracts/studioOperations";
 import type { InspectorRoute } from "./inspectorStore";
 
 export function InspectorTabs({ route, onSelect }: {
@@ -18,8 +19,9 @@ export function InspectorTabs({ route, onSelect }: {
     onSelect(tabs[next]!);
   };
   return <div className="harness-tabs" role="tablist" aria-label="Harness views">
-    {tabs.map((tab, index) => <button
+    {tabs.map((tab, index) => { const binding = createControlBinding(`harness.tab.select:${tab}`, "harness.tab.select"); return <button
       type="button"
+      data-control-id={binding.controlId}
       role="tab"
       aria-selected={active === tab}
       tabIndex={active === tab ? 0 : -1}
@@ -27,6 +29,6 @@ export function InspectorTabs({ route, onSelect }: {
       key={tab}
       onClick={() => onSelect(tab)}
       onKeyDown={(event) => onKeyDown(event, index)}
-    >{tab === "overview" ? "Harness" : `${tab[0]?.toLocaleUpperCase()}${tab.slice(1)}`}</button>)}
+    >{tab === "overview" ? "Harness" : `${tab[0]?.toLocaleUpperCase()}${tab.slice(1)}`}</button>; })}
   </div>;
 }

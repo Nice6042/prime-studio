@@ -376,6 +376,7 @@ export function StudioApp() {
         session={selectedSession}
         compatibility={compatibility}
         routeRequest={inspectorRouteRequest}
+        onCollapse={() => { changeLayout({ inspectorOpen: false }); setActiveSheet(null); }}
         onOpenAccountUsage={() => store.dispatch({ type: "route/settings", section: "usage" })}
       />}
       editorContent={<EditorPane
