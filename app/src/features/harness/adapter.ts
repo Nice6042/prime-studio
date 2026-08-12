@@ -1,4 +1,5 @@
 import type { StudioOperation, StudioOperationOutcome } from "../../contracts/studioOperations";
+import type { ComposerRuntimeChoice, ThinkingLevel } from "../conversation/workspacePresentation";
 
 export type HarnessActivityKind = "agent" | "tool" | "file" | "system";
 
@@ -82,6 +83,13 @@ export interface HarnessInspectorAdapter {
     | Readonly<{ status: "unavailable"; reason: string }>;
   load(sessionId: string): Promise<HarnessPanelDetails>;
   execute(operation: StudioOperation): Promise<StudioOperationOutcome>;
+  readonly composer?: Readonly<{
+    models: readonly ComposerRuntimeChoice[];
+    selectedModel: string | null;
+    thinkingLevels: readonly ThinkingLevel[];
+    selectedThinking: ThinkingLevel | null;
+    supportedCommands: readonly ("model" | "effort" | "compact" | "fork" | "export")[];
+  }>;
 }
 
 export const unavailableHarnessInspectorAdapter: HarnessInspectorAdapter = {

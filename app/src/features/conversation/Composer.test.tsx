@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { Composer } from "./Composer";
+import { deriveSlashCommands } from "./composerModel";
 
 describe("Composer", () => {
   it("keeps draft editing available while explaining why send is unavailable", () => {
@@ -48,5 +49,71 @@ describe("Composer", () => {
     />);
     fireEvent.keyDown(screen.getByRole("textbox", { name: "Message Prime Studio" }), { key: "Enter" });
     expect(onOpenUsage).toHaveBeenCalledTimes(1);
+  });
+
+  it("honors the persisted Ctrl+Enter send preference", () => {
+    const onSubmit = vi.fn();
+    render(<Composer
+      draft="Hello"
+      state={{ kind: "idle", draft: "Hello", canSend: true }}
+      sendShortcut="ctrl-enter"
+      onDraftChange={vi.fn()}
+      onSubmit={onSubmit}
+      onAbort={vi.fn()}
+      onOpenUsage={vi.fn()}
+    />);
+    const textbox = screen.getByRole("textbox", { name: "Message Prime Studio" });
+
+    fireEvent.keyDown(textbox, { key: "Enter" });
+    fireEvent.keyDown(textbox, { key: "Enter", ctrlKey: true });
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("omits model and thinking controls until verified choices are supplied", () => {
+    render(<Composer
+      draft=""
+      state={{ kind: "idle", draft: "", canSend: false }}
+      onDraftChange={vi.fn()}
+      onSubmit={vi.fn()}
+      onAbort={vi.fn()}
+      onOpenUsage={vi.fn()}
+    />);
+
+    expect(screen.queryByText("Model unavailable")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Thinking/ })).not.toBeInTheDocument();
+  });
+
+  it("routes every enabled exact slash command and consumes the command draft", () => {
+    const onDraftChange = vi.fn();
+    const onSlashCommand = vi.fn();
+    const commands = deriveSlashCommands({ model: true, effort: true, compact: true, fork: true, new: true, usage: true, export: true });
+    const view = render(<Composer
+      draft="/compact"
+      state={{ kind: "idle", draft: "/compact", canSend: true }}
+      slashCommands={commands}
+      onDraftChange={onDraftChange}
+      onSubmit={vi.fn()}
+      onAbort={vi.fn()}
+      onOpenUsage={vi.fn()}
+      onSlashCommand={onSlashCommand}
+    />);
+
+    for (const id of ["model", "effort", "compact", "fork", "new", "export"] as const) {
+      view.rerender(<Composer
+        draft={`/${id}`}
+        state={{ kind: "idle", draft: `/${id}`, canSend: true }}
+        slashCommands={commands}
+        onDraftChange={onDraftChange}
+        onSubmit={vi.fn()}
+        onAbort={vi.fn()}
+        onOpenUsage={vi.fn()}
+        onSlashCommand={onSlashCommand}
+      />);
+      fireEvent.keyDown(screen.getByRole("textbox", { name: "Message Prime Studio" }), { key: "Enter" });
+    }
+
+    expect(onSlashCommand.mock.calls.map(([id]) => id)).toEqual(["model", "effort", "compact", "fork", "new", "export"]);
+    expect(onDraftChange).toHaveBeenCalledWith("");
   });
 });

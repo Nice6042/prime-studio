@@ -15,8 +15,11 @@ import { ParentConversation } from "../features/conversation/ParentConversation"
 import { Composer } from "../features/conversation/Composer";
 import { WorkspaceHeader } from "../features/conversation/WorkspaceHeader";
 import type { WorkspaceOperationState } from "../features/conversation/workspacePresentation";
-import { deriveComposerState } from "../features/conversation/composerModel";
+import { deriveComposerState, deriveSlashCommands, type SlashCommand } from "../features/conversation/composerModel";
+import { projectConversationPresentations } from "../features/conversation/conversationDisplay";
+import { routeSlashCommand } from "../features/conversation/conversationRouting";
 import { HarnessInspector } from "../features/harness/HarnessInspector";
+import { unavailableHarnessInspectorAdapter, type HarnessInspectorAdapter } from "../features/harness/adapter";
 import { SettingsShell } from "../features/settings/SettingsShell";
 import { CommandPalette } from "../features/command-palette/CommandPalette";
 import type { PaletteChat, PaletteMessage } from "../features/command-palette/searchIndex";
@@ -54,7 +57,11 @@ function useViewportWidth() {
   return width;
 }
 
-export function StudioApp() {
+function operationAccepted(status: string): boolean {
+  return status === "accepted" || status === "updated";
+}
+
+export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter }: { readonly harnessAdapter?: HarnessInspectorAdapter } = {}) {
   const store = useStudioStore();
   const navigation = useStudioSelector((state) => state.navigation);
   const projectCatalog = useStudioSelector((state) => state.projectCatalog);
@@ -64,6 +71,7 @@ export function StudioApp() {
   const compatibility = useStudioSelector((state) => state.compatibility);
   const drafts = useStudioSelector((state) => state.drafts);
   const attachments = useStudioSelector((state) => state.attachments);
+  const conversationDisplay = useStudioSelector((state) => state.conversationDisplay);
   const viewport = useViewportWidth();
   const [layout, setLayout] = useState<LayoutPreferencesV1>({
     schemaVersion: 1,
@@ -330,6 +338,54 @@ export function StudioApp() {
     phase: admissionPhase,
     admissionConnected,
   });
+  const adapterConnected = harnessAdapter.availability.status === "available";
+  const hasCapability = (capability: string) => compatibility.status !== "unavailable" && compatibility.status !== "read_only" && compatibility.capabilities.includes(capability as typeof compatibility.capabilities[number]);
+  const composerProjection = adapterConnected && hasCapability("model_catalog") ? harnessAdapter.composer : undefined;
+  const supportsComposerCommand = (command: "model" | "effort" | "compact" | "fork" | "export") => Boolean(composerProjection?.supportedCommands.includes(command));
+  const latestMessageId = selectedSession?.parentMessages[selectedSession.parentMessages.length - 1]?.id ?? null;
+  const slashCommands = deriveSlashCommands({
+    model: Boolean(composerProjection?.models.length) && supportsComposerCommand("model"),
+    effort: Boolean(composerProjection?.thinkingLevels.length) && supportsComposerCommand("effort"),
+    compact: Boolean(selectedSession) && supportsComposerCommand("compact"),
+    fork: Boolean(selectedSession && latestMessageId) && hasCapability("resident_sessions") && supportsComposerCommand("fork"),
+    new: store.getSnapshot().catalogRevision !== null,
+    usage: Boolean(selectedSession),
+    export: Boolean(selectedSession) && supportsComposerCommand("export"),
+  });
+  const runAdapterOperation = async (operation: StudioOperation, label: string, accepted?: () => void) => {
+    if (!adapterConnected) {
+      setAdmissionMessage(harnessAdapter.availability.reason);
+      return;
+    }
+    setAdmissionMessage(`${label}…`);
+    try {
+      const outcome = await harnessAdapter.execute(operation);
+      if (operationAccepted(outcome.status)) accepted?.();
+      if (outcome.status === "unavailable" || outcome.status === "rejected" || outcome.status === "unknown_outcome") setAdmissionMessage(outcome.reason);
+      else if (outcome.status === "queued") setAdmissionMessage(outcome.position === null ? `${label} queued.` : `${label} queued at position ${outcome.position}.`);
+      else setAdmissionMessage(`${label} accepted.`);
+    } catch (error) {
+      setAdmissionMessage(error instanceof Error ? error.message : `${label} failed.`);
+    }
+  };
+  const openCurrentUsage = () => {
+    changeLayout({ inspectorOpen: true });
+    setInspectorRouteRequest((current) => ({ id: (current?.id ?? 0) + 1, route: "usage" }));
+  };
+  const runSlashCommand = (command: SlashCommand["id"]) => {
+    if (!navigation.selectedChatId) return;
+    const route = routeSlashCommand(command, { chatId: navigation.selectedChatId, sessionId: selectedSession?.sessionId ?? null, messageId: latestMessageId });
+    if (!route) {
+      setAdmissionMessage("This command has no verified target in the active chat.");
+      return;
+    }
+    if (route.kind === "new-chat") { createChat(); return; }
+    if (route.kind === "usage") { openCurrentUsage(); return; }
+    if (route.kind === "model-picker") { setAdmissionMessage("Choose a verified model below."); return; }
+    if (route.kind === "effort-picker") { setAdmissionMessage("Choose a verified thinking level below."); return; }
+    if (route.kind !== "operation") return;
+    void runAdapterOperation(route.operation, command === "compact" ? "Compaction" : command === "fork" ? "Branch" : "Export");
+  };
   const submitToHarness = async (kind: "prompt" | "steer" | "follow_up" | "abort", text: string) => {
     if (!selectedSession || !navigation.selectedChatId || !admissionConnected) return;
     if ((attachments[navigation.selectedChatId] ?? []).length > 0) {
@@ -401,6 +457,7 @@ export function StudioApp() {
           session={selectedSession}
           archived={archived}
           displayRevisions={navigation.selectedChatId ? displayRevisions[navigation.selectedChatId] : undefined}
+          presentations={navigation.selectedChatId && conversationDisplay[navigation.selectedChatId] ? projectConversationPresentations(conversationDisplay[navigation.selectedChatId]!) : undefined}
           onOpenCanvas={navigation.selectedChatId ? (messageId, content) => {
             const existing = displayRevisions[navigation.selectedChatId!]?.[messageId];
             setCanvas({ chatId: navigation.selectedChatId!, messageId, displayRevision: existing?.revision ?? 1, content });
@@ -408,6 +465,20 @@ export function StudioApp() {
             setActiveSheet("editor");
           } : undefined}
           onSuggestionFill={navigation.selectedChatId ? (text) => store.dispatch({ type: "draft/change", chatId: navigation.selectedChatId!, draft: text }) : undefined}
+          onSelectUserVersion={navigation.selectedChatId ? (messageId, version) => store.dispatch({ type: "conversation/version-selected", chatId: navigation.selectedChatId!, messageId, kind: "user", version }) : undefined}
+          onSelectAssistantVersion={navigation.selectedChatId ? (messageId, version) => store.dispatch({ type: "conversation/version-selected", chatId: navigation.selectedChatId!, messageId, kind: "assistant", version }) : undefined}
+          onEditUserMessage={!archived && navigation.selectedChatId && adapterConnected && hasCapability("resident_sessions") ? (messageId, text) => {
+            const chatId = navigation.selectedChatId!;
+            void runAdapterOperation({ action: "conversation.user-version.create", payload: { chatId, messageId, text } }, "Edit", () => {
+              store.dispatch({ type: "conversation/version-appended", chatId, messageId, kind: "user", text });
+            });
+          } : undefined}
+          onBranchFrom={selectedSession && adapterConnected && hasCapability("resident_sessions") ? (messageId) => {
+            void runAdapterOperation({ action: "conversation.branch.create", payload: { sessionId: selectedSession.sessionId, messageId } }, "Branch");
+          } : undefined}
+          onRegenerate={!archived && selectedSession && adapterConnected && hasCapability("session_input_admission") ? (messageId) => {
+            void runAdapterOperation({ action: "conversation.response.regenerate", payload: { sessionId: selectedSession.sessionId, messageId } }, "Regeneration");
+          } : undefined}
         />
         {navigation.selectedChatId && <Composer
           draft={draft}
@@ -422,17 +493,28 @@ export function StudioApp() {
             draft,
           ); }}
           onAbort={() => { void submitToHarness("abort", ""); }}
+          models={composerProjection?.models ?? []}
+          selectedModel={composerProjection?.selectedModel ?? undefined}
+          thinking={composerProjection?.selectedThinking ?? undefined}
+          thinkingLevels={composerProjection?.thinkingLevels ?? []}
+          slashCommands={slashCommands}
+          sendShortcut={settings.sendShortcut === "ctrl-enter" ? "ctrl-enter" : "enter"}
+          onSelectModel={navigation.selectedChatId && supportsComposerCommand("model") ? (modelId) => {
+            void runAdapterOperation({ action: "composer.model.select", payload: { chatId: navigation.selectedChatId!, modelId } }, "Model change");
+          } : undefined}
+          onSelectThinking={navigation.selectedChatId && supportsComposerCommand("effort") ? (level) => {
+            void runAdapterOperation({ action: "composer.thinking.select", payload: { chatId: navigation.selectedChatId!, level } }, "Thinking change");
+          } : undefined}
+          onSlashCommand={runSlashCommand}
           statusMessage={admissionMessage}
-          onOpenUsage={() => {
-            changeLayout({ inspectorOpen: true });
-            setInspectorRouteRequest((current) => ({ id: (current?.id ?? 0) + 1, route: "usage" }));
-          }}
+          onOpenUsage={openCurrentUsage}
         />}
       </div>}
       inspectorContent={<HarnessInspector
         chatId={navigation.selectedChatId}
         session={selectedSession}
         compatibility={compatibility}
+        adapter={harnessAdapter}
         routeRequest={inspectorRouteRequest}
         onCollapse={() => { changeLayout({ inspectorOpen: false }); setActiveSheet(null); }}
         onOpenAccountUsage={() => store.dispatch({ type: "route/settings", section: "usage" })}

@@ -27,15 +27,40 @@ export interface SlashCommand {
   readonly unavailableReason?: string;
 }
 
-export const SLASH_COMMANDS: readonly SlashCommand[] = [
-  { id: "model", label: "/model", description: "Choose the model for this chat", enabled: true },
-  { id: "effort", label: "/effort", description: "Choose the thinking level", enabled: true },
-  { id: "compact", label: "/compact", description: "Compact the active Harness context", enabled: true },
-  { id: "fork", label: "/fork", description: "Branch from this conversation", enabled: true },
-  { id: "new", label: "/new", description: "Start a new chat", enabled: true },
-  { id: "usage", label: "/usage", description: "Open current-chat usage", enabled: true },
-  { id: "export", label: "/export", description: "Export this conversation", enabled: true },
+export type SendShortcut = "enter" | "ctrl-enter";
+export type SlashAvailability = Readonly<Record<SlashCommand["id"], boolean>>;
+
+const SLASH_DEFINITIONS: readonly Omit<SlashCommand, "enabled" | "unavailableReason">[] = [
+  { id: "model", label: "/model", description: "Choose the model for this chat" },
+  { id: "effort", label: "/effort", description: "Choose the thinking level" },
+  { id: "compact", label: "/compact", description: "Compact the active Harness context" },
+  { id: "fork", label: "/fork", description: "Branch from this conversation" },
+  { id: "new", label: "/new", description: "Start a new chat" },
+  { id: "usage", label: "/usage", description: "Open current-chat usage" },
+  { id: "export", label: "/export", description: "Export this conversation" },
 ];
+
+const unavailableReason: Readonly<Record<SlashCommand["id"], string>> = {
+  model: "The verified Harness did not provide a model catalog.",
+  effort: "The verified Harness did not provide supported thinking levels.",
+  compact: "The verified Harness cannot compact this chat.",
+  fork: "The verified Harness cannot branch this chat.",
+  new: "The project catalog cannot create a chat right now.",
+  usage: "Current-chat usage is unavailable without a session.",
+  export: "No verified conversation export route is available.",
+};
+
+export function deriveSlashCommands(availability: SlashAvailability): readonly SlashCommand[] {
+  return Object.freeze(SLASH_DEFINITIONS.map((command) => Object.freeze({
+    ...command,
+    enabled: availability[command.id],
+    ...(availability[command.id] ? {} : { unavailableReason: unavailableReason[command.id] }),
+  })));
+}
+
+export const SLASH_COMMANDS: readonly SlashCommand[] = deriveSlashCommands({
+  model: false, effort: false, compact: false, fork: false, new: false, usage: false, export: false,
+});
 
 export function boundDraft(value: string): string {
   return Array.from(value).slice(0, MAX_DRAFT_CODE_POINTS).join("");
@@ -82,16 +107,17 @@ export function keyboardComposerAction(event: {
   readonly ctrlKey: boolean;
   readonly metaKey: boolean;
   readonly isComposing: boolean;
-}): "submit" | "newline" | "ignore" {
+}, sendShortcut: SendShortcut = "enter"): "submit" | "newline" | "ignore" {
   if (event.key !== "Enter") return "ignore";
   if (event.shiftKey || event.isComposing) return "newline";
+  if (sendShortcut === "ctrl-enter" && !event.ctrlKey && !event.metaKey) return "newline";
   return "submit";
 }
 
-export function filterSlashCommands(query: string): readonly SlashCommand[] {
+export function filterSlashCommands(query: string, commands: readonly SlashCommand[] = SLASH_COMMANDS): readonly SlashCommand[] {
   if (!query.startsWith("/")) return [];
   const needle = query.slice(1).trim().toLocaleLowerCase();
-  return SLASH_COMMANDS.filter((command) => command.id.startsWith(needle));
+  return commands.filter((command) => command.id.startsWith(needle));
 }
 
 export function acceptAttachmentMetadata(

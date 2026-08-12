@@ -9,6 +9,14 @@ import {
 import { normalizeChats, type ChatEntities, type StudioChat } from "../../entities/chats/chatStore";
 import { initialNavigationState, type NavigationState } from "../../entities/navigation/navigationStore";
 import { normalizeSessions, type SessionEntities } from "../../entities/sessions/sessionStore";
+import {
+  appendDisplayVersion,
+  createConversationDisplay,
+  reconcileParentDisplay,
+  selectDisplayVersion,
+  type ConversationDisplay,
+  type DisplayMessageKind,
+} from "../../features/conversation/conversationDisplay";
 
 export interface AsyncState {
   readonly generation: number;
@@ -26,6 +34,7 @@ export interface StudioAppState {
   readonly defaultAccountId: string | null;
   readonly drafts: Readonly<Record<string, string>>;
   readonly attachments: Readonly<Record<string, readonly DraftAttachment[]>>;
+  readonly conversationDisplay: Readonly<Record<string, ConversationDisplay>>;
   readonly async: Readonly<Record<string, AsyncState>>;
 }
 
@@ -42,6 +51,8 @@ export type StudioIntent =
   | Readonly<{ type: "project-chat/command"; command: ProjectChatCommand }>
   | Readonly<{ type: "draft/change"; chatId: string; draft: string }>
   | Readonly<{ type: "attachments/change"; chatId: string; attachments: readonly DraftAttachment[] }>
+  | Readonly<{ type: "conversation/version-appended"; chatId: string; messageId: string; kind: DisplayMessageKind; text: string }>
+  | Readonly<{ type: "conversation/version-selected"; chatId: string; messageId: string; kind: DisplayMessageKind; version: number }>
   | Readonly<{ type: "harness/bootstrap-loaded"; projection: BootProjection }>
   | Readonly<{ type: "harness/session-projected"; session: RootSessionProjection }>
   | Readonly<{ type: "project-catalog/loaded"; snapshot: Readonly<{ revision: number; state: ProjectChatState }> }>
@@ -70,18 +81,24 @@ export function initialStudioState(input: {
   const selectedChatId = selectedProject?.chats.some(
     (chat) => chat.id === selectedProject.selectedChatId && !chat.archived,
   ) ? selectedProject.selectedChatId : null;
+  const sessions = normalizeSessions(input.sessions ?? []);
+  const conversationDisplay = Object.freeze(Object.fromEntries(Object.values(sessions).map((session) => [
+    session.chatId,
+    reconcileParentDisplay(createConversationDisplay(), session.parentMessages),
+  ])));
   return {
     compatibility: input.compatibility ?? { status: "unavailable", reason: "security_verification_failed" },
     projectCatalog,
     catalogRevision: input.projectCatalog ? 0 : null,
     chats: normalizeChats(input.projectCatalog ? catalogChats : (input.chats ?? catalogChats)),
-    sessions: normalizeSessions(input.sessions ?? []),
+    sessions,
     navigation: selectedChatId
       ? { route: "workspace", settingsSection: null, selectedChatId }
       : initialNavigationState,
     defaultAccountId: null,
     drafts: Object.freeze({}),
     attachments: Object.freeze({}),
+    conversationDisplay,
     async: Object.freeze({}),
   };
 }
@@ -113,12 +130,14 @@ export function reduceStudio(state: StudioAppState, intent: StudioIntent): Studi
       const selectedChatId = result.selection.status === "resolved" ? result.selection.chatId : null;
       const drafts = Object.freeze(Object.fromEntries(Object.entries(state.drafts).filter(([chatId]) => Boolean(chats[chatId]))));
       const attachments = Object.freeze(Object.fromEntries(Object.entries(state.attachments).filter(([chatId]) => Boolean(chats[chatId]))));
+      const conversationDisplay = Object.freeze(Object.fromEntries(Object.entries(state.conversationDisplay).filter(([chatId]) => Boolean(chats[chatId]))));
       return {
         ...state,
         projectCatalog: result.state,
         chats,
         drafts,
         attachments,
+        conversationDisplay,
         navigation: { route: "workspace", settingsSection: null, selectedChatId },
       };
     }
@@ -141,16 +160,41 @@ export function reduceStudio(state: StudioAppState, intent: StudioIntent): Studi
       const attachments = Object.freeze(intent.attachments.map((attachment) => Object.freeze({ ...attachment })));
       return { ...state, attachments: Object.freeze({ ...state.attachments, [intent.chatId]: attachments }) };
     }
-    case "harness/bootstrap-loaded":
+    case "conversation/version-appended": {
+      if (!state.chats[intent.chatId]) return state;
+      const current = state.conversationDisplay[intent.chatId] ?? createConversationDisplay();
+      const next = appendDisplayVersion(current, intent.messageId, intent.kind, intent.text);
+      if (next === current) return state;
+      return { ...state, conversationDisplay: Object.freeze({ ...state.conversationDisplay, [intent.chatId]: next }) };
+    }
+    case "conversation/version-selected": {
+      const current = state.conversationDisplay[intent.chatId];
+      if (!current) return state;
+      const next = selectDisplayVersion(current, intent.messageId, intent.kind, intent.version);
+      if (next === current) return state;
+      return { ...state, conversationDisplay: Object.freeze({ ...state.conversationDisplay, [intent.chatId]: next }) };
+    }
+    case "harness/bootstrap-loaded": {
+      const sessions = normalizeSessions(intent.projection.sessions);
       return {
         ...state,
         compatibility: intent.projection.compatibility,
-        sessions: normalizeSessions(intent.projection.sessions),
+        sessions,
+        conversationDisplay: Object.freeze(Object.values(sessions).reduce<Record<string, ConversationDisplay>>((display, session) => {
+          display[session.chatId] = reconcileParentDisplay(state.conversationDisplay[session.chatId] ?? createConversationDisplay(), session.parentMessages);
+          return display;
+        }, { ...state.conversationDisplay })),
       };
-    case "harness/session-projected":
-      return state.sessions[intent.session.sessionId]
-        ? { ...state, sessions: Object.freeze({ ...state.sessions, [intent.session.sessionId]: intent.session }) }
-        : state;
+    }
+    case "harness/session-projected": {
+      if (!state.sessions[intent.session.sessionId]) return state;
+      const display = reconcileParentDisplay(state.conversationDisplay[intent.session.chatId] ?? createConversationDisplay(), intent.session.parentMessages);
+      return {
+        ...state,
+        sessions: Object.freeze({ ...state.sessions, [intent.session.sessionId]: intent.session }),
+        conversationDisplay: Object.freeze({ ...state.conversationDisplay, [intent.session.chatId]: display }),
+      };
+    }
     case "project-catalog/loaded": {
       const projectCatalog = intent.snapshot.state;
       const chats = normalizeChats(projectCatalog.projects.flatMap((project) => project.chats.map((chat) => ({

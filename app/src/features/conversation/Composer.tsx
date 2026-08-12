@@ -6,10 +6,12 @@ import {
   approximateDraftTokens,
   acceptAttachmentMetadata,
   boundDraft,
+  deriveSlashCommands,
   filterSlashCommands,
   keyboardComposerAction,
   type AttachmentMetadata,
   type ComposerState,
+  type SendShortcut,
   type SlashCommand,
 } from "./composerModel";
 import { SlashMenu } from "./SlashMenu";
@@ -39,6 +41,9 @@ export function Composer({
   onSelectThinking,
   onVoiceInput,
   onSlashCommand,
+  slashCommands: suppliedSlashCommands,
+  thinkingLevels = [],
+  sendShortcut = "enter",
 }: {
   readonly draft: string;
   readonly state: ComposerState;
@@ -56,17 +61,33 @@ export function Composer({
   readonly onSelectThinking?: (level: ThinkingLevel) => void;
   readonly onVoiceInput?: () => void;
   readonly onSlashCommand?: (command: SlashCommand["id"]) => void;
+  readonly slashCommands?: readonly SlashCommand[];
+  readonly thinkingLevels?: readonly ThinkingLevel[];
+  readonly sendShortcut?: SendShortcut;
 }) {
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
-  const slashCommands = useMemo(() => filterSlashCommands(draft), [draft]);
+  const commandCatalog = useMemo(() => suppliedSlashCommands ?? deriveSlashCommands({
+    model: models.length > 0 && Boolean(onSelectModel),
+    effort: thinkingLevels.length > 0 && Boolean(onSelectThinking),
+    compact: Boolean(onSlashCommand),
+    fork: Boolean(onSlashCommand),
+    new: Boolean(onSlashCommand),
+    usage: true,
+    export: Boolean(onSlashCommand),
+  }), [models.length, onSelectModel, onSelectThinking, onSlashCommand, suppliedSlashCommands, thinkingLevels.length]);
+  const slashCommands = useMemo(() => filterSlashCommands(draft, commandCatalog), [commandCatalog, draft]);
   const disabledReason = state.kind === "unavailable" ? state.reason : state.kind === "read_only" ? "Archived conversations are read-only." : null;
   const canSubmit = state.kind === "idle" ? state.canSend : state.kind === "working" ? draft.trim().length > 0 && (state.canQueue || state.canSteer) : false;
   const busy = state.kind === "submitting" || state.kind === "aborting";
 
   const runSlashCommand = (command: SlashCommand) => {
+    onDraftChange("");
     if (command.id === "usage") onOpenUsage();
-    else onSlashCommand?.(command.id);
+    else {
+      if (command.id === "effort") setThinkingOpen(true);
+      onSlashCommand?.(command.id);
+    }
   };
   const submit = () => {
     const exactSlash = slashCommands.find((command) => command.label === draft.trim());
@@ -105,7 +126,7 @@ export function Composer({
             ctrlKey: event.ctrlKey,
             metaKey: event.metaKey,
             isComposing: event.nativeEvent.isComposing,
-          });
+          }, sendShortcut);
           if (action === "submit") {
             event.preventDefault();
             submit();
@@ -120,15 +141,15 @@ export function Composer({
             event.currentTarget.value = "";
           }} />
         </label>}
-        {models.length > 0 ? <div className="composer-model-pills" aria-label="Quick model switcher">
+        {models.length > 0 && onSelectModel ? <div className="composer-model-pills" aria-label="Quick model switcher">
           {models.map((model) => {
             return <button key={model.id} type="button" {...controlBinding(`composer-model-${model.id}`, "composer.model.select", model.enabled ? null : (model.disabledReason ?? "This model is unavailable."))} aria-label={`Use ${model.label}`} aria-pressed={model.id === selectedModel} disabled={!model.enabled} title={model.disabledReason} onClick={() => onSelectModel?.(model.id)}>{model.shortLabel ?? model.label}</button>;
           })}
-        </div> : <button className="composer-quick-control" type="button" disabled title="The verified Harness did not provide a model catalog.">Model unavailable</button>}
-        <div className="composer-thinking-root">
+        </div> : null}
+        {thinkingLevels.length > 0 && onSelectThinking && <div className="composer-thinking-root">
           <button className="composer-thinking" type="button" {...controlBinding("composer-thinking", "composer.thinking.select")} aria-label={`Thinking ${thinking}`} aria-haspopup="menu" aria-expanded={thinkingOpen} disabled={!onSelectThinking} onClick={() => setThinkingOpen((value) => !value)}><span>Thinking</span><strong>{thinking}</strong><span aria-hidden="true">⌄</span></button>
-          {thinkingOpen && <div className="composer-thinking-menu" role="menu" aria-label="Thinking level">{(["off", "low", "medium", "high", "max"] as const).map((level) => <button key={level} type="button" {...controlBinding(`composer-thinking-${level}`, "composer.thinking.select")} role="menuitemradio" aria-checked={thinking === level} onClick={() => { setThinkingOpen(false); onSelectThinking?.(level); }}>{level[0].toUpperCase() + level.slice(1)}{thinking === level && <span aria-hidden="true">✓</span>}</button>)}</div>}
-        </div>
+          {thinkingOpen && <div className="composer-thinking-menu" role="menu" aria-label="Thinking level">{thinkingLevels.map((level) => <button key={level} type="button" {...controlBinding(`composer-thinking-${level}`, "composer.thinking.select")} role="menuitemradio" aria-checked={thinking === level} onClick={() => { setThinkingOpen(false); onSelectThinking(level); }}>{level[0].toUpperCase() + level.slice(1)}{thinking === level && <span aria-hidden="true">✓</span>}</button>)}</div>}
+        </div>}
         <span className="composer-context" title="Approximate draft tokens">≈ {approximateDraftTokens(draft).toLocaleString()} tokens</span>
         <button className="composer-voice" type="button" {...controlBinding("composer-voice", "composer.voice.start", "Voice capture is unavailable until the native privacy contract is implemented.")} aria-label="Voice input" disabled={!onVoiceInput} title={onVoiceInput ? "Voice input" : "Voice capture is unavailable until the native privacy contract is implemented."} onClick={onVoiceInput}><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3zM19 10v1a7 7 0 0 1-14 0v-1M12 18v4" /></svg></button>
         {state.kind === "working" && state.canAbort ? <button className="composer-send" type="button" {...controlBinding("composer-stop", "harness.session.abort")} aria-label="Stop response" onClick={onAbort} disabled={busy}><SendIcon stop /></button>

@@ -8,7 +8,7 @@ export type WorkspaceOperationState =
 export interface WorkspaceChatSummary { readonly id: string; readonly title: string }
 export interface ActiveWorkspaceChat extends WorkspaceChatSummary { readonly pinned: boolean }
 export type ComposerModelId = "luna" | "sol" | "terra" | string;
-export type ThinkingLevel = "off" | "low" | "medium" | "high" | "max";
+export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 export interface ComposerRuntimeChoice<T extends string = string> {
   readonly id: T;
   readonly label: string;

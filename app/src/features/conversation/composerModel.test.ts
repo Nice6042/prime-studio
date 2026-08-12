@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { acceptAttachmentMetadata, deriveComposerState, filterSlashCommands, keyboardComposerAction } from "./composerModel";
+import { acceptAttachmentMetadata, deriveComposerState, deriveSlashCommands, filterSlashCommands, keyboardComposerAction } from "./composerModel";
 
 const ready = {
   status: "ready" as const,
@@ -30,6 +30,32 @@ describe("composer model", () => {
     expect(keyboardComposerAction({ key: "Enter", shiftKey: false, ctrlKey: true, metaKey: false, isComposing: false })).toBe("submit");
     expect(keyboardComposerAction({ key: "Enter", shiftKey: true, ctrlKey: false, metaKey: false, isComposing: false })).toBe("newline");
     expect(keyboardComposerAction({ key: "Enter", shiftKey: false, ctrlKey: false, metaKey: false, isComposing: true })).toBe("newline");
+    expect(keyboardComposerAction({ key: "Enter", shiftKey: false, ctrlKey: false, metaKey: false, isComposing: false }, "ctrl-enter")).toBe("newline");
+    expect(keyboardComposerAction({ key: "Enter", shiftKey: false, ctrlKey: true, metaKey: false, isComposing: false }, "ctrl-enter")).toBe("submit");
+    expect(keyboardComposerAction({ key: "Enter", shiftKey: false, ctrlKey: false, metaKey: true, isComposing: false }, "ctrl-enter")).toBe("submit");
+  });
+
+  it("enables slash commands only when their real route is available", () => {
+    const commands = deriveSlashCommands({
+      model: false,
+      effort: false,
+      compact: true,
+      fork: false,
+      new: true,
+      usage: true,
+      export: false,
+    });
+
+    expect(commands.find((command) => command.id === "compact")).toMatchObject({ enabled: true });
+    expect(commands.find((command) => command.id === "model")).toMatchObject({
+      enabled: false,
+      unavailableReason: "The verified Harness did not provide a model catalog.",
+    });
+    expect(commands.find((command) => command.id === "fork")).toMatchObject({
+      enabled: false,
+      unavailableReason: "The verified Harness cannot branch this chat.",
+    });
+    expect(filterSlashCommands("/", commands)).toHaveLength(7);
   });
 
   it("bounds attachments and filters typed slash commands", () => {

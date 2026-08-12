@@ -6,6 +6,9 @@ import { createInitialProjectChatState, transitionProjectChatState } from "../do
 import { createStudioStore, initialStudioState, reduceStudio } from "../shared/state/store";
 import { AppProviders } from "./AppProviders";
 import { StudioApp } from "./StudioApp";
+import type { RootSessionProjection } from "../entities/harness/types";
+import type { StudioOperation } from "../contracts/studioOperations";
+import type { HarnessInspectorAdapter } from "../features/harness/adapter";
 
 const chat = {
   id: "chat-1",
@@ -13,6 +16,35 @@ const chat = {
   accountId: "account-1",
   title: "Harness architecture",
 } as const;
+
+const rootSession: RootSessionProjection = {
+  sessionId: "session-1", accountId: "account-1", projectId: "project-1", chatId: "chat-1",
+  cursor: { runtimeGeneration: "g1", sequence: 2 }, state: "idle", freshness: "live",
+  parentMessages: [
+    { channel: "parent", kind: "user", id: "u1", text: "Original prompt", emittedAtMs: 1 },
+    { channel: "parent", kind: "assistant", id: "a1", blocks: [{ kind: "text", text: "Original answer" }], streaming: false, emittedAtMs: 2 },
+  ],
+  children: [], queue: [], tools: [], resources: [],
+  usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: null },
+};
+
+function conversationAdapter(operations: StudioOperation[]): HarnessInspectorAdapter {
+  return {
+    availability: { status: "available" },
+    composer: {
+      models: [{ id: "verified-model", label: "Verified model", enabled: true }],
+      selectedModel: "verified-model",
+      thinkingLevels: ["low", "high"],
+      selectedThinking: "low",
+      supportedCommands: ["model", "effort", "compact", "fork", "export"],
+    },
+    load: async () => ({ observedAtMs: 1, startedAtMs: null, context: null, contributions: [], notices: [], activity: [], outputs: [], sources: [], children: {} }),
+    execute: async (operation) => {
+      operations.push(operation);
+      return { status: "accepted", commandId: `command-${operations.length}` };
+    },
+  };
+}
 
 describe("Studio application state", () => {
   it("keeps the account and project ownership of an open chat immutable", () => {
@@ -68,6 +100,20 @@ describe("Studio application state", () => {
     expect(state.drafts).toEqual({ "chat-1": "first draft", "chat-2": "second draft" });
     expect(state.attachments[chat.id]).toHaveLength(1);
     expect(state.navigation.selectedChatId).toBe("chat-2");
+  });
+
+  it("keeps immutable display versions isolated by chat", () => {
+    const second = { ...chat, id: "chat-2", title: "Second" };
+    let state = initialStudioState({ chats: [chat, second] });
+    state = reduceStudio(state, { type: "conversation/version-appended", chatId: chat.id, messageId: "u1", kind: "user", text: "Original" });
+    const original = state;
+    state = reduceStudio(state, { type: "conversation/version-appended", chatId: chat.id, messageId: "u1", kind: "user", text: "Edited" });
+    state = reduceStudio(state, { type: "conversation/version-appended", chatId: second.id, messageId: "u1", kind: "user", text: "Other chat" });
+    state = reduceStudio(state, { type: "conversation/version-selected", chatId: chat.id, messageId: "u1", kind: "user", version: 0 });
+
+    expect(original.conversationDisplay[chat.id]?.messages.u1?.versions).toEqual([{ text: "Original" }]);
+    expect(state.conversationDisplay[chat.id]?.messages.u1).toMatchObject({ selected: 0, versions: [{ text: "Original" }, { text: "Edited" }] });
+    expect(state.conversationDisplay[second.id]?.messages.u1?.versions).toEqual([{ text: "Other chat" }]);
   });
 
   it("adopts a revision-bound native project catalog snapshot", () => {
@@ -163,5 +209,48 @@ describe("Studio application state", () => {
     await userEvent.type(screen.getByRole("combobox", { name: "Search commands, chats, and messages" }), "account usage");
     await userEvent.click(screen.getByRole("option", { name: /Open account usage/ }));
     expect(screen.getByRole("heading", { name: "Usage", level: 1 })).toBeVisible();
+  });
+
+  it("routes immutable edits, branches, regeneration, and Harness slash commands through the verified adapter", async () => {
+    const operations: StudioOperation[] = [];
+    const store = createStudioStore(initialStudioState({
+      chats: [chat],
+      sessions: [rootSession],
+      compatibility: {
+        status: "ready", profile: "verified",
+        capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"],
+      },
+    }));
+    store.dispatch({ type: "chat/open", chatId: chat.id });
+    render(<AppProviders store={store}><StudioApp harnessAdapter={conversationAdapter(operations)} /></AppProviders>);
+
+    await userEvent.click(screen.getByRole("button", { name: "Edit message" }));
+    const editor = screen.getByRole("textbox", { name: "Edit message text" });
+    await userEvent.clear(editor);
+    await userEvent.type(editor, "Edited prompt");
+    await userEvent.click(screen.getByRole("button", { name: "Send edited message" }));
+    await waitFor(() => expect(operations).toContainEqual({
+      action: "conversation.user-version.create",
+      payload: { chatId: "chat-1", messageId: "u1", text: "Edited prompt" },
+    }));
+    expect(store.getSnapshot().conversationDisplay[chat.id]?.messages.u1?.versions).toEqual([{ text: "Original prompt" }, { text: "Edited prompt" }]);
+
+    await userEvent.click(screen.getByRole("button", { name: "Branch chat from message" }));
+    await userEvent.click(screen.getByRole("button", { name: "Regenerate response" }));
+    await userEvent.click(screen.getByRole("button", { name: "Use Verified model" }));
+    await userEvent.click(screen.getByRole("button", { name: "Thinking low" }));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "High" }));
+    expect(operations).toEqual(expect.arrayContaining([
+      { action: "conversation.branch.create", payload: { sessionId: "session-1", messageId: "u1" } },
+      { action: "conversation.response.regenerate", payload: { sessionId: "session-1", messageId: "a1" } },
+      { action: "composer.model.select", payload: { chatId: "chat-1", modelId: "verified-model" } },
+      { action: "composer.thinking.select", payload: { chatId: "chat-1", level: "high" } },
+    ]));
+
+    store.dispatch({ type: "draft/change", chatId: chat.id, draft: "/compact" });
+    const composer = screen.getByRole("textbox", { name: "Message Prime Studio" });
+    await waitFor(() => expect(composer).toHaveValue("/compact"));
+    fireEvent.keyDown(composer, { key: "Enter" });
+    await waitFor(() => expect(operations).toContainEqual({ action: "harness.session.compact", payload: { sessionId: "session-1" } }));
   });
 });
