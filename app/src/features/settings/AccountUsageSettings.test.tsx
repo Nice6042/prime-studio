@@ -32,6 +32,15 @@ describe("AccountUsageSettings", () => {
     expect(screen.queryByText(/^Current chat$/i)).not.toBeInTheDocument();
   });
 
+  it("only enables daily chart dimensions that the ledger can attribute", async () => {
+    render(<AccountUsageSettings accounts={accounts} />);
+    await screen.findByRole("img", { name: /Daily cost over 7 days/i });
+
+    expect(screen.getByRole("button", { name: "Account history" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Subagents unavailable" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Tools unavailable" })).toBeDisabled();
+  });
+
   it("keeps unsupported chat, task, model, project, attribution, and quota facts explicit and keyboard reachable", async () => {
     render(<AccountUsageSettings accounts={accounts} />);
     await screen.findByRole("img", { name: /Daily cost over 7 days/ });
@@ -44,10 +53,8 @@ describe("AccountUsageSettings", () => {
 
     const subagents = screen.getByRole("button", { name: "Subagents unavailable" });
     const tools = screen.getByRole("button", { name: "Tools unavailable" });
-    expect(subagents).toHaveAttribute("aria-disabled", "true");
-    expect(tools).toHaveAttribute("aria-disabled", "true");
-    await userEvent.click(subagents);
-    expect(screen.getByRole("status")).toHaveTextContent(/Subagent attribution is unavailable/i);
+    expect(subagents).toBeDisabled();
+    expect(tools).toBeDisabled();
   });
 
   it("does not present invented zero totals when no account ledger can be queried", async () => {
