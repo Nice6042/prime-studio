@@ -337,6 +337,7 @@ export class FakeDaemonController {
       }]));
       const details = {
         observedAtMs, startedAtMs: null,
+        extensionUi: { status: "unavailable", reason: "Deterministic fixtures do not emit verified extension UI requests." },
         context: { usedTokens: current.usage.totalTokens, capacityTokens: 200_000, turns: current.parentMessages.length, samples: [current.usage.totalTokens] },
         contributions: current.children.map((child) => ({ id: id(child.id), label: typeof child.task === "string" ? child.task : "Subagent", tokens: 0 })),
         notices: [], activity: [], outputs: [],

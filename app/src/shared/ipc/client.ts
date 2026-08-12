@@ -651,7 +651,16 @@ export interface HarnessInspectorDetails {
       }>
     >
   >;
+  readonly extensionUi:
+    | Readonly<{ status: "unavailable"; reason: string }>
+    | Readonly<{ status: "available"; requests: readonly HarnessExtensionUiRequest[] }>;
 }
+
+export type HarnessExtensionUiRequest =
+  | Readonly<{ id: string; method: "confirm"; title: string; message: string; cursor: RootSessionProjection["cursor"] }>
+  | Readonly<{ id: string; method: "select"; title: string; options: readonly string[]; cursor: RootSessionProjection["cursor"] }>
+  | Readonly<{ id: string; method: "input"; title: string; placeholder: string | null; cursor: RootSessionProjection["cursor"] }>
+  | Readonly<{ id: string; method: "editor"; title: string; prefill: string; cursor: RootSessionProjection["cursor"] }>;
 
 function nullableSafeInteger(value: unknown): number | null {
   return value === null ? null : safeInteger(value);
@@ -674,8 +683,46 @@ function inspectorContext(value: unknown): HarnessInspectorDetails["context"] {
   return result;
 }
 
-export function decodeHarnessInspectorDetails(value: unknown): HarnessInspectorDetails {
-  const source = recordWithOptional(detach(value), ["observedAtMs", "startedAtMs", "context", "contributions", "notices", "activity", "outputs", "sources", "children"], ["turnUsage"]);
+function decodeExtensionUi(value: unknown, expectedCursor?: RootSessionProjection["cursor"]): HarnessInspectorDetails["extensionUi"] {
+  const source = recordWithOptional(value, ["status"], ["reason", "requests"]);
+  if (source.status === "unavailable") {
+    if (source.requests !== undefined || source.reason === undefined) fail();
+    return { status: "unavailable", reason: bounded(source.reason, 200) };
+  }
+  if (source.status !== "available" || source.reason !== undefined || source.requests === undefined) fail();
+  const seen = new Set<string>();
+  const requests = array(source.requests, 16).map((entry): HarnessExtensionUiRequest => {
+    const base = recordWithOptional(entry, ["id", "method", "title", "cursor"], ["message", "options", "placeholder", "prefill"]);
+    const requestId = id(base.id);
+    if (seen.has(requestId)) fail();
+    seen.add(requestId);
+    const method = oneOf(base.method, new Set(["confirm", "select", "input", "editor"] as const));
+    const title = bounded(base.title, 200);
+    const rawCursor = record(base.cursor, ["runtimeGeneration", "sequence"]);
+    const requestCursor = { runtimeGeneration: id(rawCursor.runtimeGeneration), sequence: safeInteger(rawCursor.sequence) };
+    if (expectedCursor && (requestCursor.runtimeGeneration !== expectedCursor.runtimeGeneration || requestCursor.sequence !== expectedCursor.sequence)) fail();
+    if (method === "confirm") {
+      if (base.message === undefined || base.options !== undefined || base.placeholder !== undefined || base.prefill !== undefined) fail();
+      return { id: requestId, method, title, message: bounded(base.message, 8_192, true), cursor: requestCursor };
+    }
+    if (method === "select") {
+      if (base.options === undefined || base.message !== undefined || base.placeholder !== undefined || base.prefill !== undefined) fail();
+      const options = array(base.options, 64).map((option) => bounded(option, 200));
+      if (options.length === 0 || new Set(options).size !== options.length) fail();
+      return { id: requestId, method, title, options, cursor: requestCursor };
+    }
+    if (method === "input") {
+      if (base.placeholder === undefined || base.message !== undefined || base.options !== undefined || base.prefill !== undefined) fail();
+      return { id: requestId, method, title, placeholder: base.placeholder === null ? null : bounded(base.placeholder, 500, true), cursor: requestCursor };
+    }
+    if (base.prefill === undefined || base.message !== undefined || base.options !== undefined || base.placeholder !== undefined) fail();
+    return { id: requestId, method, title, prefill: bounded(base.prefill, 32_768, true), cursor: requestCursor };
+  });
+  return { status: "available", requests };
+}
+
+export function decodeHarnessInspectorDetails(value: unknown, expectedCursor?: RootSessionProjection["cursor"]): HarnessInspectorDetails {
+  const source = recordWithOptional(detach(value), ["observedAtMs", "startedAtMs", "context", "contributions", "notices", "activity", "outputs", "sources", "children", "extensionUi"], ["turnUsage"]);
   const childrenSource = source.children;
   if (!childrenSource || typeof childrenSource !== "object" || Array.isArray(childrenSource) || Object.getPrototypeOf(childrenSource) !== Object.prototype) fail();
   const childrenEntries = Object.entries(childrenSource);
@@ -756,6 +803,7 @@ export function decodeHarnessInspectorDetails(value: unknown): HarnessInspectorD
     observedAtMs: safeInteger(source.observedAtMs),
     startedAtMs: nullableSafeInteger(source.startedAtMs),
     context: inspectorContext(source.context),
+    extensionUi: decodeExtensionUi(source.extensionUi, expectedCursor),
     contributions: array(source.contributions, 1_024).map((entry) => {
       const item = record(entry, ["id", "label", "tokens"]);
       return {
@@ -831,14 +879,19 @@ export function decodeHarnessInspectorDetails(value: unknown): HarnessInspectorD
 }
 
 export async function loadHarnessInspector(sessionId: string): Promise<HarnessInspectorDetails> {
+  const exactSessionId = id(sessionId);
   const detailsJson = bounded(
     await invoke("harness_inspector", {
-      request: { sessionId: id(sessionId) },
+      request: { sessionId: exactSessionId },
     }),
     131_072,
     true,
   );
   try {
+    // The native broker already binds every request cursor to this inspector
+    // response's admitted session cursor. The renderer rechecks it against the
+    // displayed projection before rendering; do not couple decoding to the
+    // process-global live cursor ledger, which may have advanced concurrently.
     return decodeHarnessInspectorDetails(JSON.parse(detailsJson));
   } catch (error) {
     if (error instanceof HarnessProjectionError) throw error;

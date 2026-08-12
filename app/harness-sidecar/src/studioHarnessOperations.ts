@@ -54,6 +54,7 @@ type AsyncMethod = (...arguments_: any[]) => Promise<unknown>;
 export interface StudioHarnessOperationPort {
   readonly connection: Readonly<Record<string, AsyncMethod | undefined>>;
   readonly currentCursor: Readonly<{ runtimeGeneration: string; sequence: number }>;
+  readonly respondToExtensionUiRequest?: (requestId: string, response: unknown) => Promise<unknown>;
 }
 
 const ACTIONS = new Set<string>(STUDIO_HARNESS_ACTIONS);
@@ -238,7 +239,11 @@ export async function dispatchStudioHarnessOperation(port: StudioHarnessOperatio
       case "harness.session.compact": data = await invoke(port, "compact"); break;
       case "harness.child.stop": data = await invoke(port, "cancelRlmChild", field(p, "childId")); break;
       case "harness.child.transcript-page": data = await childTranscript(port, field(p, "childId")); break;
-      case "harness.extension.respond": data = await invoke(port, "respondToExtensionUiRequest", field(p, "requestId"), p.response); break;
+      case "harness.extension.respond": {
+        if (!port.respondToExtensionUiRequest) throw new ReferenceError("verified extension UI response admission is unavailable");
+        data = await port.respondToExtensionUiRequest(field(p, "requestId"), p.response);
+        break;
+      }
       case "usage.current.refresh": data = await invoke(port, "getSessionStats"); break;
       default: return { status: "unavailable", reason: "Action has no verified daemon implementation." };
     }

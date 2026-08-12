@@ -38,6 +38,7 @@ const session: RootSessionProjection = {
 const details: HarnessPanelDetails = {
   observedAtMs: 1_725_700_800_000,
   startedAtMs: 1_725_700_000_000,
+  extensionUi: { status: "available", requests: [] },
   context: { usedTokens: 15_200, capacityTokens: 40_000, turns: 12, samples: [0.18, 0.24, 0.31, 0.38] },
   contributions: [
     { id: "parent", label: "Main chat", tokens: 115 },
@@ -105,6 +106,59 @@ afterEach(() => {
 });
 
 describe("HarnessInspector", () => {
+  it("renders typed runtime extension prompts and submits or cancels each request exactly once", async () => {
+    const promptDetails: HarnessPanelDetails = {
+      ...details,
+      extensionUi: { status: "available", requests: [
+        { id: "confirm-1", method: "confirm", title: "Continue?", message: "Proceed with the extension action?", cursor: session.cursor },
+        { id: "select-1", method: "select", title: "Choose branch", options: ["main", "release"], cursor: session.cursor },
+        { id: "input-1", method: "input", title: "Release name", placeholder: "v1.0", cursor: session.cursor },
+        { id: "editor-1", method: "editor", title: "Instructions", prefill: "Review this change.", cursor: session.cursor },
+      ] },
+    };
+    const source = adapter();
+    source.load = vi.fn(async () => promptDetails);
+    const execute = vi.fn(async () => ({ status: "updated" as const, revision: 11 }));
+    const user = userEvent.setup();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={source} onExecute={execute} />);
+
+    expect(await screen.findByRole("heading", { name: "Continue?" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Confirm Continue?" })).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "Confirm Continue?" }));
+    await waitFor(() => expect(execute).toHaveBeenCalledWith({ action: "harness.extension.respond", payload: { sessionId: "root-a", requestId: "confirm-1", response: { confirmed: true } } }));
+    expect(screen.queryByRole("heading", { name: "Continue?" })).not.toBeInTheDocument();
+
+    const select = screen.getByRole("combobox", { name: "Choose branch" });
+    await waitFor(() => expect(select).not.toBeDisabled());
+    await user.selectOptions(select, "release");
+    await user.click(screen.getByRole("button", { name: "Submit Choose branch" }));
+    await waitFor(() => expect(execute).toHaveBeenCalledWith({ action: "harness.extension.respond", payload: { sessionId: "root-a", requestId: "select-1", response: { value: "release" } } }));
+
+    const input = screen.getByRole("textbox", { name: "Release name" });
+    await waitFor(() => expect(input).not.toBeDisabled());
+    input.focus();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(execute).toHaveBeenCalledWith({ action: "harness.extension.respond", payload: { sessionId: "root-a", requestId: "input-1", response: { cancelled: true } } }));
+
+    const editor = screen.getByRole("textbox", { name: "Instructions" });
+    await waitFor(() => expect(editor).not.toBeDisabled());
+    await user.clear(editor);
+    await user.type(editor, "Ship after review.");
+    await user.keyboard("{Control>}{Enter}{/Control}");
+    await waitFor(() => expect(execute).toHaveBeenCalledWith({ action: "harness.extension.respond", payload: { sessionId: "root-a", requestId: "editor-1", response: { value: "Ship after review." } } }));
+    expect(execute).toHaveBeenCalledTimes(4);
+  });
+
+  it("never renders extension prompts bound to another session cursor", async () => {
+    const source = adapter();
+    source.load = vi.fn(async (): Promise<HarnessPanelDetails> => ({ ...details, extensionUi: { status: "available", requests: [
+      { id: "stale-1", method: "confirm", title: "Stale request", message: "Must stay hidden", cursor: { ...session.cursor, sequence: 9 } },
+    ] } }));
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={source} />);
+    await screen.findByText("This chat");
+    expect(screen.queryByText("Stale request")).not.toBeInTheDocument();
+  });
+
   it("uses the product dispatcher seam for actions while retaining the adapter for projections", async () => {
     const source = adapter();
     const onExecute = vi.fn(async () => ({ status: "updated" as const, revision: 2 }));

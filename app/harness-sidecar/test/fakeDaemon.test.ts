@@ -155,7 +155,8 @@ test("fake daemon inspector and Studio operation routes preserve production resp
   const inspector = controller.handle({ type: "inspector", sessionId: "session-e2e" });
   assert.equal(inspector.type, "inspector_result");
   const details = inspector.type === "inspector_result" ? JSON.parse(inspector.detailsJson) as Record<string, unknown> : {};
-  assert.deepEqual(Object.keys(details).sort(), ["activity", "children", "context", "contributions", "notices", "observedAtMs", "outputs", "sources", "startedAtMs"]);
+  assert.deepEqual(Object.keys(details).sort(), ["activity", "children", "context", "contributions", "extensionUi", "notices", "observedAtMs", "outputs", "sources", "startedAtMs"]);
+  assert.deepEqual(details.extensionUi, { status: "unavailable", reason: "Deterministic fixtures do not emit verified extension UI requests." });
 
   const operation = {
     type: "studio_operation" as const, sessionId: "session-e2e", operationId: "operation-fixture-2",

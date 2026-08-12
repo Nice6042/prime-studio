@@ -7,7 +7,7 @@ import { ActivityFeed } from "./ActivityFeed";
 const day = 24 * 60 * 60 * 1000;
 const observedAtMs = Date.UTC(2026, 7, 12, 12);
 const base: HarnessPanelDetails = {
-  observedAtMs, startedAtMs: null, context: null, contributions: [], notices: [], outputs: [], sources: [], children: {},
+  observedAtMs, startedAtMs: null, context: null, extensionUi: { status: "available", requests: [] }, contributions: [], notices: [], outputs: [], sources: [], children: {},
   activity: [
     { id: "today", occurredAtMs: observedAtMs - 60_000, group: "Host supplied wrong group", kind: "tool", title: "Current tool", detail: "Running", seen: false },
     { id: "yesterday", occurredAtMs: observedAtMs - day, group: "Wrong", kind: "file", title: "Earlier file", detail: "Changed", seen: true },

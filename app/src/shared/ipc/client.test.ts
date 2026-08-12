@@ -11,7 +11,7 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: mocks.listen,
 }));
 
-import { attachHarnessSession, bootstrapHarness, decodeBootProjection, decodeHarnessProjectionEvent, executeHarnessStudioOperation, loadHarnessChildPage, loadHarnessInspector, pageHarnessConversationHistory, refreshHarnessSession, refreshHarnessSubscriptionsNow, registerHarnessSessionProjection, retryHarnessWorker, sendHarnessCommand, subscribeHarnessEvents } from "./client";
+import { attachHarnessSession, bootstrapHarness, decodeBootProjection, decodeHarnessInspectorDetails, decodeHarnessProjectionEvent, executeHarnessStudioOperation, loadHarnessChildPage, loadHarnessInspector, pageHarnessConversationHistory, refreshHarnessSession, refreshHarnessSubscriptionsNow, registerHarnessSessionProjection, retryHarnessWorker, sendHarnessCommand, subscribeHarnessEvents } from "./client";
 
 const unavailable = {
   compatibility: {
@@ -345,6 +345,15 @@ describe("Harness IPC client", () => {
       observedAtMs: 10,
       startedAtMs: null,
       context: { usedTokens: 2, capacityTokens: 100, turns: 1, samples: [2] },
+      extensionUi: {
+        status: "available",
+        requests: [
+          { id: "confirm-1", method: "confirm", title: "Continue?", message: "Proceed?", cursor: session.cursor },
+          { id: "select-1", method: "select", title: "Branch", options: ["main", "release"], cursor: session.cursor },
+          { id: "input-1", method: "input", title: "Name", placeholder: null, cursor: session.cursor },
+          { id: "editor-1", method: "editor", title: "Instructions", prefill: "Review this.", cursor: session.cursor },
+        ],
+      },
       turnUsage: {
         totalTurns: 2,
         omittedTurns: 0,
@@ -417,6 +426,11 @@ describe("Harness IPC client", () => {
 
     mocks.invoke.mockResolvedValueOnce(JSON.stringify({ ...details, turnUsage: { ...details.turnUsage, rows: [...details.turnUsage.rows].reverse() } }));
     await expect(loadHarnessInspector("root")).rejects.toThrow("Harness projection unavailable");
+
+    mocks.invoke.mockResolvedValueOnce(JSON.stringify({ ...details, extensionUi: { status: "available", requests: [{ ...details.extensionUi.requests[0], method: "approval" }] } }));
+    await expect(loadHarnessInspector("root")).rejects.toThrow("Harness projection unavailable");
+
+    expect(() => decodeHarnessInspectorDetails({ ...details, extensionUi: { status: "available", requests: [{ ...details.extensionUi.requests[0], cursor: { ...session.cursor, sequence: 2 } }] } }, session.cursor)).toThrow("Harness projection unavailable");
   });
 
   it("routes closed Harness actions and validates the operation outcome", async () => {

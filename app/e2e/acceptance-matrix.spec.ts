@@ -70,6 +70,18 @@ test("archive route and parent conversation remain distinct from Harness child d
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-archive-parent-child-harness");
 });
 
+test("runtime extension editor is inspector-only, focused, keyboard cancellable, and accessible", async ({ shellPage }) => {
+  const parent = shellPage.getByRole("main", { name: "Prime Harness architecture" });
+  const harness = shellPage.getByRole("complementary", { name: "Harness" });
+  const editor = harness.getByRole("textbox", { name: "Extension instructions" });
+  await expect(editor).toBeVisible();
+  await expect(editor).toBeFocused();
+  await expect(parent.getByText("Private runtime prompt")).toHaveCount(0);
+  await editor.press("Escape");
+  await expect(harness.getByRole("heading", { name: "Extension instructions" })).toHaveCount(0);
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-runtime-extension-editor");
+});
+
 test("Harness overview, usage, and activity expose every truthful fixture projection", async ({ shellPage }) => {
   const harness = shellPage.getByRole("complementary", { name: "Harness" });
   const tabs = harness.getByRole("tablist", { name: "Harness views" });

@@ -31,7 +31,7 @@ function boundStore() {
 describe("production Harness inspector adapter", () => {
   it("loads by authoritative daemon root identity and dispatches returned projections", async () => {
     const store = boundStore();
-    const load = vi.fn(async () => ({ observedAtMs: 1, startedAtMs: null, context: null, contributions: [], notices: [], activity: [], outputs: [], sources: [], children: {} }));
+    const load = vi.fn(async () => ({ observedAtMs: 1, startedAtMs: null, context: null, extensionUi: { status: "available" as const, requests: [] }, contributions: [], notices: [], activity: [], outputs: [], sources: [], children: {} }));
     const next = { ...session, cursor: { ...session.cursor, sequence: 8 }, state: "working" as const };
     const execute = vi.fn(async () => ({ outcome: { status: "accepted" as const, commandId: "command-1" }, session: next }));
     const adapter = createProductionHarnessInspectorAdapter(store, { load, execute });
@@ -52,7 +52,7 @@ describe("production Harness inspector adapter", () => {
       selectedThinking: "high" as const,
       supportedCommands: ["model", "effort", "compact", "fork", "export"] as const,
     };
-    const load = vi.fn(async () => ({ observedAtMs: 1, startedAtMs: null, context: null, contributions: [], notices: [], activity: [], outputs: [], sources: [], children: {}, composer }));
+    const load = vi.fn(async () => ({ observedAtMs: 1, startedAtMs: null, context: null, extensionUi: { status: "available" as const, requests: [] }, contributions: [], notices: [], activity: [], outputs: [], sources: [], children: {}, composer }));
     const adapter = createProductionHarnessInspectorAdapter(store, { load, execute: vi.fn() });
 
     await expect(adapter.loadComposer!(session.sessionId)).resolves.toEqual(composer);

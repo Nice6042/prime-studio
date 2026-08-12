@@ -13,7 +13,7 @@ describe("Harness context and output resources", () => {
 
   it("dispatches the context-source action only for a native candidate", async () => {
     const onAction = vi.fn();
-    render(<OutputSourceSections details={{ observedAtMs: 1, startedAtMs: null, context: null, contributions: [], notices: [], activity: [], outputs: [], sources: [
+    render(<OutputSourceSections details={{ observedAtMs: 1, startedAtMs: null, context: null, extensionUi: { status: "available", requests: [] }, contributions: [], notices: [], activity: [], outputs: [], sources: [
       { id: "bound", label: "Rules", detail: "contextFiles", kind: "contextFiles", candidateId: "candidate-bound" },
       { id: "summary", label: "Prompt", detail: "prompts", kind: "prompts" },
     ], children: {} }} sessionId="session" onAction={onAction} />);

@@ -8,6 +8,7 @@ import { ChatUsage } from "./ChatUsage";
 const usage: CurrentChatUsage = { input: 100, output: 40, cacheRead: 20, cacheWrite: 5, totalTokens: 165, cost: null };
 
 const details: HarnessPanelDetails = {
+  extensionUi: { status: "available", requests: [] },
   observedAtMs: Date.UTC(2026, 7, 12, 12, 10),
   startedAtMs: Date.UTC(2026, 7, 12, 12, 0),
   context: { usedTokens: 15_200, capacityTokens: 40_000, turns: 3, samples: [0.2, 0.28, 0.38] },

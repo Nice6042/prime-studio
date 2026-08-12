@@ -41,7 +41,7 @@ function conversationAdapter(operations: StudioOperation[]): HarnessInspectorAda
       selectedThinking: "low",
       supportedCommands: ["model", "effort", "compact", "fork", "export"],
     },
-    load: async () => ({ observedAtMs: 1, startedAtMs: null, context: null, contributions: [], notices: [], activity: [], outputs: [], sources: [], children: {} }),
+    load: async () => ({ observedAtMs: 1, startedAtMs: null, context: null, extensionUi: { status: "available", requests: [] }, contributions: [], notices: [], activity: [], outputs: [], sources: [], children: {} }),
     execute: async (operation) => {
       operations.push(operation);
       return { status: "accepted", commandId: `command-${operations.length}` };
@@ -314,7 +314,7 @@ describe("Studio application state", () => {
     const adapter: HarnessInspectorAdapter = {
       availability: { status: "available" },
       loadComposer,
-      load: async () => ({ observedAtMs: 1, startedAtMs: null, context: null, contributions: [], notices: [], activity: [], outputs: [], sources: [], children: {} }),
+      load: async () => ({ observedAtMs: 1, startedAtMs: null, context: null, extensionUi: { status: "available", requests: [] }, contributions: [], notices: [], activity: [], outputs: [], sources: [], children: {} }),
       execute: async () => ({ status: "accepted", commandId: "command-1" }),
     };
 
@@ -526,7 +526,7 @@ describe("Studio application state", () => {
     }));
     const adapter: HarnessInspectorAdapter = {
       availability: { status: "available" },
-      load: async () => ({ observedAtMs: 1, startedAtMs: null, context: null, contributions: [], notices: [], activity: [], outputs: [{ id: "output-1", label: "Report", candidateId: "candidate-1", kind: "file" }], sources: [], children: {} }),
+      load: async () => ({ observedAtMs: 1, startedAtMs: null, context: null, extensionUi: { status: "available", requests: [] }, contributions: [], notices: [], activity: [], outputs: [{ id: "output-1", label: "Report", candidateId: "candidate-1", kind: "file" }], sources: [], children: {} }),
       execute: async () => ({ status: "rejected", reason: "wrong route", retryable: false }),
       openArtifact,
     };
@@ -550,7 +550,7 @@ describe("Studio application state", () => {
     } as const;
     const adapter: HarnessInspectorAdapter = {
       availability: { status: "available" },
-      load: async () => ({ observedAtMs: 1, startedAtMs: null, context: null, contributions: [], notices: [], activity: [], outputs: [{ id: "output-1", label: "Report", candidateId: "candidate-1", kind: "file" }], sources: [], children: {} }),
+      load: async () => ({ observedAtMs: 1, startedAtMs: null, context: null, extensionUi: { status: "available", requests: [] }, contributions: [], notices: [], activity: [], outputs: [{ id: "output-1", label: "Report", candidateId: "candidate-1", kind: "file" }], sources: [], children: {} }),
       execute: async () => ({ status: "rejected", reason: "wrong route", retryable: false }),
       openArtifact: async () => ({ kind: "opened", document }),
     };

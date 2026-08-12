@@ -80,6 +80,7 @@ export const test = base.extend<ShellFixtures>({
       let artifactRevision = 1;
       let artifactIdentity = `sha256:${"a".repeat(64)}`;
       let artifactContent = "# Verified browser artifact\n\nOpened through an opaque Harness candidate.";
+      const settledExtensionRequests = new Set<string>();
       let attentionRevision = 0;
       let attentionRecord = { chatId: "chat-e2e", chatSeen: null, activitySeen: null } as {
         chatId: string;
@@ -251,6 +252,19 @@ export const test = base.extend<ShellFixtures>({
             projectedHarnessSessions = projectedHarnessSessions.map((session, candidate) => candidate === index ? updated : session);
             return { commandId: request.commandId, outcome: "accepted", session: updated };
           }
+          case "harness_studio_operation": {
+            const request = args.request as { sessionId?: string; operationId?: string; action?: string; payloadJson?: string; expectedCursor?: { runtimeGeneration?: string; sequence?: number } } | undefined;
+            const index = projectedHarnessSessions.findIndex((session) => session.sessionId === request?.sessionId);
+            if (index < 0 || !request?.operationId || request.action !== "harness.extension.respond" || !request.expectedCursor) throw new Error("Harness Studio operation unavailable");
+            const current = projectedHarnessSessions[index]! as Record<string, unknown> & { cursor: { runtimeGeneration: string; sequence: number } };
+            if (request.expectedCursor.runtimeGeneration !== current.cursor.runtimeGeneration || request.expectedCursor.sequence !== current.cursor.sequence) throw new Error("Harness cursor stale");
+            const payload = JSON.parse(request.payloadJson ?? "null") as { requestId?: string } | null;
+            if (!payload?.requestId || settledExtensionRequests.has(payload.requestId)) throw new Error("Extension request stale");
+            settledExtensionRequests.add(payload.requestId);
+            const updated = { ...current, cursor: { ...current.cursor, sequence: current.cursor.sequence + 1 } };
+            projectedHarnessSessions = projectedHarnessSessions.map((session, candidate) => candidate === index ? updated : session);
+            return { operationId: request.operationId, status: "updated", commandId: null, position: null, revision: String(updated.cursor.sequence), reason: null, retryable: null, session: updated };
+          }
           case "harness_projection":
             return [];
           case "attention_load":
@@ -265,9 +279,13 @@ export const test = base.extend<ShellFixtures>({
             attentionRevision += 1;
             return { revision: attentionRevision, records: [{ ...attentionRecord }] };
           }
-          case "harness_inspector":
+          case "harness_inspector": {
+            const request = args.request as { sessionId?: string } | undefined;
+            const current = projectedHarnessSessions.find((session) => session.sessionId === request?.sessionId) as { cursor?: { runtimeGeneration?: string; sequence?: number } } | undefined;
+            if (!current?.cursor?.runtimeGeneration || !Number.isSafeInteger(current.cursor.sequence)) throw new Error("Harness inspector unavailable");
             return JSON.stringify({
               observedAtMs: 1_775_995_220_000, startedAtMs: null, context: null,
+              extensionUi: { status: "available", requests: settledExtensionRequests.has("editor-browser") ? [] : [{ id: "editor-browser", method: "editor", title: "Extension instructions", prefill: "Private runtime prompt", cursor: current.cursor }] },
               turnUsage: {
                 totalTurns: 3, omittedTurns: 0,
                 rows: [
@@ -281,6 +299,7 @@ export const test = base.extend<ShellFixtures>({
               sources: [{ id: "source-browser", label: "Harness contract", detail: "Verified fixture source", candidateId: "candidate-browser-source", kind: "file" }],
               children: {},
             });
+          }
           case "harness_child_data_page": {
             const request = args.request as { tab?: "chat" | "activity" | "files" } | undefined;
             if (!request?.tab) throw new Error("Child page request invalid");

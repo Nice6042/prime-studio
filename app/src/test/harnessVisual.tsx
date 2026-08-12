@@ -29,6 +29,7 @@ const session: RootSessionProjection = {
 };
 
 const details: HarnessPanelDetails = {
+  extensionUi: { status: "available", requests: [] },
   observedAtMs: now, startedAtMs: now - 767_000,
   context: { usedTokens: 15_200, capacityTokens: 40_000, turns: 12, samples: [.19, .24, .31, .38] },
   contributions: [{ id: "main", label: "Main chat", tokens: 30_300 }, { id: "child", label: "Subagents", tokens: 8_600 }, { id: "tools", label: "Tools", tokens: 3_900 }],

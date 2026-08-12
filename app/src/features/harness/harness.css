@@ -70,6 +70,28 @@
 .activity-feed { display: flex; flex-direction: column; gap: 10px; padding: 12px; }
 .harness-overview > *, .chat-usage > *, .activity-feed > * { flex: none; }
 
+.harness-extension-list { display: grid; gap: 8px; padding: 12px 12px 0; }
+.harness-extension-prompt { display: grid; gap: 9px; padding: 11px; border: 1px solid rgb(142 133 240 / .48); border-radius: 9px; background: color-mix(in srgb, var(--hi-card) 88%, var(--hi-accent) 12%); }
+.harness-extension-heading { display: grid; gap: 2px; }
+.harness-extension-heading > span { color: var(--hi-accent-soft); font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.harness-extension-heading h2 { margin: 0; font-size: 13px; font-weight: 600; }
+.harness-extension-prompt p { margin: 0; color: var(--hi-soft); font-size: 11.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.harness-extension-prompt form { display: grid; gap: 7px; }
+.harness-extension-prompt label { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.harness-extension-prompt input,
+.harness-extension-prompt select,
+.harness-extension-prompt textarea { inline-size: 100%; min-block-size: 32px; padding: 6px 8px; border: 1px solid var(--hi-line-strong); border-radius: 6px; background: #101014; color: var(--hi-fg); font: inherit; }
+.harness-extension-prompt textarea { min-block-size: 96px; resize: vertical; line-height: 1.45; }
+.harness-extension-prompt input:focus-visible,
+.harness-extension-prompt select:focus-visible,
+.harness-extension-prompt textarea:focus-visible { border-color: var(--hi-accent); outline: 2px solid rgb(142 133 240 / .28); outline-offset: 1px; }
+.harness-extension-prompt small { color: var(--hi-muted); font-size: 10.5px; }
+.harness-extension-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.harness-extension-actions button { min-block-size: 28px; padding: 4px 10px; border: 1px solid var(--hi-line-strong); border-radius: 6px; background: transparent; color: var(--hi-soft); font-size: 11px; }
+.harness-extension-actions button:first-child { border-color: var(--hi-accent); background: var(--hi-accent); color: white; }
+.harness-extension-actions button:focus-visible { outline: 2px solid var(--hi-accent-soft); outline-offset: 2px; }
+.harness-extension-actions button:disabled { cursor: wait; opacity: .55; }
+
 .harness-runtime-notice { display: grid; gap: 8px; padding: 9px 11px; border: 1px solid rgb(226 179 78 / 0.44); border-radius: 9px; background: rgb(226 179 78 / 0.08); color: #e8c887; }
 .harness-runtime-notice[data-kind="error"] { border-color: rgb(255 119 125 / 0.4); background: rgb(255 119 125 / 0.07); color: #ff999e; }
 .harness-runtime-notice strong { font-size: 12px; }

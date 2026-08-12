@@ -11,6 +11,7 @@ import { ChildDetail } from "./ChildDetail";
 import { HarnessOverview } from "./HarnessOverview";
 import { InspectorTabs } from "./InspectorTabs";
 import { HarnessIcon } from "./HarnessIcon";
+import { ExtensionPrompt } from "./ExtensionPrompt";
 import { createInspectorState, reduceInspector, type InspectorRoute } from "./inspectorStore";
 import { useMonotonicNow } from "./monotonicClock";
 import "./harness.css";
@@ -62,6 +63,8 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ kind: "status" | "alert"; text: string } | null>(null);
   const [hiddenNoticeIds, setHiddenNoticeIds] = useState<ReadonlySet<string>>(new Set());
+  const [settledExtensionSnapshot, setSettledExtensionSnapshot] = useState<Readonly<{ scope: string; ids: ReadonlySet<string> }> | null>(null);
+  const extensionAttempts = useRef<Readonly<{ scope: string | null; ids: Set<string> }>>({ scope: requestIdentity, ids: new Set() });
   const childReturnFocus = useRef<HTMLElement | null>(null);
   const activitySeenAttempt = useRef<string | null>(null);
   const requestEpoch = useRef(0);
@@ -72,6 +75,7 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
     currentRequestIdentity.current = requestIdentity;
     requestEpoch.current += 1;
   }
+  if (extensionAttempts.current.scope !== requestIdentity) extensionAttempts.current = { scope: requestIdentity, ids: new Set() };
   const details = detailsSnapshot?.scope === sessionScope ? detailsSnapshot.value : null;
   const activityEvidence = activityEvidenceSnapshot?.scope === sessionScope ? activityEvidenceSnapshot.value : undefined;
   const currentDetails = useRef(details);
@@ -80,6 +84,10 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
   currentLoadPhase.current = loadPhase;
   const now = useMonotonicNow(sessionScope, details?.observedAtMs);
   const activityAttention = chatId ? activityAttentionForChat(chatId, activityEvidence, attention) : { status: "unavailable" as const, reason: "Activity content evidence is unavailable for this chat." };
+  const settledExtensionIds = settledExtensionSnapshot?.scope === requestIdentity ? settledExtensionSnapshot.ids : new Set<string>();
+  const extensionRequests = details?.extensionUi.status === "available" && session
+    ? details.extensionUi.requests.filter((request) => request.cursor.runtimeGeneration === session.cursor.runtimeGeneration && request.cursor.sequence === session.cursor.sequence && !settledExtensionIds.has(request.id))
+    : [];
 
   const loadDetails = async (mode: "foreground" | "background" = "foreground") => {
     const effectiveMode = mode === "background" && currentDetails.current !== null && currentLoadPhase.current !== "unavailable" ? "background" : "foreground";
@@ -195,6 +203,12 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
   const selectedChildId = state.route.kind === "child" ? state.route.childId : null;
   const child = selectedChildId ? session?.children.find((candidate) => candidate.id === selectedChildId) : null;
   const collapse = createControlBinding("layout.inspector.toggle:harness", "layout.inspector.toggle");
+  const respondToExtension = (requestId: string, response: Readonly<{ confirmed: boolean }> | Readonly<{ value: string }> | Readonly<{ cancelled: true }>) => {
+    if (!session || !requestIdentity || settledExtensionIds.has(requestId) || extensionAttempts.current.ids.has(requestId)) return;
+    extensionAttempts.current.ids.add(requestId);
+    setSettledExtensionSnapshot({ scope: requestIdentity, ids: new Set([...settledExtensionIds, requestId]) });
+    void runAction({ action: "harness.extension.respond", payload: { sessionId: session.sessionId, requestId, response } }, `extension:${requestId}`);
+  };
   return <div className="harness-inspector" data-load-phase={loadPhase}>
     {state.route.kind !== "child" && <><div className="harness-inspector-header"><div><strong>Harness</strong>{compatibility.status !== "ready" && <span className="harness-compatibility">{compatibility.status.replace("_", " ")}</span>}</div><button type="button" data-control-id={collapse.controlId} className="harness-collapse" aria-label="Collapse inspector" disabled={!onCollapse} title={onCollapse ? undefined : "Inspector layout control is unavailable in this host."} onClick={onCollapse}><HarnessIcon kind="collapse" /></button></div><InspectorTabs route={state.route} onSelect={selectTopRoute} activityAttention={activityAttention} /></>}
     {state.notice && <p className="harness-notice" role="status">{state.notice}</p>}
@@ -210,6 +224,7 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
       {!session && <div className="harness-no-session"><strong>Harness unavailable</strong><p>No Harness session is attached to this chat.</p></div>}
       {session && loadPhase === "loading" && <div className="harness-loading" role="status" aria-label="Loading Harness details"><span /><span /><span /></div>}
       {session && loadPhase === "unavailable" && <p className="harness-detail-unavailable" role="status">{adapter.availability.status === "unavailable" ? adapter.availability.reason : "Harness details are unavailable."}</p>}
+      {extensionRequests.length > 0 && <div className="harness-extension-list" aria-label="Extension requests">{extensionRequests.map((request, index) => <ExtensionPrompt key={`${request.id}:${request.cursor.runtimeGeneration}:${request.cursor.sequence}`} request={request} autoFocus={index === 0} disabled={pendingKey !== null} onRespond={(response) => respondToExtension(request.id, response)} />)}</div>}
       {session && state.route.kind === "overview" && <HarnessOverview session={session} compatibility={compatibility} details={details} nowMs={now} pendingKey={pendingKey} hiddenNoticeIds={hiddenNoticeIds} onOpenChild={openChild} onOpenActivity={() => selectTopRoute("activity")} onAction={runAction} />}
       {session && state.route.kind === "usage" && <ChatUsage usage={session.usage} details={details} nowMs={now} refreshing={pendingKey === "usage-refresh"} onRefresh={() => void runAction({ action: "usage.current.refresh", payload: { sessionId: session.sessionId } }, "usage-refresh")} onOpenAccountUsage={onOpenAccountUsage ? () => { void runAction({ action: "usage.account.open", payload: {} }, "usage-account", true); onOpenAccountUsage(); } : undefined} />}
       {session && state.route.kind === "activity" && <>{activityAttention?.status === "unavailable" && <p className="activity-evidence-note" role="status">{activityAttention.reason}</p>}<ActivityFeed sessionId={session.sessionId} details={details} filter={state.activityFilter} expandedId={state.expandedActivityId} onFilter={(filter) => { dispatch({ type: "activity/filter", filter }); if (chatId) void runAction({ action: "activity.filter.select", payload: { chatId, filter: filter === "agent" ? "agents" : filter === "tool" ? "tools" : filter === "file" ? "files" : "all" } }, `activity-filter:${filter}`, true); }} onToggle={(activityId) => { dispatch({ type: "activity/toggle", activityId }); if (chatId) void runAction({ action: "activity.row.toggle", payload: { chatId, activityId } }, `activity-row:${activityId}`, true); }} onOpenChild={openChild} onAction={runAction} /></>}

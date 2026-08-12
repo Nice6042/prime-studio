@@ -1715,6 +1715,7 @@ fn sanitize_inspector_artifacts(
         return Err(HarnessError::ProtocolViolation);
     }
     validate_inspector_turn_usage(root)?;
+    validate_inspector_extension_ui(root, cursor)?;
     let activity_evidence = mint_activity_attention_evidence(
         root.get("activity")
             .ok_or(HarnessError::ProtocolViolation)?,
@@ -1913,6 +1914,148 @@ fn validate_inspector_turn_usage(
     Ok(())
 }
 
+fn validate_inspector_extension_ui(
+    root: &serde_json::Map<String, serde_json::Value>,
+    cursor: &HarnessCursor,
+) -> Result<(), HarnessError> {
+    let extension_ui = root
+        .get("extensionUi")
+        .ok_or(HarnessError::ProtocolViolation)?;
+    let extension_ui = extension_ui
+        .as_object()
+        .ok_or(HarnessError::ProtocolViolation)?;
+    let status = extension_ui
+        .get("status")
+        .and_then(serde_json::Value::as_str)
+        .ok_or(HarnessError::ProtocolViolation)?;
+    if status == "unavailable" {
+        if extension_ui
+            .keys()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>()
+            != BTreeSet::from(["reason", "status"])
+            || extension_ui
+                .get("reason")
+                .and_then(serde_json::Value::as_str)
+                .is_none_or(|reason| reason.is_empty() || reason.chars().count() > 200)
+        {
+            return Err(HarnessError::ProtocolViolation);
+        }
+        return Ok(());
+    }
+    if status != "available"
+        || extension_ui
+            .keys()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>()
+            != BTreeSet::from(["requests", "status"])
+    {
+        return Err(HarnessError::ProtocolViolation);
+    }
+    let requests = extension_ui
+        .get("requests")
+        .and_then(serde_json::Value::as_array)
+        .filter(|requests| requests.len() <= 16)
+        .ok_or(HarnessError::ProtocolViolation)?;
+    let mut ids = BTreeSet::new();
+    for request in requests {
+        let request = request.as_object().ok_or(HarnessError::ProtocolViolation)?;
+        let method = request
+            .get("method")
+            .and_then(serde_json::Value::as_str)
+            .ok_or(HarnessError::ProtocolViolation)?;
+        let expected_keys = match method {
+            "confirm" => BTreeSet::from(["cursor", "id", "message", "method", "title"]),
+            "select" => BTreeSet::from(["cursor", "id", "method", "options", "title"]),
+            "input" => BTreeSet::from(["cursor", "id", "method", "placeholder", "title"]),
+            "editor" => BTreeSet::from(["cursor", "id", "method", "prefill", "title"]),
+            _ => return Err(HarnessError::ProtocolViolation),
+        };
+        if request.keys().map(String::as_str).collect::<BTreeSet<_>>() != expected_keys {
+            return Err(HarnessError::ProtocolViolation);
+        }
+        let id = request
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .filter(|id| valid_id(id) && ids.insert(*id))
+            .ok_or(HarnessError::ProtocolViolation)?;
+        let _ = id;
+        let title = request
+            .get("title")
+            .and_then(serde_json::Value::as_str)
+            .filter(|title| !title.is_empty() && title.chars().count() <= 200)
+            .ok_or(HarnessError::ProtocolViolation)?;
+        let _ = title;
+        let request_cursor = request
+            .get("cursor")
+            .and_then(serde_json::Value::as_object)
+            .ok_or(HarnessError::ProtocolViolation)?;
+        if request_cursor
+            .keys()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>()
+            != BTreeSet::from(["runtimeGeneration", "sequence"])
+            || request_cursor
+                .get("runtimeGeneration")
+                .and_then(serde_json::Value::as_str)
+                != Some(cursor.runtime_generation.as_str())
+            || request_cursor
+                .get("sequence")
+                .and_then(serde_json::Value::as_u64)
+                != Some(cursor.sequence)
+        {
+            return Err(HarnessError::ProtocolViolation);
+        }
+        match method {
+            "confirm" => {
+                if request
+                    .get("message")
+                    .and_then(serde_json::Value::as_str)
+                    .is_none_or(|value| value.chars().count() > 8_192)
+                {
+                    return Err(HarnessError::ProtocolViolation);
+                }
+            }
+            "select" => {
+                let options = request
+                    .get("options")
+                    .and_then(serde_json::Value::as_array)
+                    .filter(|options| !options.is_empty() && options.len() <= 64)
+                    .ok_or(HarnessError::ProtocolViolation)?;
+                let mut seen = BTreeSet::new();
+                if options.iter().any(|option| {
+                    option.as_str().is_none_or(|value| {
+                        value.is_empty() || value.chars().count() > 200 || !seen.insert(value)
+                    })
+                }) {
+                    return Err(HarnessError::ProtocolViolation);
+                }
+            }
+            "input" => {
+                if !request.get("placeholder").is_some_and(|value| {
+                    value.is_null()
+                        || value
+                            .as_str()
+                            .is_some_and(|value| value.chars().count() <= 500)
+                }) {
+                    return Err(HarnessError::ProtocolViolation);
+                }
+            }
+            "editor" => {
+                if request
+                    .get("prefill")
+                    .and_then(serde_json::Value::as_str)
+                    .is_none_or(|value| value.chars().count() > 32_768)
+                {
+                    return Err(HarnessError::ProtocolViolation);
+                }
+            }
+            _ => unreachable!(),
+        }
+    }
+    Ok(())
+}
+
 fn canonical_json(value: &serde_json::Value) -> serde_json::Value {
     match value {
         serde_json::Value::Array(values) => {
@@ -2093,7 +2236,7 @@ mod artifact_candidate_tests {
 
     #[test]
     fn inspector_paths_become_opaque_candidates_before_renderer_projection() {
-        let source = r#"{"observedAtMs":1,"startedAtMs":null,"context":null,"contributions":[],"notices":[],"activity":[{"id":"a","occurredAtMs":1,"group":"Tools","kind":"tool","title":"read","detail":"done","tool":{"command":"read","status":"succeeded","durationMs":1,"files":["src/main.ts"]}}],"outputs":[{"id":"o","label":"Report","path":"reports/out.md","kind":"file"}],"sources":[{"id":"s","label":"Rules","detail":"context","kind":"file","candidatePath":"AGENTS.md"}],"children":{}}"#;
+        let source = r#"{"observedAtMs":1,"startedAtMs":null,"context":null,"extensionUi":{"status":"unavailable","reason":"No verified request."},"contributions":[],"notices":[],"activity":[{"id":"a","occurredAtMs":1,"group":"Tools","kind":"tool","title":"read","detail":"done","tool":{"command":"read","status":"succeeded","durationMs":1,"files":["src/main.ts"]}}],"outputs":[{"id":"o","label":"Report","path":"reports/out.md","kind":"file"}],"sources":[{"id":"s","label":"Rules","detail":"context","kind":"file","candidatePath":"AGENTS.md"}],"children":{}}"#;
         let cursor = HarnessCursor {
             runtime_generation: "generation-a".to_owned(),
             sequence: 1,
@@ -2124,7 +2267,7 @@ mod artifact_candidate_tests {
 
     #[test]
     fn inspector_rejects_malformed_or_non_chronological_turn_usage() {
-        let source = r#"{"observedAtMs":1,"startedAtMs":null,"context":null,"turnUsage":{"totalTurns":2,"omittedTurns":0,"rows":[{"turn":1,"occurredAtMs":10,"input":4,"output":2,"cacheRead":1,"cacheWrite":0,"totalTokens":7},{"turn":2,"occurredAtMs":20,"input":5,"output":3,"cacheRead":0,"cacheWrite":0,"totalTokens":8}]},"contributions":[],"notices":[],"activity":[],"outputs":[],"sources":[],"children":{}}"#;
+        let source = r#"{"observedAtMs":1,"startedAtMs":null,"context":null,"extensionUi":{"status":"unavailable","reason":"No verified request."},"turnUsage":{"totalTurns":2,"omittedTurns":0,"rows":[{"turn":1,"occurredAtMs":10,"input":4,"output":2,"cacheRead":1,"cacheWrite":0,"totalTokens":7},{"turn":2,"occurredAtMs":20,"input":5,"output":3,"cacheRead":0,"cacheWrite":0,"totalTokens":8}]},"contributions":[],"notices":[],"activity":[],"outputs":[],"sources":[],"children":{}}"#;
         let cursor = HarnessCursor {
             runtime_generation: "generation-a".to_owned(),
             sequence: 1,
@@ -2142,6 +2285,27 @@ mod artifact_candidate_tests {
         assert!(
             sanitize_inspector_artifacts(&wrong_order, "session-a", "project-a", &cursor).is_err()
         );
+    }
+
+    #[test]
+    fn inspector_rejects_malformed_or_cursor_substituted_extension_requests() {
+        let valid = r#"{"observedAtMs":1,"startedAtMs":null,"context":null,"extensionUi":{"status":"available","requests":[{"id":"request-1","method":"confirm","title":"Continue?","message":"Proceed with the extension action?","cursor":{"runtimeGeneration":"generation-a","sequence":1}}]},"contributions":[],"notices":[],"activity":[],"outputs":[],"sources":[],"children":{}}"#;
+        let cursor = HarnessCursor {
+            runtime_generation: "generation-a".to_owned(),
+            sequence: 1,
+        };
+        assert!(sanitize_inspector_artifacts(valid, "session-a", "project-a", &cursor).is_ok());
+        let substituted = valid.replace("\"sequence\":1", "\"sequence\":2");
+        assert!(
+            sanitize_inspector_artifacts(&substituted, "session-a", "project-a", &cursor).is_err()
+        );
+        let invented_method = valid.replace("\"confirm\"", "\"approval\"");
+        assert!(
+            sanitize_inspector_artifacts(&invented_method, "session-a", "project-a", &cursor)
+                .is_err()
+        );
+        let missing = valid.replace(",\"extensionUi\":{\"status\":\"available\",\"requests\":[{\"id\":\"request-1\",\"method\":\"confirm\",\"title\":\"Continue?\",\"message\":\"Proceed with the extension action?\",\"cursor\":{\"runtimeGeneration\":\"generation-a\",\"sequence\":1}}]}", "");
+        assert!(sanitize_inspector_artifacts(&missing, "session-a", "project-a", &cursor).is_err());
     }
 
     #[test]

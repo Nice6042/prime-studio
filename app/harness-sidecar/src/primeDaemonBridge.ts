@@ -48,6 +48,7 @@ export type DaemonConnectionPort = Readonly<Record<string, unknown>> & {
   importFromJsonl?(inputPath: string, cwdOverride?: string): Promise<unknown>;
   fork?(entryId: string, options?: { position?: "before" | "at" }): Promise<unknown>;
   subscribe?(listener: (event: unknown) => void): () => void;
+  respondToExtensionUiRequest?(requestId: string, response: Readonly<{ value: string } | { confirmed: boolean } | { cancelled: true }>): Promise<void>;
 };
 
 export interface PrimeDaemonBridgePorts {
@@ -94,7 +95,22 @@ export interface PrimeHarnessInspectorDetails {
     selectedThinking: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | null;
     supportedCommands: readonly ("model" | "effort" | "compact" | "fork" | "export")[];
   }>;
+  readonly extensionUi:
+    | Readonly<{ status: "unavailable"; reason: string }>
+    | Readonly<{ status: "available"; requests: readonly PrimeHarnessExtensionRequest[] }>;
 }
+
+export type PrimeHarnessExtensionRequest =
+  | Readonly<{ id: string; method: "confirm"; title: string; message: string; cursor: Readonly<{ runtimeGeneration: string; sequence: number }> }>
+  | Readonly<{ id: string; method: "select"; title: string; options: readonly string[]; cursor: Readonly<{ runtimeGeneration: string; sequence: number }> }>
+  | Readonly<{ id: string; method: "input"; title: string; placeholder: string | null; cursor: Readonly<{ runtimeGeneration: string; sequence: number }> }>
+  | Readonly<{ id: string; method: "editor"; title: string; prefill: string; cursor: Readonly<{ runtimeGeneration: string; sequence: number }> }>;
+
+type PendingExtensionRequest =
+  | { readonly id: string; readonly method: "confirm"; readonly title: string; readonly message: string; readonly fingerprint: string; cursor: Readonly<{ runtimeGeneration: string; sequence: number }> | null }
+  | { readonly id: string; readonly method: "select"; readonly title: string; readonly options: readonly string[]; readonly fingerprint: string; cursor: Readonly<{ runtimeGeneration: string; sequence: number }> | null }
+  | { readonly id: string; readonly method: "input"; readonly title: string; readonly placeholder: string | null; readonly fingerprint: string; cursor: Readonly<{ runtimeGeneration: string; sequence: number }> | null }
+  | { readonly id: string; readonly method: "editor"; readonly title: string; readonly prefill: string; readonly fingerprint: string; cursor: Readonly<{ runtimeGeneration: string; sequence: number }> | null };
 
 export type PrimeHarnessChildPage =
   | Readonly<{ status: "unavailable"; tab: "chat" | "activity" | "files"; reason: string }>
@@ -138,6 +154,9 @@ interface BoundConnection {
   dirty: boolean;
   lastSnapshot: FakeRootSessionSnapshot | null;
   unsubscribe?: () => void;
+  readonly extensionRequests: Map<string, PendingExtensionRequest>;
+  readonly consumedExtensionRequestIds: Set<string>;
+  extensionUiUnavailableReason: string | null;
 }
 
 interface WorkerRecoveryObservation {
@@ -188,7 +207,59 @@ function optionalSafeInteger(value: unknown): number | null {
   return safeInteger(value);
 }
 
+function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
+}
+
+function normalizeExtensionRequest(event: unknown): PendingExtensionRequest | null {
+  if (!plain(event) || event.type !== "extension_ui_request" || !plain(event.request)) return null;
+  const request = event.request;
+  if (!exactKeys(request, ["id", "method", "payload"]) || !plain(request.payload)) throw new TypeError("extension UI request envelope is invalid");
+  const id = boundedString(request.id, 128);
+  const method = boundedString(request.method, 32);
+  const payload = request.payload;
+  const withoutTimeout = Object.hasOwn(payload, "timeout") ? Object.fromEntries(Object.entries(payload).filter(([key]) => key !== "timeout")) : payload;
+  if (Object.hasOwn(payload, "timeout") && (!Number.isSafeInteger(payload.timeout) || (payload.timeout as number) < 0)) throw new TypeError("extension UI timeout is invalid");
+  let projected: Record<string, unknown> & { id: string; method: "confirm" | "select" | "input" | "editor"; title: string };
+  if (method === "confirm" && exactKeys(withoutTimeout, ["title", "message"])) {
+    projected = { id, method, title: boundedString(withoutTimeout.title, 200), message: boundedString(withoutTimeout.message, 8_192, true) };
+  } else if (method === "select" && exactKeys(withoutTimeout, ["title", "options"]) && Array.isArray(withoutTimeout.options)) {
+    if (withoutTimeout.options.length === 0 || withoutTimeout.options.length > 64) throw new TypeError("extension UI select options are invalid");
+    const options = withoutTimeout.options.map((option) => boundedString(option, 200));
+    if (new Set(options).size !== options.length) throw new TypeError("extension UI select options are invalid");
+    projected = { id, method, title: boundedString(withoutTimeout.title, 200), options: Object.freeze(options) };
+  } else if (method === "input" && (exactKeys(withoutTimeout, ["title"]) || exactKeys(withoutTimeout, ["title", "placeholder"]))) {
+    projected = { id, method, title: boundedString(withoutTimeout.title, 200), placeholder: withoutTimeout.placeholder === undefined ? null : boundedString(withoutTimeout.placeholder, 500, true) };
+  } else if (method === "editor" && (exactKeys(payload, ["title"]) || exactKeys(payload, ["title", "prefill"]))) {
+    projected = { id, method, title: boundedString(payload.title, 200), prefill: payload.prefill === undefined ? "" : boundedString(payload.prefill, 32_768, true) };
+  } else if (["notify", "setStatus", "setWidget", "setTitle", "set_editor_text"].includes(method)) {
+    return null;
+  } else {
+    throw new TypeError("extension UI request method or payload is unsupported");
+  }
+  const fingerprint = JSON.stringify(projected);
+  return { ...projected, fingerprint, cursor: null } as PendingExtensionRequest;
+}
+
+function projectPendingExtensionRequest(request: PendingExtensionRequest): PrimeHarnessExtensionRequest | null {
+  if (!request.cursor) return null;
+  const { fingerprint: _fingerprint, cursor, ...fields } = request;
+  return Object.freeze({ ...fields, cursor }) as PrimeHarnessExtensionRequest;
+}
+
 const MAX_TURN_USAGE_ROWS = 300;
+const MAX_CONSUMED_EXTENSION_REQUEST_IDS = 4_096;
+
+export function addConsumedExtensionRequestIds(ledger: Set<string>, requestIds: Iterable<string>): boolean {
+  for (const requestId of requestIds) {
+    if (ledger.has(requestId)) continue;
+    if (ledger.size >= MAX_CONSUMED_EXTENSION_REQUEST_IDS) return false;
+    ledger.add(requestId);
+  }
+  return true;
+}
 
 function checkedAdd(left: number, right: number): number {
   const total = left + right;
@@ -600,7 +671,8 @@ export class PrimeDaemonBridge {
   }
 
   async inspector(activeSessionId: string): Promise<PrimeHarnessInspectorDetails> {
-    const connection = (await this.#bound(activeSessionId)).connection;
+    const bound = await this.#bound(activeSessionId);
+    const connection = bound.connection;
     const [initialRaw, contextRaw, statsRaw, resourcesRaw, catalogRaw] = await Promise.all([
       this.#call(activeSessionId, "getInitialSnapshot"),
       this.#call(activeSessionId, "getSessionContext"),
@@ -713,6 +785,17 @@ export class PrimeDaemonBridge {
       notices: Object.freeze([]), activity: Object.freeze(activity.slice(-300)), outputs: Object.freeze(outputs),
       sources: Object.freeze(sources.slice(0, 512)), children: Object.freeze(children),
       composer: composerProjection(connection, initial, catalogRaw),
+      extensionUi: bound.extensionUiUnavailableReason
+        ? Object.freeze({ status: "unavailable" as const, reason: bound.extensionUiUnavailableReason })
+        : typeof connection.respondToExtensionUiRequest !== "function" || !(await this.negotiate()).serverCapabilities.includes("extension_ui")
+          ? Object.freeze({ status: "unavailable" as const, reason: "The verified Harness runtime does not expose extension UI requests and responses." })
+          : Object.freeze({
+              status: "available" as const,
+              requests: Object.freeze([...bound.extensionRequests.values()].flatMap((request) => {
+                const projected = projectPendingExtensionRequest(request);
+                return projected ? [projected] : [];
+              })),
+            }),
     });
   }
 
@@ -780,6 +863,7 @@ export class PrimeDaemonBridge {
       return await dispatcher.dispatch({
         connection: (barrier?.connection ?? bound.connection) as unknown as Readonly<Record<string, ((...arguments_: any[]) => Promise<unknown>) | undefined>>,
         currentCursor: { runtimeGeneration: bound.studioGeneration!, sequence: bound.sequence },
+        respondToExtensionUiRequest: (requestId, response) => this.#respondToExtensionUiRequest(bound, requestId, response),
       }, operation);
     } finally { await barrier?.close(); }
   }
@@ -802,10 +886,10 @@ export class PrimeDaemonBridge {
           await bound.connection.dispose();
           bound.connection = await this.#attachPort(this.#client, activeSessionId);
           delete bound.unsubscribe;
-          const unsubscribe = bound.connection.subscribe?.(() => {
-            bound.eventRevision += 1n;
-            bound.dirty = true;
-          });
+          bound.extensionRequests.clear();
+          bound.consumedExtensionRequestIds.clear();
+          bound.extensionUiUnavailableReason = null;
+          const unsubscribe = bound.connection.subscribe?.((event) => this.#observeConnectionEvent(bound, event));
           if (unsubscribe) bound.unsubscribe = unsubscribe;
           bound.dirty = true;
         }));
@@ -1051,6 +1135,21 @@ export class PrimeDaemonBridge {
     bound.publishedUpstreamSequence = observedCursor.sequence;
     bound.publishedUpstreamGeneration = observedCursor.generation;
     bound.studioGeneration = observedCursor.generation;
+    if (generationChanged) {
+      bound.extensionRequests.clear();
+      bound.consumedExtensionRequestIds.clear();
+      bound.extensionUiUnavailableReason = null;
+    } else {
+      const requestCursor = Object.freeze({ runtimeGeneration: observedCursor.generation, sequence: nextSequence });
+      for (const [requestId, request] of bound.extensionRequests) {
+        if (request.cursor !== null && (request.cursor.runtimeGeneration !== requestCursor.runtimeGeneration || request.cursor.sequence !== requestCursor.sequence)) {
+          if (!this.#consumeExtensionRequestIds(bound, [requestId])) break;
+          bound.extensionRequests.delete(requestId);
+        } else if (request.cursor === null) {
+          request.cursor = requestCursor;
+        }
+      }
+    }
     bound.dirty = bound.eventRevision !== publicationEventRevision;
     bound.lastSnapshot = snapshot;
     return snapshot;
@@ -1110,6 +1209,8 @@ export class PrimeDaemonBridge {
       workerRecovery: Object.freeze({ ...recovery }),
     });
     bound.sequence = sequence;
+    this.#consumeExtensionRequestIds(bound, bound.extensionRequests.keys());
+    bound.extensionRequests.clear();
     bound.lastSnapshot = snapshot;
     return snapshot;
   }
@@ -1148,10 +1249,7 @@ export class PrimeDaemonBridge {
     let replacementUnsubscribe: (() => void) | undefined;
     try {
       if (replacement.subscribe) {
-        replacementUnsubscribe = replacement.subscribe(() => {
-          bound.eventRevision += 1n;
-          bound.dirty = true;
-        });
+        replacementUnsubscribe = replacement.subscribe((event) => this.#observeConnectionEvent(bound, event));
       }
     } catch (error) {
       await replacement.dispose().catch(() => undefined);
@@ -1184,15 +1282,66 @@ export class PrimeDaemonBridge {
       connection, sequence: 0, initialized: false, publishedUpstreamSequence: null,
       publishedUpstreamGeneration: null, studioGeneration: null,
       eventRevision: 0n, dirty: false, lastSnapshot: null,
+      extensionRequests: new Map(), consumedExtensionRequestIds: new Set(), extensionUiUnavailableReason: null,
     };
     if (connection.subscribe) {
-      bound.unsubscribe = connection.subscribe(() => {
-        bound.eventRevision += 1n;
-        bound.dirty = true;
-      });
+      bound.unsubscribe = connection.subscribe((event) => this.#observeConnectionEvent(bound, event));
     }
     this.#connections.set(activeSessionId, bound);
     return bound;
+  }
+
+  #observeConnectionEvent(bound: BoundConnection, event: unknown): void {
+    bound.eventRevision += 1n;
+    bound.dirty = true;
+    try {
+      const request = normalizeExtensionRequest(event);
+      if (!request) return;
+      if (bound.extensionUiUnavailableReason) return;
+      const prior = bound.extensionRequests.get(request.id);
+      if (prior) {
+        if (prior.fingerprint !== request.fingerprint) throw new TypeError("extension UI request identity was reused with different input");
+        return;
+      }
+      if (bound.consumedExtensionRequestIds.has(request.id)) throw new TypeError("extension UI request identity was replayed");
+      if (bound.extensionRequests.size >= 16) throw new RangeError("extension UI request capacity is exhausted");
+      bound.extensionRequests.set(request.id, request);
+    } catch {
+      bound.extensionUiUnavailableReason = "The Harness emitted extension UI evidence that Studio could not verify safely.";
+      bound.extensionRequests.clear();
+    }
+  }
+
+  #consumeExtensionRequestIds(bound: BoundConnection, requestIds: Iterable<string>): boolean {
+    if (addConsumedExtensionRequestIds(bound.consumedExtensionRequestIds, requestIds)) return true;
+    bound.extensionUiUnavailableReason = "Extension UI request identity capacity is exhausted; reattach to a new runtime generation.";
+    bound.extensionRequests.clear();
+    return false;
+  }
+
+  async #respondToExtensionUiRequest(bound: BoundConnection, requestId: string, rawResponse: unknown): Promise<void> {
+    const request = bound.extensionRequests.get(requestId);
+    if (!request || !request.cursor || request.cursor.runtimeGeneration !== bound.studioGeneration || request.cursor.sequence !== bound.sequence || bound.consumedExtensionRequestIds.has(requestId)) throw new TypeError("extension UI request is stale, unknown, or already answered");
+    if (!plain(rawResponse)) throw new TypeError("extension UI response is invalid");
+    let response: Readonly<{ value: string } | { confirmed: boolean } | { cancelled: true }>;
+    if (exactKeys(rawResponse, ["cancelled"]) && rawResponse.cancelled === true) {
+      response = Object.freeze({ cancelled: true });
+    } else if (request.method === "confirm" && exactKeys(rawResponse, ["confirmed"]) && typeof rawResponse.confirmed === "boolean") {
+      response = Object.freeze({ confirmed: rawResponse.confirmed });
+    } else if ((request.method === "select" || request.method === "input" || request.method === "editor")
+      && exactKeys(rawResponse, ["value"]) && typeof rawResponse.value === "string") {
+      const maximum = request.method === "editor" ? 32_768 : request.method === "input" ? 8_192 : 200;
+      const value = boundedString(rawResponse.value, maximum, request.method !== "select");
+      if (request.method === "select" && !request.options.includes(value)) throw new TypeError("extension UI selection is invalid");
+      response = Object.freeze({ value });
+    } else {
+      throw new TypeError("extension UI response does not match the pending request");
+    }
+    const candidate = bound.connection.respondToExtensionUiRequest;
+    if (typeof candidate !== "function") throw new ReferenceError("verified extension UI response admission is unavailable");
+    if (!this.#consumeExtensionRequestIds(bound, [requestId])) throw new ReferenceError(bound.extensionUiUnavailableReason!);
+    bound.extensionRequests.delete(requestId);
+    await candidate.call(bound.connection, requestId, response);
   }
 
   async #call(activeSessionId: string, method: string, ...arguments_: unknown[]): Promise<unknown> {

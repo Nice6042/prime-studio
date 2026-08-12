@@ -3,7 +3,7 @@ import type { ComposerRuntimeChoice, ThinkingLevel } from "../conversation/works
 import type { ArtifactOpenResult } from "../../entities/editor/types";
 import type { AttentionEvidence } from "../../attention/attentionLedger";
 import type { RootSessionProjection } from "../../entities/harness/types";
-import type { HarnessChildDataPage } from "../../shared/ipc/client";
+import type { HarnessChildDataPage, HarnessExtensionUiRequest } from "../../shared/ipc/client";
 
 export type HarnessActivityKind = "agent" | "tool" | "file" | "system";
 
@@ -119,6 +119,9 @@ export interface HarnessPanelDetails {
   readonly outputs: readonly Readonly<{ id: string; label: string; candidateId?: string; kind: string }>[];
   readonly sources: readonly Readonly<{ id: string; label: string; detail: string; candidateId?: string; kind: string }>[];
   readonly children: Readonly<Record<string, HarnessChildDetails>>;
+  readonly extensionUi:
+    | Readonly<{ status: "available"; requests: readonly HarnessExtensionUiRequest[] }>
+    | Readonly<{ status: "unavailable"; reason: string }>;
   readonly composer?: HarnessComposerProjection;
 }
 

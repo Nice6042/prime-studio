@@ -146,6 +146,73 @@ test("a daemon event dirties the published projection and blocks stale mutation 
   assert.equal(refreshed.cursor.sequence, 5);
 });
 
+test("extension prompts project only verified dialog events and respond exactly once within their session cursor", async () => {
+  const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
+  let upstreamSequence = 4;
+  const listeners = new Set<(event: unknown) => void>();
+  const responses: Array<Readonly<{ requestId: string; response: unknown }>> = [];
+  let failResponse = false;
+  const state = { activeSessionId: "root-a", cwd: "C:\work", thinkingLevel: "high", serviceTier: "auto", availableThinkingLevels: [], isStreaming: false, isCompacting: false, isBashRunning: false, retryAttempt: 0, steeringMode: "all", followUpMode: "all", sessionId: "chat-a", leafId: null, autoCompactionEnabled: true, messageCount: 0, sessionActions: {}, compactionCount: 0, goal: {}, scopedModels: [], activeToolNames: [] };
+  const connection = (sessionId: string) => ({
+    async getInitialSnapshot() { return { state: { ...state, activeSessionId: sessionId, sessionId: `chat-${sessionId}` }, messages: [], children: [], lastEventCursor: { generation: "generation-1", sequence: upstreamSequence } }; },
+    async getState() { return state; }, async getMessages() { return []; }, async getQueue() { return {}; }, async getResourceSnapshot() { return {}; }, async getSessionStats() { return { tokens: {} }; }, async getSessionContext() { return {}; }, async getModelCatalog() { return { models: [] }; }, async getToolDefinition() { return undefined; },
+    async respondToExtensionUiRequest(requestId: string, response: unknown) { responses.push({ requestId, response }); if (failResponse) throw new Error("response outcome lost"); },
+    async prompt() {}, async steer() {}, async followUp() {}, async abort() {}, async dispose() {},
+    subscribe(listener: (event: unknown) => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
+  });
+  const bridge = new PrimeDaemonBridge({
+    identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "extension_ui", "resident_sessions", "session_input_admission", "model_catalog"] },
+    client: { async connect() {}, async waitForHello() { return { type: "daemon_hello" as const, socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "extension_ui", "session_input_admission", "model_catalog"] }; }, async request() { return { type: "response", command: "list", success: true, data: { sessions: ["root-a", "root-b"].map((activeSessionId) => ({ activeSessionId, isSessionActive: true, workerState: "ready" })) } }; }, close() {} },
+    attach: async (_client, sessionId) => connection(sessionId),
+  });
+  await bridge.attach("root-a");
+  upstreamSequence = 5;
+  for (const listener of listeners) listener({ type: "extension_ui_request", request: { id: "notification-1", method: "notify", payload: { title: "Background notice", message: "Do not render as a prompt." } } });
+  for (const listener of listeners) listener({ type: "extension_ui_request", request: { id: "request-1", method: "select", payload: { title: "Choose a branch", options: ["main", "release"] } } });
+  const current = await bridge.snapshot("root-a");
+  const details = await bridge.inspector("root-a");
+  assert.deepEqual((details as unknown as { extensionUi: unknown }).extensionUi, { status: "available", requests: [{ id: "request-1", method: "select", title: "Choose a branch", options: ["main", "release"], cursor: current.cursor }] });
+  assert.equal(current.parentMessages.length, 0, "extension UI must not enter the parent transcript");
+
+  const stale = await bridge.executeOperation("root-a", { operationId: "stale", action: "harness.extension.respond", payload: { sessionId: "root-a", requestId: "request-1", response: { value: "main" } }, expectedCursor: { ...current.cursor, sequence: current.cursor.sequence - 1 }, idempotencyKey: "stale" });
+  const crossed = await bridge.executeOperation("root-b", { operationId: "crossed", action: "harness.extension.respond", payload: { sessionId: "root-b", requestId: "request-1", response: { value: "main" } }, expectedCursor: (await bridge.attach("root-b")).cursor, idempotencyKey: "crossed" });
+  assert.equal(stale.status, "rejected");
+  assert.equal(crossed.status, "rejected");
+  assert.equal(responses.length, 0);
+
+  const accepted = await bridge.executeOperation("root-a", { operationId: "respond-1", action: "harness.extension.respond", payload: { sessionId: "root-a", requestId: "request-1", response: { value: "release" } }, expectedCursor: current.cursor, idempotencyKey: "respond-1" });
+  const replay = await bridge.executeOperation("root-a", { operationId: "respond-2", action: "harness.extension.respond", payload: { sessionId: "root-a", requestId: "request-1", response: { cancelled: true } }, expectedCursor: current.cursor, idempotencyKey: "respond-2" });
+  assert.equal(accepted.status, "updated");
+  assert.equal(replay.status, "rejected");
+  assert.deepEqual(responses, [{ requestId: "request-1", response: { value: "release" } }]);
+
+  upstreamSequence = 6;
+  for (const listener of listeners) listener({ type: "extension_ui_request", request: { id: "request-2", method: "confirm", payload: { title: "Continue?", message: "Proceed?" } } });
+  const next = await bridge.snapshot("root-a");
+  failResponse = true;
+  const unknown = await bridge.executeOperation("root-a", { operationId: "respond-unknown", action: "harness.extension.respond", payload: { sessionId: "root-a", requestId: "request-2", response: { confirmed: true } }, expectedCursor: next.cursor, idempotencyKey: "respond-unknown" });
+  const unknownReplay = await bridge.executeOperation("root-a", { operationId: "respond-unknown-replay", action: "harness.extension.respond", payload: { sessionId: "root-a", requestId: "request-2", response: { cancelled: true } }, expectedCursor: next.cursor, idempotencyKey: "respond-unknown-replay" });
+  assert.equal(unknown.status, "unknown_outcome");
+  assert.equal(unknownReplay.status, "rejected");
+  assert.equal(responses.filter((item) => item.requestId === "request-2").length, 1);
+
+  upstreamSequence = 7;
+  for (const listener of listeners) listener({ type: "extension_ui_request", request: { id: "invalid-input", method: "input", payload: { title: "Name", placeholder: null } } });
+  for (const listener of listeners) listener({ type: "extension_ui_request", request: { id: "invalid-timeout", method: "confirm", payload: { title: "Continue?", message: "Proceed?", timeout: null } } });
+  await bridge.snapshot("root-a");
+  assert.deepEqual((await bridge.inspector("root-a")).extensionUi, { status: "unavailable", reason: "The Harness emitted extension UI evidence that Studio could not verify safely." });
+});
+
+test("extension consumed identity capacity fails closed without evicting replay evidence", async () => {
+  const { addConsumedExtensionRequestIds } = await import("../src/primeDaemonBridge.js");
+  const ledger = new Set(Array.from({ length: 4_096 }, (_, index) => `request-${index}`));
+  assert.equal(addConsumedExtensionRequestIds(ledger, ["request-0"]), true, "an existing replay identity remains recognized at capacity");
+  assert.equal(addConsumedExtensionRequestIds(ledger, ["request-overflow"]), false);
+  assert.equal(ledger.size, 4_096);
+  assert.equal(ledger.has("request-0"), true);
+  assert.equal(ledger.has("request-overflow"), false);
+});
+
 test("each published snapshot advances exactly one Studio revision even without an upstream event", async () => {
   const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
   const state = { activeSessionId: "root", cwd: "C:\\work", thinkingLevel: "high", serviceTier: "auto", availableThinkingLevels: [], isStreaming: false, isCompacting: false, isBashRunning: false, retryAttempt: 0, steeringMode: "all", followUpMode: "all", sessionId: "chat", leafId: null, autoCompactionEnabled: true, messageCount: 0, sessionActions: {}, compactionCount: 0, goal: {}, scopedModels: [], activeToolNames: [] };
@@ -319,6 +386,8 @@ test("worker recovery is armed only by an observed healthy-to-recovering transit
   let workerPid = 4100;
   let retryCalls = 0;
   let attachCalls = 0;
+  let extensionResponses = 0;
+  const extensionListeners = new Set<(event: unknown) => void>();
   const state = { activeSessionId: "root", cwd: "C:\\work", thinkingLevel: "high", serviceTier: "auto", availableThinkingLevels: [], isStreaming: false, isCompacting: false, isBashRunning: false, retryAttempt: 0, steeringMode: "all", followUpMode: "all", sessionId: "chat", leafId: null, autoCompactionEnabled: true, messageCount: 0, sessionActions: {}, compactionCount: 0, goal: {}, scopedModels: [], activeToolNames: [] };
   const connection = () => ({
     async getInitialSnapshot() {
@@ -327,13 +396,16 @@ test("worker recovery is armed only by an observed healthy-to-recovering transit
     },
     async getState() { return state; }, async getMessages() { return []; }, async getQueue() { return {}; },
     async getResourceSnapshot() { return {}; }, async getSessionStats() { return { tokens: {}, cost: 0 }; }, async getToolDefinition() { return undefined; },
+    async getSessionContext() { return {}; }, async getModelCatalog() { return { models: [] }; },
+    async respondToExtensionUiRequest() { extensionResponses += 1; },
+    subscribe(listener: (event: unknown) => void) { extensionListeners.add(listener); return () => { extensionListeners.delete(listener); }; },
     async prompt() {}, async steer() {}, async followUp() {}, async abort() {}, async dispose() {},
   });
   const bridge = new PrimeDaemonBridge({
-    identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
+    identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "extension_ui", "resident_sessions", "session_input_admission", "model_catalog"] },
     client: {
       async connect() {},
-      async waitForHello() { return { type: "daemon_hello", socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "supervisor-generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; },
+      async waitForHello() { return { type: "daemon_hello", socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "supervisor-generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "extension_ui", "session_input_admission", "model_catalog"] }; },
       async request(command: { type: string }) {
         if (command.type === "retry_worker") {
           retryCalls += 1;
@@ -350,15 +422,22 @@ test("worker recovery is armed only by an observed healthy-to-recovering transit
 
   const healthy = await bridge.attach("root");
   assert.deepEqual(healthy.workerRecovery, { status: "ready", closureReason: null, observationId: null, automaticRetryCount: 0, detail: null });
+  for (const listener of extensionListeners) listener({ type: "extension_ui_request", request: { id: "recovery-stale", method: "confirm", payload: { title: "Continue?", message: "Proceed?" } } });
+  const promptSnapshot = await bridge.snapshot("root");
+  assert.equal((await bridge.inspector("root")).extensionUi.status, "available");
 
   workerState = "recovering";
-  const recovering = await bridge.handle({ type: "refresh_session", sessionId: "root", knownCursor: healthy.cursor });
+  const recovering = await bridge.handle({ type: "refresh_session", sessionId: "root", knownCursor: promptSnapshot.cursor });
   assert.equal(recovering.type, "snapshot_result");
   const recoveringSnapshot = recovering.type === "snapshot_result" ? recovering.snapshot : healthy;
   assert.equal(recoveringSnapshot.state, "failed");
   assert.equal(recoveringSnapshot.workerRecovery.status, "recovering");
   assert.equal(recoveringSnapshot.workerRecovery.closureReason, "unexpected_worker_disconnect");
   assert.match(recoveringSnapshot.workerRecovery.observationId ?? "", /^worker-recovery-[a-f0-9]{24}$/u);
+  workerState = "ready";
+  const staleExtension = await bridge.executeOperation("root", { operationId: "recovery-stale-op", action: "harness.extension.respond", payload: { sessionId: "root", requestId: "recovery-stale", response: { confirmed: true } }, expectedCursor: recoveringSnapshot.cursor, idempotencyKey: "recovery-stale-op" });
+  assert.equal(staleExtension.status, "rejected");
+  assert.equal(extensionResponses, 0);
 
   workerState = "failed";
   const failed = await bridge.handle({ type: "refresh_session", sessionId: "root", knownCursor: recoveringSnapshot.cursor });
@@ -373,7 +452,7 @@ test("worker recovery is armed only by an observed healthy-to-recovering transit
   assert.equal(retried.type === "worker_retry_result" ? retried.snapshot.workerRecovery.status : "", "recovered");
   assert.equal(retried.type === "worker_retry_result" ? retried.snapshot.workerRecovery.automaticRetryCount : 0, 1);
   assert.equal(retryCalls, 1);
-  assert.equal(attachCalls, 4, "the recovered worker must replace the closed long-lived connection before projection");
+  assert.equal(attachCalls, 6, "the stale-response barrier and recovered worker each use a fresh verified attachment");
 
   const replay = await bridge.handle({ type: "retry_worker", sessionId: "root", observationId });
   assert.equal(replay.type, "error");
