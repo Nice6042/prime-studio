@@ -1,11 +1,12 @@
 use std::collections::HashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::State;
+
+use crate::accounts::delete::{path_snapshot_no_follow, FileIdentity};
 
 const MAX_ARTIFACT_BYTES: usize = 2 * 1024 * 1024;
 
@@ -145,42 +146,13 @@ impl ArtifactAdmission {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct FileStamp {
-    volume: u64,
-    file: u64,
-}
-
-#[cfg(windows)]
-fn file_stamp(metadata: &fs::Metadata) -> Option<FileStamp> {
-    use std::os::windows::fs::MetadataExt;
-    Some(FileStamp {
-        volume: metadata.creation_time(),
-        file: metadata.file_size(),
-    })
-}
-
-#[cfg(unix)]
-fn file_stamp(metadata: &fs::Metadata) -> Option<FileStamp> {
-    use std::os::unix::fs::MetadataExt;
-    Some(FileStamp {
-        volume: metadata.dev(),
-        file: metadata.ino(),
-    })
-}
-
-#[cfg(not(any(windows, unix)))]
-fn file_stamp(_metadata: &fs::Metadata) -> Option<FileStamp> {
-    None
-}
-
 #[derive(Clone)]
 struct Binding {
     root: PathBuf,
     path: PathBuf,
     writable: bool,
     revision: u64,
-    stamp: FileStamp,
+    stamp: FileIdentity,
     identity: String,
 }
 
@@ -201,17 +173,30 @@ fn digest(bytes: &[u8]) -> String {
     format!("sha256:{:x}", Sha256::digest(bytes))
 }
 
-fn read_text(root: &Path, path: &Path) -> Result<(String, String, FileStamp), String> {
-    let bounded = crate::bounded_io::read_bounded_under(root, path, MAX_ARTIFACT_BYTES)?;
-    let stamp = file_stamp(&bounded.metadata)
+fn exact_file_identity(path: &Path) -> Result<FileIdentity, String> {
+    let snapshot = path_snapshot_no_follow(path)
+        .map_err(|_| "artifact file identity is unavailable".to_owned())?
         .ok_or_else(|| "artifact file identity is unavailable".to_owned())?;
+    if snapshot.reparse_point || snapshot.directory || snapshot.hard_links != 1 {
+        return Err("artifact requires one regular no-follow file identity".to_owned());
+    }
+    Ok(snapshot.identity)
+}
+
+fn read_text(root: &Path, path: &Path) -> Result<(String, String, FileIdentity), String> {
+    let before = exact_file_identity(path)?;
+    let bounded = crate::bounded_io::read_bounded_under(root, path, MAX_ARTIFACT_BYTES)?;
+    let after = exact_file_identity(path)?;
+    if before != after {
+        return Err("artifact file identity changed while it was opened".to_owned());
+    }
     if bounded.bytes.contains(&0) {
         return Err("binary artifacts are not editable".to_owned());
     }
     let identity = digest(&bounded.bytes);
     let content =
         String::from_utf8(bounded.bytes).map_err(|_| "artifact is not valid UTF-8".to_owned())?;
-    Ok((content, identity, stamp))
+    Ok((content, identity, after))
 }
 
 impl ArtifactAuthority {

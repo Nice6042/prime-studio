@@ -149,3 +149,23 @@ fn oversized_editor_content_is_rejected_without_writing() {
     assert!(matches!(result, ArtifactSaveResult::Error { .. }));
     assert_eq!(fs::read_to_string(&fixture.file).unwrap(), "first\n");
 }
+
+#[test]
+fn hard_linked_artifact_is_rejected_during_native_admission() {
+    let fixture = Fixture::new();
+    let alias = fixture.root.join("artifact-alias.txt");
+    fs::hard_link(&fixture.file, &alias).expect("create hard-link alias");
+    let authority = ArtifactAuthority::default();
+    let result = authority.admit_harness_artifact(ArtifactAdmission::new(
+        "broker-1",
+        "session-1",
+        "artifact-1",
+        &fixture.root,
+        &fixture.file,
+        true,
+    ));
+    assert!(
+        result.is_err(),
+        "shared hard-link identity must not be writable"
+    );
+}
