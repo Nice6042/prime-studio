@@ -385,6 +385,28 @@ describe("HarnessInspector", () => {
     expect(source.load).toHaveBeenCalledTimes(2);
   });
 
+  it("announces loading while a recovered adapter obtains its first details", async () => {
+    vi.useFakeTimers();
+    let available = false;
+    let resolveRecovery: ((value: HarnessPanelDetails) => void) | null = null;
+    const source: HarnessInspectorAdapter = {
+      get availability() { return available ? { status: "available" as const } : { status: "unavailable" as const, reason: "Runtime offline." }; },
+      load: vi.fn(() => new Promise<HarnessPanelDetails>((resolve) => { resolveRecovery = resolve; })),
+      execute: vi.fn(),
+    };
+    const view = render(<HarnessInspector chatId="chat-a" session={{ ...session, state: "idle" }} compatibility={compatibility} adapter={source} />);
+    expect(view.container.querySelector(".harness-inspector")).toHaveAttribute("data-load-phase", "unavailable");
+
+    available = true;
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+
+    expect(source.load).toHaveBeenCalledOnce();
+    expect(view.container.querySelector(".harness-inspector")).toHaveAttribute("data-load-phase", "loading");
+    expect(screen.getByRole("status", { name: "Loading Harness details" })).toBeVisible();
+    await act(async () => { resolveRecovery?.(details); });
+    expect(view.container.querySelector(".harness-inspector")).toHaveAttribute("data-load-phase", "ready");
+  });
+
   it("shows the production silent-worker recovery blocker instead of a working retry claim", async () => {
     const source: HarnessInspectorAdapter = { ...adapter(), workerRecovery: {
       status: "unavailable",

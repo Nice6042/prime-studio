@@ -74,10 +74,15 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
   }
   const details = detailsSnapshot?.scope === sessionScope ? detailsSnapshot.value : null;
   const activityEvidence = activityEvidenceSnapshot?.scope === sessionScope ? activityEvidenceSnapshot.value : undefined;
+  const currentDetails = useRef(details);
+  const currentLoadPhase = useRef(loadPhase);
+  currentDetails.current = details;
+  currentLoadPhase.current = loadPhase;
   const now = useMonotonicNow();
   const activityAttention = chatId ? activityAttentionForChat(chatId, activityEvidence, attention) : { status: "unavailable" as const, reason: "Activity content evidence is unavailable for this chat." };
 
   const loadDetails = async (mode: "foreground" | "background" = "foreground") => {
+    const effectiveMode = mode === "background" && currentDetails.current !== null && currentLoadPhase.current !== "unavailable" ? "background" : "foreground";
     const requestedSession = session;
     const requestedScope = sessionScope;
     const requestedIdentity = requestIdentity;
@@ -103,7 +108,7 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
     const epoch = requestEpoch.current;
     if (detailsLoadsInFlight.current.has(epoch)) return;
     detailsLoadsInFlight.current.add(epoch);
-    if (mode === "foreground") {
+    if (effectiveMode === "foreground") {
       if (details === null) setLoadPhase("loading");
       setActivityEvidenceSnapshot(null);
     }
