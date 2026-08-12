@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -321,6 +321,28 @@ describe("Studio application state", () => {
     expect(screen.queryByTitle("Approximate draft tokens")).not.toBeInTheDocument();
     settingsSpy.mockRestore();
   });
+
+  it("projects the configured workspace footer and routes every menu action through explicit dispatcher outcomes", async () => {
+    const settingsSpy = vi.spyOn(rpc, "getAppSettings").mockResolvedValue({ defaultCwd: "D:\\Clients\\Prime Studio" });
+    const store = createStudioStore(initialStudioState({ chats: [chat] }));
+    store.dispatch({ type: "chat/open", chatId: chat.id });
+    const user = userEvent.setup();
+    render(<AppProviders store={store}><StudioApp /></AppProviders>);
+
+    const trigger = await screen.findByRole("button", { name: "Prime Studio workspace menu" });
+    expect(trigger).toHaveTextContent("D:\\Clients\\Prime Studio");
+    await user.click(trigger);
+    await user.click(screen.getByRole("menuitem", { name: "Switch workspace" }));
+    expect(within(screen.getByRole("menu", { name: "Workspace actions" }).parentElement!).getByRole("status")).toHaveTextContent("Workspace switching is unavailable because no workspace catalog authority is configured.");
+    expect(screen.getByRole("alert", { name: "Studio operation failed" })).toHaveTextContent("Workspace switching is unavailable");
+
+    await user.click(screen.getByRole("menuitem", { name: "Sign out" }));
+    expect(within(screen.getByRole("menu", { name: "Workspace actions" }).parentElement!).getByRole("status")).toHaveTextContent("Workspace sign-out is unavailable because configured folders do not own an authenticated session.");
+
+    await user.click(screen.getByRole("menuitem", { name: "Settings" }));
+    expect(await screen.findByRole("heading", { name: "General", level: 1 })).toBeVisible();
+    settingsSpy.mockRestore();
+  }, 15_000);
 
   it("routes Harness-owned settings through the verified adapter before persistence", async () => {
     const operations: StudioOperation[] = [];

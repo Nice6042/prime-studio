@@ -15,12 +15,17 @@ const projects: readonly NavigationProject[] = [{
     { id: "chat-2", projectId: "project-a", title: "Release checks", pinned: false, selected: false, unread: true, status: "idle", lastActivityMs: 1 },
   ],
 }];
+const workspaceProps = {
+  workspace: { status: "configured" as const, workspaceId: "D:\\work", name: "work", detail: "D:\\work", initials: "WO" },
+  workspaceMenuOpen: false,
+  onExecuteWorkspaceOperation: async () => ({ status: "updated" as const, revision: 1 }),
+};
 
 describe("ProjectSidebar", () => {
   it("exposes project disclosure, current chat, unread and working states", async () => {
     const onSelectChat = vi.fn();
     const onToggleProject = vi.fn();
-    render(<ProjectSidebar projects={projects} onSelectChat={onSelectChat} onToggleProject={onToggleProject} onNewChat={() => undefined} onOpenSettings={() => undefined} />);
+    render(<ProjectSidebar {...workspaceProps} projects={projects} onSelectChat={onSelectChat} onToggleProject={onToggleProject} onNewChat={() => undefined} onOpenSettings={() => undefined} />);
 
     expect(screen.getByRole("button", { name: /Prime Studio/i })).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("button", { name: /Harness integration.*working/i })).toHaveAttribute("aria-current", "page");
@@ -37,7 +42,7 @@ describe("ProjectSidebar", () => {
     const onSearch = vi.fn();
     const onNewChat = vi.fn();
     const onOpenSettings = vi.fn();
-    render(<ProjectSidebar projects={projects} query="" onSearch={onSearch} onSelectChat={() => undefined} onToggleProject={() => undefined} onNewChat={onNewChat} onOpenSettings={onOpenSettings} />);
+    render(<ProjectSidebar {...workspaceProps} projects={projects} query="" onSearch={onSearch} onSelectChat={() => undefined} onToggleProject={() => undefined} onNewChat={onNewChat} onOpenSettings={onOpenSettings} />);
 
     fireEvent.keyDown(window, { key: "f", ctrlKey: true });
     const search = screen.getByRole("searchbox", { name: "Search chats" });
@@ -52,7 +57,7 @@ describe("ProjectSidebar", () => {
 
   it("collects a project name and folder before requesting durable creation", async () => {
     const onNewProject = vi.fn();
-    render(<ProjectSidebar projects={projects} onSelectChat={() => undefined} onToggleProject={() => undefined}
+    render(<ProjectSidebar {...workspaceProps} projects={projects} onSelectChat={() => undefined} onToggleProject={() => undefined}
       onNewChat={() => undefined} onOpenSettings={() => undefined} onNewProject={onNewProject} />);
 
     fireEvent.click(screen.getByRole("button", { name: "New project" }));
@@ -66,7 +71,7 @@ describe("ProjectSidebar", () => {
   });
 
   it("traps project-dialog focus, makes its background inert, and restores the trigger on Escape", async () => {
-    render(<ProjectSidebar projects={projects} onSelectChat={() => undefined} onToggleProject={() => undefined}
+    render(<ProjectSidebar {...workspaceProps} projects={projects} onSelectChat={() => undefined} onToggleProject={() => undefined}
       onNewChat={() => undefined} onOpenSettings={() => undefined} onNewProject={() => undefined} />);
     const opener = screen.getByRole("button", { name: "New project" });
     await userEvent.click(opener);

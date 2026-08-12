@@ -15,6 +15,43 @@ test("production workspace presents the complete three-region shell", async ({ s
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-workspace");
 });
 
+test("configured workspace footer owns a keyboard menu with explicit operation outcomes", async ({ shellPage }, testInfo) => {
+  const trigger = shellPage.getByRole("button", { name: "Prime Studio workspace menu" });
+  await expect(trigger).toContainText("D:\\fixture\\Prime Studio");
+  await trigger.click();
+  const menu = shellPage.getByRole("menu", { name: "Workspace actions" });
+  await expect(menu.getByRole("menuitem", { name: "Switch workspace" })).toBeFocused();
+  await menu.getByRole("menuitem", { name: "Switch workspace" }).click();
+  const outcome = shellPage.locator(".workspace-menu-status");
+  await expect(outcome).toContainText("Workspace switching is unavailable");
+  await menu.getByRole("menuitem", { name: "Sign out" }).click();
+  await expect(outcome).toContainText("configured folders do not own an authenticated session");
+  await shellPage.screenshot({ path: testInfo.outputPath("workspace-footer-wide.png"), fullPage: true });
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-workspace-footer");
+  await menu.getByRole("menuitem", { name: "Settings" }).click();
+  await expect(shellPage.getByRole("main", { name: "Settings" })).toBeVisible();
+});
+
+test("expanded workspace menu closes across Tab order and responsive mode changes", async ({ shellPage }) => {
+  const trigger = shellPage.getByRole("button", { name: "Prime Studio workspace menu" });
+  await trigger.click();
+  await shellPage.keyboard.press("Tab");
+  await expect(shellPage.getByRole("menu", { name: "Workspace actions" })).toHaveCount(0);
+  await expect(shellPage.getByRole("separator", { name: "Resize project sidebar" })).toBeFocused();
+
+  await trigger.click();
+  await shellPage.keyboard.press("Shift+Tab");
+  await expect(shellPage.getByRole("menu", { name: "Workspace actions" })).toHaveCount(0);
+  await expect(shellPage.locator(".project-settings")).toBeFocused();
+
+  await trigger.click();
+  await shellPage.setViewportSize({ width: 700, height: 800 });
+  await expect(shellPage.getByRole("menu", { name: "Workspace actions" })).toHaveCount(0);
+  await shellPage.setViewportSize({ width: 1280, height: 800 });
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(shellPage.getByRole("menu", { name: "Workspace actions" })).toHaveCount(0);
+});
+
 test("Harness keeps child work, activity, and current-chat usage out of the parent chat", async ({ shellPage }) => {
   const harness = shellPage.getByRole("complementary", { name: "Harness" });
   await harness.getByRole("button", { name: /Verify runtime compatibility/ }).click();

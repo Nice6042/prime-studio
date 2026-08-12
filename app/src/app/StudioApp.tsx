@@ -7,11 +7,13 @@ import type { Account, AppSettings, LayoutPreferencesV1 } from "../types";
 import { RuntimeStatusBar } from "../features/shell/RuntimeStatusBar";
 import { TitleBar } from "../features/shell/TitleBar";
 import { WorkspaceShell } from "../features/shell/WorkspaceShell";
+import { layoutBounds, solveLayout } from "../features/shell/layoutSolver";
 import { CollapsedSidebar } from "../features/navigation/CollapsedSidebar";
 import { CreateProjectDialog, NavigationIcon, ProjectSidebar } from "../features/navigation/ProjectSidebar";
 import { selectNavigationProjects } from "../features/navigation/navigationSelectors";
 import { applyProjectCatalogCommand, branchResidentCatalogChat, createResidentForCatalogChat, loadProjectCatalog } from "../features/navigation/projectCatalogClient";
 import { residentCreationDisabledReason } from "../features/navigation/residentCreationPolicy";
+import { deriveWorkspaceIdentity } from "../features/navigation/workspaceIdentity";
 import { ResidentBindingRecovery } from "../features/navigation/ResidentBindingRecovery";
 import { ParentConversation } from "../features/conversation/ParentConversation";
 import { controlBinding } from "../features/conversation/controlBinding";
@@ -107,8 +109,10 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const [query, setQuery] = useState("");
   const [settings, setSettings] = useState<AppSettings>({});
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [settingsLoadFailed, setSettingsLoadFailed] = useState(false);
   const [accounts, setAccounts] = useState<readonly Account[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [workspaceMenuSurface, setWorkspaceMenuSurface] = useState<"expanded" | "rail" | null>(null);
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
   const [createProjectOpener, setCreateProjectOpener] = useState<HTMLElement | null>(null);
   const [paletteOpener, setPaletteOpener] = useState<HTMLElement | null>(null);
@@ -185,7 +189,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
 
   useEffect(() => {
     let active = true;
-    void rpc.getAppSettings().then((next) => { if (active) { setSettings(next); setSettingsLoaded(true); } }).catch(() => undefined);
+    void rpc.getAppSettings().then((next) => { if (active) { setSettings(next); setSettingsLoaded(true); setSettingsLoadFailed(false); } }).catch(() => { if (active) setSettingsLoadFailed(true); });
     void rpc.listAccounts().then((next) => { if (active) setAccounts(next); });
     return () => { active = false; };
   }, []);
@@ -474,6 +478,10 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       case "conversation.assistant-version.select":
         store.dispatch({ type: "conversation/version-selected", chatId: operation.payload.chatId, messageId: operation.payload.messageId, kind: operation.action === "conversation.user-version.select" ? "user" : "assistant", version: operation.payload.version });
         return { status: "updated", revision: operation.payload.version };
+      case "workspace.switch":
+        return { status: "unavailable", reason: "Workspace switching is unavailable because no workspace catalog authority is configured." };
+      case "workspace.sign-out":
+        return { status: "unavailable", reason: "Workspace sign-out is unavailable because configured folders do not own an authenticated session." };
       case "settings.preference.set": {
         const next = await rpc.setAppSetting(operation.payload.key as keyof AppSettings, String(operation.payload.value));
         setSettings(next);
@@ -500,7 +508,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       case "layout.editor.toggle": return changeLayout((current) => ({ ...current, editorOpen: !current.editorOpen }));
       case "layout.editor.resize": return changeLayout({ editorWidth: operation.payload.width });
       case "layout.editor.close": setActiveSheet(null); return changeLayout({ editorOpen: false });
-      case "route.settings.open": store.dispatch({ type: "route/settings", section: operation.payload.section }); break;
+      case "route.settings.open": setWorkspaceMenuSurface(null); store.dispatch({ type: "route/settings", section: operation.payload.section }); break;
       case "route.archived.open": store.dispatch({ type: "route/settings", section: "archived" }); break;
       case "route.settings.back":
       case "route.workspace.open": store.dispatch({ type: "route/workspace" }); break;
@@ -508,8 +516,10 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       case "palette.open": openPalette(); break;
       case "palette.close": setPaletteOpen(false); break;
       case "surface.popover.toggle":
-        if (operation.payload.popoverId === "create-project") openCreateProject();
-        else if (operation.payload.popoverId === null) setCreateProjectOpen(false);
+        if (operation.payload.popoverId === "create-project") { setWorkspaceMenuSurface(null); openCreateProject(); }
+        else if (operation.payload.popoverId === "workspace-footer-expanded") { setCreateProjectOpen(false); setWorkspaceMenuSurface("expanded"); }
+        else if (operation.payload.popoverId === "workspace-footer-rail") { setCreateProjectOpen(false); setWorkspaceMenuSurface("rail"); }
+        else if (operation.payload.popoverId === null) { setCreateProjectOpen(false); setWorkspaceMenuSurface(null); }
         else return { status: "unavailable", reason: `Popover ${operation.payload.popoverId} is unavailable.` };
         break;
       case "catalog.project.toggle": {
@@ -705,6 +715,24 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   });
 
   const openSettings = () => { void dispatchOperation({ action: "route.settings.open", payload: {} }); };
+  const workspaceIdentity = deriveWorkspaceIdentity(settingsLoaded
+    ? { status: "ready", defaultCwd: settings.defaultCwd }
+    : settingsLoadFailed
+      ? { status: "unavailable", reason: "Workspace settings could not be loaded." }
+      : { status: "loading" });
+  const solvedSidebarMode = solveLayout({
+    viewport,
+    sidebar: { open: layout.sidebarOpen, preferred: layout.sidebarWidth },
+    inspector: { open: layout.inspectorOpen, preferred: layout.inspectorWidth },
+    editor: { open: layout.editorOpen, preferred: layout.editorWidth },
+  }).sidebar.mode;
+  const expandedWorkspaceFooterVisible = solvedSidebarMode === "pane"
+    || (viewport < layoutBounds.sheetBreakpoint && activeSheet === "sidebar");
+  const railWorkspaceFooterVisible = solvedSidebarMode === "rail";
+  useEffect(() => {
+    if (workspaceMenuSurface === "expanded" && !expandedWorkspaceFooterVisible) setWorkspaceMenuSurface(null);
+    if (workspaceMenuSurface === "rail" && !railWorkspaceFooterVisible) setWorkspaceMenuSurface(null);
+  }, [expandedWorkspaceFooterVisible, railWorkspaceFooterVisible, workspaceMenuSurface]);
   const newChatDisabledReason = catalogOperation.phase === "pending" ? catalogOperation.label : residentCreationDisabledReason(settings) ?? undefined;
   const admissionConnected = Boolean(
     selectedSession
@@ -743,6 +771,9 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         onOpenArchived={() => { void dispatchOperation({ action: "route.archived.open", payload: {} }); }}
         onCollapse={() => { if (layout.sidebarOpen) void dispatchOperation({ action: "layout.sidebar.toggle", payload: {} }); }}
         onOpenSettings={openSettings}
+        workspace={workspaceIdentity}
+        workspaceMenuOpen={workspaceMenuSurface === "expanded" && expandedWorkspaceFooterVisible}
+        onExecuteWorkspaceOperation={dispatchOperation}
       />
     : <CollapsedSidebar
         onExpand={() => { if (!layout.sidebarOpen) void dispatchOperation({ action: "layout.sidebar.toggle", payload: {} }); }}
@@ -750,6 +781,9 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         newChatDisabledReason={newChatDisabledReason}
         onOpenSearch={openPalette}
         onOpenSettings={openSettings}
+        workspace={workspaceIdentity}
+        workspaceMenuOpen={workspaceMenuSurface === "rail" && railWorkspaceFooterVisible}
+        onExecuteWorkspaceOperation={dispatchOperation}
       />;
   const sidebarRailContent = <CollapsedSidebar
     onExpand={() => {
@@ -761,6 +795,9 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     newChatDisabledReason={newChatDisabledReason}
     onOpenSearch={openPalette}
     onOpenSettings={openSettings}
+    workspace={workspaceIdentity}
+    workspaceMenuOpen={workspaceMenuSurface === "rail" && railWorkspaceFooterVisible}
+    onExecuteWorkspaceOperation={dispatchOperation}
   />;
 
   if (navigation.route === "settings") {

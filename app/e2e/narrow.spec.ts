@@ -45,6 +45,30 @@ test("projects, Harness, and editor become controlled sheets", async ({ shellPag
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-narrow-sheets");
 });
 
+test("collapsed workspace footer keeps its menu in-view and restores keyboard focus", async ({ shellPage }, testInfo) => {
+  const trigger = shellPage.getByRole("button", { name: "Prime Studio workspace menu" });
+  await activateWithKeyboard(trigger);
+  const menu = shellPage.getByRole("menu", { name: "Workspace actions" });
+  await expectWithinViewport(menu, shellPage);
+  await expectNoDocumentOverflow(shellPage);
+  expect(await shellPage.getByRole("navigation", { name: "Projects and chats" }).evaluate((element) => element.scrollLeft)).toBe(0);
+  await expect(menu.getByRole("menuitem", { name: "Switch workspace" })).toBeFocused();
+  await shellPage.screenshot({ path: testInfo.outputPath("workspace-footer-narrow.png"), fullPage: true });
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-narrow-workspace-footer");
+  await shellPage.keyboard.press("Escape");
+  await expect(trigger).toBeFocused();
+
+  await activateWithKeyboard(trigger);
+  await shellPage.keyboard.press("Tab");
+  await expect(shellPage.getByRole("menu", { name: "Workspace actions" })).toHaveCount(0);
+  await expect(shellPage.getByRole("button", { name: "Switch chat" })).toBeFocused();
+
+  await trigger.click();
+  await shellPage.keyboard.press("Shift+Tab");
+  await expect(shellPage.getByRole("menu", { name: "Workspace actions" })).toHaveCount(0);
+  await expect(shellPage.locator('.collapsed-sidebar [data-control-id="rail-settings"]')).toBeFocused();
+});
+
 test("settings and palette use compact responsive surfaces", async ({ shellPage }) => {
   await shellPage.keyboard.press("Control+K");
   await expect(shellPage.getByRole("dialog", { name: "Command palette" })).toBeVisible();

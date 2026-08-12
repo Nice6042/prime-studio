@@ -187,7 +187,7 @@ export const test = base.extend<ShellFixtures>({
               defaultProvider: "openai-codex",
               defaultModel: "gpt-5",
               defaultThinking: "high",
-              defaultCwd: null,
+              defaultCwd: "D:\\fixture\\Prime Studio",
               lastSection: "accounts",
             };
           case "scheduler_projection":

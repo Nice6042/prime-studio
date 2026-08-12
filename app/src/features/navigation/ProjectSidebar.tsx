@@ -4,6 +4,9 @@ import type { NavigationProject } from "./navigationSelectors";
 import { controlBinding } from "../conversation/controlBinding";
 import { useModalSurfaceFocus } from "../../modalSurface";
 import { useTopmostSurfaceEscape } from "../../surfaceEscape";
+import type { StudioOperation, StudioOperationOutcome } from "../../contracts/studioOperations";
+import { WorkspaceFooter } from "./WorkspaceFooter";
+import type { WorkspaceIdentityProjection } from "./workspaceIdentity";
 import "./navigation.css";
 
 export function CreateProjectDialog({ onCreate, onCancel, restoreFocusTo }: {
@@ -64,9 +67,10 @@ export function ProjectSidebar({
   onOpenSearch,
   onNewProject,
   onOpenArchived,
-  onOpenWorkspaceMenu,
+  workspace,
+  workspaceMenuOpen,
+  onExecuteWorkspaceOperation,
   onCollapse,
-  workspace = { initials: "LW", name: "Local workspace", detail: "local@workspace" },
   newChatDisabledReason,
 }: {
   readonly projects: readonly NavigationProject[];
@@ -79,9 +83,10 @@ export function ProjectSidebar({
   readonly onOpenSearch?: () => void;
   readonly onNewProject?: (name: string, folderPath: string) => void;
   readonly onOpenArchived?: () => void;
-  readonly onOpenWorkspaceMenu?: () => void;
+  readonly workspace: WorkspaceIdentityProjection;
+  readonly workspaceMenuOpen: boolean;
+  readonly onExecuteWorkspaceOperation: (operation: StudioOperation) => Promise<StudioOperationOutcome>;
   readonly onCollapse?: () => void;
-  readonly workspace?: Readonly<{ initials: string; name: string; detail: string }>;
   readonly newChatDisabledReason?: string;
 }) {
   const [search, setSearch] = useState(query);
@@ -181,11 +186,7 @@ export function ProjectSidebar({
     </div>
     <footer className="project-sidebar-footer">
       <button className="project-settings" type="button" {...controlBinding("sidebar-settings", "route.settings.open")} aria-label="Settings" onClick={onOpenSettings}><NavigationIcon kind="settings" /><span>Settings</span><kbd>Ctrl+,</kbd></button>
-      <div className="workspace-card">
-        <span className="workspace-avatar" aria-hidden="true">{workspace.initials.slice(0, 2)}</span>
-        <span className="workspace-copy"><strong>{workspace.name}</strong><small>{workspace.detail}</small></span>
-        {onOpenWorkspaceMenu && <button type="button" {...controlBinding("sidebar-workspace-menu", "workspace.switch")} aria-label="Workspace menu" onClick={onOpenWorkspaceMenu}><NavigationIcon kind="more" /></button>}
-      </div>
+      <WorkspaceFooter identity={workspace} variant="expanded" open={workspaceMenuOpen} onExecute={onExecuteWorkspaceOperation} />
     </footer>
     {creatingProject && <CreateProjectDialog restoreFocusTo={newProjectRef.current} onCancel={() => setCreatingProject(false)} onCreate={(name, path) => { onNewProject?.(name, path); setCreatingProject(false); }} />}
   </div>;
