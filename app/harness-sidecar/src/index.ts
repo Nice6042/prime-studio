@@ -63,6 +63,10 @@ function closedPayload(value: unknown): ScenarioRequest {
   if ((payload.type === "discover_runtime" || payload.type === "bootstrap") && exactKeys(payload, ["type"])) {
     return { type: payload.type };
   }
+  if (payload.type === "create_resident" && exactKeys(payload, ["type", "creationId", "name", "cwd"]) && validId(payload.creationId) && validText(payload.name) && validText(payload.cwd)) {
+    if ([...payload.name].length > 200 || [...payload.cwd].length > 4096) throw new Error("request payload is invalid");
+    return { type: "create_resident", creationId: payload.creationId, name: payload.name, cwd: payload.cwd };
+  }
   if (payload.type === "attach_session" && exactKeys(payload, ["type", "sessionId"]) && validId(payload.sessionId)) {
     return { type: "attach_session", sessionId: payload.sessionId };
   }

@@ -5,8 +5,9 @@ use uuid::Uuid;
 
 use super::compatibility::decide_compatibility;
 use super::generated::{
-    CommandOutcome, HarnessCompatibility, HarnessCursor, HarnessEvent, HarnessStudioAction,
-    RootSessionSnapshot, SessionCommandKind, StudioOperationStatus, StudioRequest, StudioResponse,
+    CommandOutcome, HarnessCapability, HarnessCompatibility, HarnessCursor, HarnessEvent,
+    HarnessStudioAction, RootSessionSnapshot, SessionCommandKind, StudioOperationStatus,
+    StudioRequest, StudioResponse,
 };
 pub use super::projections::{BootProjection, ProjectionFreshness, RootSessionProjection};
 use super::recovery::{RecoveredSession, RecoveryRecord};
@@ -49,6 +50,29 @@ pub struct EventAdmission {
 
 pub struct AttachRequest {
     pub session_id: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResidentCreateRequest {
+    pub creation_id: String,
+    pub name: String,
+    pub cwd: String,
+    pub expected_account_id: Option<String>,
+    pub expected_project_id: String,
+}
+
+pub struct ResidentCreateResult {
+    pub creation_id: String,
+    pub session: RootSessionProjection,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ResidentCreation {
+    name: String,
+    cwd: String,
+    expected_account_id: Option<String>,
+    expected_project_id: String,
+    session_id: String,
 }
 
 pub struct SessionCommandRequest {
@@ -111,6 +135,7 @@ pub struct HarnessBroker {
     recovery: Option<RecoveryRecord>,
     compatibility: Option<HarnessCompatibility>,
     unknown_outcomes: BTreeMap<String, BTreeSet<UnknownOperation>>,
+    resident_creations: BTreeMap<String, ResidentCreation>,
     runtime_digest: String,
     profile: String,
 }
@@ -179,6 +204,7 @@ impl HarnessBroker {
             recovery,
             compatibility: None,
             unknown_outcomes: BTreeMap::new(),
+            resident_creations: BTreeMap::new(),
             runtime_digest,
             profile,
         })
@@ -313,6 +339,123 @@ impl HarnessBroker {
         self.unknown_outcomes.remove(&request.session_id);
         self.project(&request.session_id)
             .ok_or(HarnessError::OwnershipViolation)
+    }
+
+    pub async fn create_resident(
+        &mut self,
+        request: ResidentCreateRequest,
+    ) -> Result<ResidentCreateResult, HarnessError> {
+        if self.state != BrokerState::Live
+            || !valid_id(&request.creation_id)
+            || !valid_label(&request.name)
+            || !valid_path(&request.cwd)
+            || !valid_id(&request.expected_project_id)
+            || request
+                .expected_account_id
+                .as_ref()
+                .is_some_and(|value| !valid_id(value))
+        {
+            return Err(HarnessError::ProtocolViolation);
+        }
+        let resident_capability = match self.compatibility.as_ref() {
+            Some(HarnessCompatibility::Ready { capabilities, .. })
+            | Some(HarnessCompatibility::Degraded { capabilities, .. }) => {
+                capabilities.contains(&HarnessCapability::ResidentSessions)
+            }
+            Some(HarnessCompatibility::ReadOnly { .. })
+            | Some(HarnessCompatibility::Unavailable { .. })
+            | None => false,
+        };
+        if !resident_capability {
+            return Err(HarnessError::StateViolation);
+        }
+        if let Some(prior) = self.resident_creations.get(&request.creation_id) {
+            if prior.name != request.name
+                || prior.cwd != request.cwd
+                || prior.expected_account_id != request.expected_account_id
+                || prior.expected_project_id != request.expected_project_id
+            {
+                return Err(HarnessError::OwnershipViolation);
+            }
+            let session = self
+                .project(&prior.session_id)
+                .ok_or(HarnessError::OwnershipViolation)?;
+            return Ok(ResidentCreateResult {
+                creation_id: request.creation_id,
+                session,
+            });
+        }
+        let sidecar = self.sidecar.clone().ok_or(HarnessError::StateViolation)?;
+        let response = sidecar
+            .request(
+                StudioRequest::CreateResident {
+                    creation_id: request.creation_id.clone(),
+                    name: request.name.clone(),
+                    cwd: request.cwd.clone(),
+                },
+                Instant::now() + Duration::from_secs(75),
+            )
+            .await?;
+        let StudioResponse::ResidentCreated {
+            creation_id,
+            snapshot,
+        } = response
+        else {
+            return Err(HarnessError::ProtocolViolation);
+        };
+        if creation_id != request.creation_id || !validate_root_snapshot(&snapshot) {
+            return Err(HarnessError::ProtocolViolation);
+        }
+        if snapshot.account_id != request.expected_account_id
+            || snapshot.project_id != request.expected_project_id
+        {
+            return Err(HarnessError::OwnershipViolation);
+        }
+        let session_id = snapshot.session_id.clone();
+        if self.committed.contains_key(&session_id) || self.ownership.contains_key(&session_id) {
+            return Err(HarnessError::OwnershipViolation);
+        }
+        if self
+            .ownership
+            .values()
+            .any(|owner| owner.chat_id == snapshot.chat_id)
+            || self
+                .committed
+                .values()
+                .any(|current| current.chat_id == snapshot.chat_id)
+            || self.committed.len() >= 256
+            || self
+                .retired_generations
+                .get(&session_id)
+                .is_some_and(|set| set.contains(&snapshot.cursor.runtime_generation))
+        {
+            return Err(HarnessError::OwnershipViolation);
+        }
+        self.validate_child_ownership(&snapshot)?;
+        let ownership = SessionOwnership {
+            account_id: snapshot.account_id.clone(),
+            project_id: snapshot.project_id.clone(),
+            chat_id: snapshot.chat_id.clone(),
+        };
+        self.ownership.insert(session_id.clone(), ownership);
+        self.committed.insert(session_id.clone(), *snapshot);
+        self.resident_creations.insert(
+            request.creation_id.clone(),
+            ResidentCreation {
+                name: request.name,
+                cwd: request.cwd,
+                expected_account_id: request.expected_account_id,
+                expected_project_id: request.expected_project_id,
+                session_id: session_id.clone(),
+            },
+        );
+        let session = self
+            .project(&session_id)
+            .ok_or(HarnessError::OwnershipViolation)?;
+        Ok(ResidentCreateResult {
+            creation_id: request.creation_id,
+            session,
+        })
     }
 
     pub async fn submit(
@@ -861,7 +1004,8 @@ impl HarnessBroker {
     fn validate_child_ownership(&self, snapshot: &RootSessionSnapshot) -> Result<(), HarnessError> {
         let mut local = BTreeSet::new();
         for child in &snapshot.children {
-            if self.ownership.contains_key(&child.id)
+            if child.id == snapshot.session_id
+                || self.ownership.contains_key(&child.id)
                 || !local.insert(&child.id)
                 || self.committed.iter().any(|(session_id, other)| {
                     session_id != &snapshot.session_id
@@ -882,6 +1026,14 @@ fn valid_id(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
         && value.bytes().all(|byte| (0x21..=0x7e).contains(&byte))
+}
+
+fn valid_label(value: &str) -> bool {
+    !value.trim().is_empty() && value.chars().take(201).count() <= 200
+}
+
+fn valid_path(value: &str) -> bool {
+    !value.trim().is_empty() && value.chars().take(4097).count() <= 4096
 }
 
 fn valid_digest(value: &str) -> bool {

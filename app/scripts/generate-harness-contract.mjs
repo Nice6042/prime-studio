@@ -192,6 +192,7 @@ export type HarnessStudioAction =
 export type StudioRequest =
   | { type: "discover_runtime" }
   | { type: "bootstrap" }
+  | { type: "create_resident"; creationId: string; name: string; cwd: string }
   | { type: "attach_session"; sessionId: string }
   | { type: "session_command"; sessionId: string; commandId: string; expectedCursor: HarnessCursor; kind: "prompt" | "steer" | "follow_up" | "abort"; text: string }
   | { type: "inspector"; sessionId: string }
@@ -203,6 +204,7 @@ export type StudioResponse =
   | { type: "bootstrap_result"; compatibility: HarnessCompatibility; sessions: readonly RootSessionSnapshot[] }
   | { type: "snapshot_result"; snapshot: RootSessionSnapshot }
   | { type: "command_result"; commandId: string; outcome: "accepted" | "queued" | "reconciled"; snapshot: RootSessionSnapshot }
+  | { type: "resident_created"; creationId: string; snapshot: RootSessionSnapshot }
   | { type: "inspector_result"; detailsJson: string }
   | { type: "studio_operation_result"; operationId: string; status: "accepted" | "queued" | "updated" | "cancelled" | "unavailable" | "rejected" | "unknown_outcome"; commandId: string | null; position: number | null; revision: string | null; reason: string | null; retryable: boolean | null; snapshot: RootSessionSnapshot | null }
   | { type: "error"; code: string; message: string };
@@ -365,6 +367,7 @@ pub enum RootSessionState { Idle, Working, Blocked, Failed, Disconnected, Stoppe
 pub enum StudioRequest {
     DiscoverRuntime,
     Bootstrap,
+    CreateResident { #[serde(rename = "creationId")] creation_id: String, name: String, cwd: String },
     AttachSession { #[serde(rename = "sessionId")] session_id: String },
     SessionCommand {
         #[serde(rename = "sessionId")] session_id: String,
@@ -436,6 +439,7 @@ pub enum StudioResponse {
     BootstrapResult { compatibility: HarnessCompatibility, sessions: Vec<RootSessionSnapshot> },
     SnapshotResult { snapshot: Box<RootSessionSnapshot> },
     CommandResult { #[serde(rename = "commandId")] command_id: String, outcome: CommandOutcome, snapshot: Box<RootSessionSnapshot> },
+    ResidentCreated { #[serde(rename = "creationId")] creation_id: String, snapshot: Box<RootSessionSnapshot> },
     InspectorResult { #[serde(rename = "detailsJson")] details_json: String },
     StudioOperationResult {
         #[serde(rename = "operationId")] operation_id: String, status: StudioOperationStatus,

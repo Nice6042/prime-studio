@@ -1,4 +1,4 @@
-// Generated from harness-v1.schema.json; SHA-256: fac30bce3715b0c80eef0ce1f60ae8168bbed3a9076657f6b9f479043daee623
+// Generated from harness-v1.schema.json; SHA-256: f3e0ed1e4bf2021c75926accfe5c8b8806b211cc32d62c1919a75e803f00b532
 // Do not edit by hand. Run npm run generate:harness-contract.
 
 use std::collections::HashSet;
@@ -141,6 +141,7 @@ pub enum RootSessionState { Idle, Working, Blocked, Failed, Disconnected, Stoppe
 pub enum StudioRequest {
     DiscoverRuntime,
     Bootstrap,
+    CreateResident { #[serde(rename = "creationId")] creation_id: String, name: String, cwd: String },
     AttachSession { #[serde(rename = "sessionId")] session_id: String },
     SessionCommand {
         #[serde(rename = "sessionId")] session_id: String,
@@ -212,6 +213,7 @@ pub enum StudioResponse {
     BootstrapResult { compatibility: HarnessCompatibility, sessions: Vec<RootSessionSnapshot> },
     SnapshotResult { snapshot: Box<RootSessionSnapshot> },
     CommandResult { #[serde(rename = "commandId")] command_id: String, outcome: CommandOutcome, snapshot: Box<RootSessionSnapshot> },
+    ResidentCreated { #[serde(rename = "creationId")] creation_id: String, snapshot: Box<RootSessionSnapshot> },
     InspectorResult { #[serde(rename = "detailsJson")] details_json: String },
     StudioOperationResult {
         #[serde(rename = "operationId")] operation_id: String, status: StudioOperationStatus,

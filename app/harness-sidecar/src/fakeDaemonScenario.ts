@@ -37,6 +37,7 @@ export interface FakeDaemonScenario {
 export type ScenarioRequest =
   | Readonly<{ type: "discover_runtime" }>
   | Readonly<{ type: "bootstrap" }>
+  | Readonly<{ type: "create_resident"; creationId: string; name: string; cwd: string }>
   | Readonly<{ type: "attach_session"; sessionId: string }>
   | Readonly<{ type: "refresh_session"; sessionId: string; knownCursor: Readonly<{ runtimeGeneration: string; sequence: number }> }>
   | Readonly<{
@@ -58,6 +59,7 @@ export type ScenarioResponse =
   | Readonly<{ type: "bootstrap_result"; compatibility: Compatibility; sessions: readonly FakeRootSessionSnapshot[] }>
   | Readonly<{ type: "snapshot_result"; snapshot: FakeRootSessionSnapshot }>
   | Readonly<{ type: "command_result"; commandId: string; outcome: "accepted" | "queued" | "reconciled"; snapshot: FakeRootSessionSnapshot }>
+  | Readonly<{ type: "resident_created"; creationId: string; snapshot: FakeRootSessionSnapshot }>
   | Readonly<{ type: "inspector_result"; detailsJson: string }>
   | Readonly<{
       type: "studio_operation_result"; operationId: string;
@@ -262,6 +264,9 @@ export class FakeDaemonController {
     }
     if (request.type === "bootstrap") {
       return deepFreeze({ type: "bootstrap_result", compatibility: decideCompatibility(this.#scenario.runtime), sessions: [...this.#sessions.values()] });
+    }
+    if (request.type === "create_resident") {
+      return deepFreeze({ type: "error", code: "unsupported_command", message: "Fake daemon resident creation is not implemented" });
     }
     const current = this.#sessions.get(request.sessionId);
     if (!current) return deepFreeze({ type: "error", code: "unknown_session", message: "Session is not owned by this scenario" });

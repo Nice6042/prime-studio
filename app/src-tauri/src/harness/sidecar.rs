@@ -509,6 +509,10 @@ fn validate_studio_response(response: &StudioResponse) -> bool {
             snapshot,
             ..
         } => valid_id(command_id) && validate_root_snapshot(snapshot),
+        StudioResponse::ResidentCreated {
+            creation_id,
+            snapshot,
+        } => valid_id(creation_id) && validate_root_snapshot(snapshot),
         StudioResponse::InspectorResult { details_json } => valid_text(details_json),
         StudioResponse::StudioOperationResult {
             operation_id,

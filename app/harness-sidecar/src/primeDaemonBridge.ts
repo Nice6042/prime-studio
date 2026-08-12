@@ -181,6 +181,11 @@ function messageBlocks(message: Record<string, unknown>, completedToolCalls: Rea
 }
 
 function projectId(cwd: string): string { return stableId("project", cwd.toLocaleLowerCase("en-US")); }
+function residentMarker(creationId: string, fingerprint: string, name: string): Readonly<{ prefix: string; marker: string }> {
+  const prefix = `prime-studio:${createHash("sha256").update(creationId).digest("hex").slice(0, 24)}:`;
+  const fingerprintTag = `${createHash("sha256").update(fingerprint).digest("hex").slice(0, 24)}:`;
+  return Object.freeze({ prefix, marker: prefix + fingerprintTag + [...name].slice(0, 200 - prefix.length - fingerprintTag.length).join("") });
+}
 function rootState(state: Record<string, unknown>): FakeRootSessionSnapshot["state"] {
   if (state.isStreaming === true || state.isCompacting === true || state.isBashRunning === true) return "working";
   return "idle";
@@ -195,6 +200,7 @@ export class PrimeDaemonBridge {
   readonly #runtimeClosure: RuntimeClosureLock | undefined;
   readonly #connections = new Map<string, BoundConnection>();
   readonly #commands = new Map<string, Readonly<{ fingerprint: string; response: Extract<ScenarioResponse, { type: "command_result" }> }>>();
+  readonly #creations = new Map<string, Readonly<{ fingerprint: string; response: Extract<ScenarioResponse, { type: "resident_created" }> }>>();
   readonly #operationDispatchers = new Map<string, StudioHarnessOperationDispatcher>();
   #hello: DaemonHelloLike | null = null;
 
@@ -219,10 +225,40 @@ export class PrimeDaemonBridge {
     return sessionCatalogRows(responseData(await this.#client.request({ type: "list", all: true, includeClientOwned: true }, 10_000), "list"));
   }
 
-  async createResident(options: Readonly<{ name?: string; cwd?: string }> = {}): Promise<unknown> {
+  async createResident(options: Readonly<{ name?: string; cwd?: string; creationId?: string }> = {}): Promise<unknown> {
     await this.negotiate();
     const name = options.name === undefined ? undefined : boundedString(options.name, 200);
     const cwd = options.cwd === undefined ? undefined : boundedString(options.cwd, 4096);
+    if (options.creationId !== undefined) {
+      const creationId = boundedString(options.creationId, 128);
+      if (name === undefined || cwd === undefined) throw new TypeError("resident creation requires a name and cwd");
+      const fingerprint = JSON.stringify({ name, cwd });
+      const prior = this.#creations.get(creationId);
+      if (prior) {
+        if (prior.fingerprint !== fingerprint) throw new Error("resident creation identity was reused with different input");
+        return prior.response;
+      }
+      const { prefix, marker } = residentMarker(creationId, fingerprint, name);
+      const rows = sessionCatalogRows(responseData(await this.#client.request({ type: "list", includeClientOwned: true }, 10_000), "list"));
+      const matches = rows.filter((row) => plain(row) && row.isSessionActive === true && typeof row.sessionName === "string" && row.sessionName.startsWith(prefix));
+      if (matches.length > 1) throw new Error("resident creation recovery is ambiguous");
+      let activeSessionId: string;
+      if (matches.length === 1) {
+        const row = matches[0];
+        if (!plain(row) || typeof row.activeSessionId !== "string") throw new Error("resident creation recovery is invalid");
+        if (row.sessionName !== marker) throw new Error("resident creation identity was reused with different input");
+        activeSessionId = boundedString(row.activeSessionId, 128);
+      } else {
+        const created = responseData(await this.#client.request({ type: "create", lifecycle: "resident", name: marker, config: { cwd } }, 30_000), "create");
+        if (!plain(created) || typeof created.activeSessionId !== "string" || created.sessionName !== marker) throw new Error("daemon resident creation response is invalid");
+        activeSessionId = boundedString(created.activeSessionId, 128);
+      }
+      const snapshot = await this.snapshot(activeSessionId);
+      if (snapshot.projectId !== projectId(cwd)) throw new Error("daemon resident creation identity mismatch");
+      const response = Object.freeze({ type: "resident_created" as const, creationId, snapshot });
+      this.#creations.set(creationId, { fingerprint, response });
+      return response;
+    }
     const command: Record<string, unknown> = { type: "create", lifecycle: "resident" };
     if (name !== undefined) command.name = name;
     if (cwd !== undefined) command.config = { cwd };
@@ -497,6 +533,9 @@ export class PrimeDaemonBridge {
   async handle(request: ScenarioRequest): Promise<ScenarioResponse> {
     if (request.type === "discover_runtime") return { type: "discover_runtime_result", runtime: this.#identity, compatibility: decideCompatibility(this.#identity) };
     if (request.type === "bootstrap") return this.bootstrap();
+    if (request.type === "create_resident") {
+      return await this.createResident({ creationId: request.creationId, name: request.name, cwd: request.cwd }) as Extract<ScenarioResponse, { type: "resident_created" }>;
+    }
     if (request.type === "attach_session") return { type: "snapshot_result", snapshot: await this.snapshot(request.sessionId) };
     if (request.type === "refresh_session") {
       let snapshot: FakeRootSessionSnapshot;

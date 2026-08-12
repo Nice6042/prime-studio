@@ -215,6 +215,50 @@ fn main() {
                 }));
             }
         }
+        "broker-resident-create" | "broker-resident-mismatch" | "broker-resident-self-child" => {
+            let discovery = read_frame();
+            write_frame(&json!({
+                "studioProtocol": 1, "requestId": discovery["requestId"],
+                "payload": { "type":"discover_runtime_result", "runtime":broker_runtime(), "compatibility":broker_compatibility("prime-agent-daemon-v7-schema13-816309b1cd50") }
+            }));
+            let bootstrap = read_frame();
+            write_frame(&json!({
+                "studioProtocol": 1, "requestId": bootstrap["requestId"],
+                "payload": { "type":"bootstrap_result", "compatibility":broker_compatibility("prime-agent-daemon-v7-schema13-816309b1cd50"), "sessions":[] }
+            }));
+            let create = read_frame();
+            assert_eq!(create["payload"]["type"], "create_resident");
+            let expected_creation = match mode.as_str() {
+                "broker-resident-create" => "creation-00000001",
+                "broker-resident-mismatch" => "creation-00000002",
+                _ => "creation-00000004",
+            };
+            assert_eq!(create["payload"]["creationId"], expected_creation);
+            let project_id = if mode == "broker-resident-create" {
+                "project-resident"
+            } else if mode == "broker-resident-mismatch" {
+                "project-attacker"
+            } else {
+                "project-resident"
+            };
+            let children = if mode == "broker-resident-self-child" {
+                json!([{"id":"resident-root","status":"running","task":"Recursive collision","provider":null,"model":null,"progress":null}])
+            } else {
+                json!([])
+            };
+            write_frame(&json!({
+                "studioProtocol": 1, "requestId": create["requestId"],
+                "payload": {
+                    "type":"resident_created", "creationId":create["payload"]["creationId"],
+                    "snapshot": {
+                        "sessionId":"resident-root", "accountId":null, "projectId":project_id, "chatId":"resident-chat",
+                        "cursor":{"runtimeGeneration":"generation","sequence":1}, "state":"idle",
+                        "parentMessages":[], "children":children, "queue":[], "tools":[], "resources":[],
+                        "usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null}
+                    }
+                }
+            }));
+        }
         "broker-quarantine" => {
             let discovery = read_frame();
             write_frame(&json!({

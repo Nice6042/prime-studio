@@ -333,3 +333,98 @@ test("production bridge exposes every verified daemon operation without provider
     "importFromJsonl:C:\\safe\\input.jsonl,undefined", "exportToJsonl:undefined", "exportToHtml:C:\\safe\\out.html", "detach",
   ]);
 });
+
+test("resident creation recovers a lost create response by stable creation identity", async () => {
+  const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
+  const calls: Array<Readonly<Record<string, unknown>>> = [];
+  let resident: Record<string, unknown> | null = null;
+  let loseFirstCreateResponse = true;
+  const state = {
+    activeSessionId: "resident-active", cwd: "C:\\work\\resident", thinkingLevel: "high", serviceTier: "auto",
+    availableThinkingLevels: [], isStreaming: false, isCompacting: false, isBashRunning: false,
+    retryAttempt: 0, steeringMode: "all", followUpMode: "all", sessionId: "resident-chat", leafId: null,
+    autoCompactionEnabled: true, messageCount: 0, sessionActions: {}, compactionCount: 0, goal: {}, scopedModels: [], activeToolNames: [],
+  };
+  const connection = {
+    async getInitialSnapshot() { return { state, messages: [], children: [], lastEventCursor: { generation: "generation-1", sequence: 1 } }; },
+    async getState() { return state; }, async getMessages() { return []; }, async getQueue() { return {}; },
+    async getResourceSnapshot() { return {}; }, async getSessionStats() { return { tokens: {}, cost: 0 }; },
+    async getToolDefinition() { return undefined; }, async prompt() {}, async steer() {}, async followUp() {}, async abort() {}, async dispose() {},
+  };
+  const ports = {
+    identity: { packageName: "prime-agent" as const, packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
+    client: {
+      async connect() {},
+      async waitForHello() { return { type: "daemon_hello" as const, socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; },
+      async request(command: Readonly<Record<string, unknown>>) {
+        calls.push(command);
+        if (command.type === "list") return { type: "response", command: "list", success: true, data: { sessions: resident ? [resident] : [] } };
+        assert.equal(command.type, "create");
+        assert.equal(command.lifecycle, "resident");
+        assert.deepEqual(command.config, { cwd: "C:\\work\\resident" });
+        assert.match(String(command.name), /^prime-studio:[a-f0-9]{24}:[a-f0-9]{24}:/u);
+        resident = { activeSessionId: "resident-active", sessionId: "resident-chat", sessionName: command.name, cwd: "C:\\work\\resident", isSessionActive: true };
+        if (loseFirstCreateResponse) { loseFirstCreateResponse = false; throw new Error("response lost after commit"); }
+        return { type: "response", command: "create", success: true, data: resident };
+      },
+      close() {},
+    },
+    attach: async (client: unknown, activeSessionId: string) => { void client; assert.equal(activeSessionId, "resident-active"); return connection; },
+  };
+  const first = new PrimeDaemonBridge(ports);
+  const request = { type: "create_resident" as const, creationId: "create-000000000001", name: "Design", cwd: "C:\\work\\resident" };
+  await assert.rejects(() => first.handle(request), /response lost/u);
+
+  const restarted = new PrimeDaemonBridge(ports);
+  const recovered = await restarted.handle(request);
+  assert.equal(recovered.type, "resident_created");
+  assert.equal(recovered.type === "resident_created" ? recovered.creationId : "", request.creationId);
+  assert.equal(recovered.type === "resident_created" ? recovered.snapshot.sessionId : "", "resident-active");
+  assert.equal(calls.filter((command) => command.type === "create").length, 1);
+  await assert.rejects(
+    () => restarted.handle({ ...request, cwd: "C:\\work\\other" }),
+    /reused with different input/u,
+  );
+  assert.equal(calls.filter((command) => command.type === "create").length, 1);
+  const restartedAgain = new PrimeDaemonBridge(ports);
+  await assert.rejects(
+    () => restartedAgain.handle({ ...request, cwd: "C:\\work\\other" }),
+    /reused with different input/u,
+  );
+  assert.equal(calls.filter((command) => command.type === "create").length, 1);
+});
+
+test("resident creation rejects replay conflicts and ambiguous recovery", async () => {
+  const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
+  const { createHash } = await import("node:crypto");
+  const creationId = "create-ambiguous";
+  const creationHash = createHash("sha256").update(creationId).digest("hex").slice(0, 24);
+  const fingerprint = JSON.stringify({ name: "Design", cwd: "C:\\work" });
+  const fingerprintHash = createHash("sha256").update(fingerprint).digest("hex").slice(0, 24);
+  const marker = `prime-studio:${creationHash}:${fingerprintHash}:Design`;
+  const rows = [
+    { activeSessionId: "one", sessionId: "chat-one", sessionName: marker, cwd: "C:\\work", isSessionActive: true },
+    { activeSessionId: "two", sessionId: "chat-two", sessionName: marker, cwd: "C:\\work", isSessionActive: true },
+  ];
+  const bridge = new PrimeDaemonBridge({
+    identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
+    client: { async connect() {}, async waitForHello() { return { type: "daemon_hello" as const, socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request(command: Readonly<Record<string, unknown>>) { assert.equal(command.type, "list"); return { type: "response", command: "list", success: true, data: { sessions: rows } }; }, close() {} },
+    attach: async () => { throw new Error("ambiguous recovery must not attach"); },
+  });
+  await assert.rejects(() => bridge.handle({ type: "create_resident", creationId, name: "Design", cwd: "C:\\work" }), /ambiguous/u);
+});
+
+test("resident creation fails closed when the verified runtime lacks resident capability", async () => {
+  const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
+  let requests = 0;
+  const bridge = new PrimeDaemonBridge({
+    identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] },
+    client: { async connect() {}, async waitForHello() { return { type: "daemon_hello" as const, socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request() { requests += 1; return { type: "response", command: "list", success: true, data: { sessions: [] } }; }, close() {} },
+    attach: async () => { throw new Error("must not attach"); },
+  });
+  await assert.rejects(
+    () => bridge.handle({ type: "create_resident", creationId: "creation-no-capability", name: "Design", cwd: "C:\\work" }),
+    /incompatible|capability/u,
+  );
+  assert.equal(requests, 0);
+});

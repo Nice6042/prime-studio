@@ -1,6 +1,6 @@
 use prime_studio_lib::harness::broker::{
     AttachRequest, BrokerState, HarnessBroker, ProjectionFreshness, RefreshSessionRequest,
-    SessionCommandRequest, SessionOwnership, StudioOperationRequest,
+    ResidentCreateRequest, SessionCommandRequest, SessionOwnership, StudioOperationRequest,
 };
 use prime_studio_lib::harness::generated::{
     ChildAgentStatus, ChildAgentSummary, CurrentChatUsage, HarnessCursor, HarnessEvent,
@@ -101,6 +101,101 @@ fn live_quarantine_broker() -> HarnessBroker {
     .unwrap();
     tauri::async_runtime::block_on(broker.bootstrap()).unwrap();
     broker
+}
+
+#[test]
+fn resident_creation_admits_a_new_authoritative_session_and_reconciles_exact_replay() {
+    let mut broker = HarnessBroker::new(
+        sidecar("broker-resident-create"),
+        "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900".to_owned(),
+        "prime-agent-daemon-v7-schema13-816309b1cd50".to_owned(),
+        Vec::new(),
+        None,
+    )
+    .unwrap();
+    tauri::async_runtime::block_on(broker.bootstrap()).unwrap();
+    let request = ResidentCreateRequest {
+        creation_id: "creation-00000001".to_owned(),
+        name: "Design".to_owned(),
+        cwd: "C:\\work\\resident".to_owned(),
+        expected_account_id: None,
+        expected_project_id: "project-resident".to_owned(),
+    };
+    let created = tauri::async_runtime::block_on(broker.create_resident(request.clone())).unwrap();
+    assert_eq!(created.creation_id, "creation-00000001");
+    assert_eq!(created.session.session_id, "resident-root");
+    assert_eq!(created.session.chat_id, "resident-chat");
+    assert_eq!(broker.projects().len(), 1);
+
+    let replay = tauri::async_runtime::block_on(broker.create_resident(request)).unwrap();
+    assert_eq!(replay.session.session_id, "resident-root");
+    assert_eq!(broker.projects().len(), 1);
+    let conflict = tauri::async_runtime::block_on(broker.create_resident(ResidentCreateRequest {
+        creation_id: "creation-00000001".to_owned(),
+        name: "Different".to_owned(),
+        cwd: "C:\\work\\resident".to_owned(),
+        expected_account_id: None,
+        expected_project_id: "project-resident".to_owned(),
+    }));
+    assert!(matches!(conflict, Err(HarnessError::OwnershipViolation)));
+    assert_eq!(broker.projects().len(), 1);
+}
+
+#[test]
+fn resident_creation_rejects_snapshot_identity_mismatch_without_installing_ownership() {
+    let mut broker = HarnessBroker::new(
+        sidecar("broker-resident-mismatch"),
+        "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900".to_owned(),
+        "prime-agent-daemon-v7-schema13-816309b1cd50".to_owned(),
+        Vec::new(),
+        None,
+    )
+    .unwrap();
+    tauri::async_runtime::block_on(broker.bootstrap()).unwrap();
+    let result = tauri::async_runtime::block_on(broker.create_resident(ResidentCreateRequest {
+        creation_id: "creation-00000002".to_owned(),
+        name: "Design".to_owned(),
+        cwd: "C:\\work\\resident".to_owned(),
+        expected_account_id: None,
+        expected_project_id: "project-resident".to_owned(),
+    }));
+    assert!(matches!(result, Err(HarnessError::OwnershipViolation)));
+    assert!(broker.projects().is_empty());
+}
+
+#[test]
+fn resident_creation_requires_an_admitted_mutable_resident_capability() {
+    let mut broker = live_broker();
+    let result = tauri::async_runtime::block_on(broker.create_resident(ResidentCreateRequest {
+        creation_id: "creation-00000003".to_owned(),
+        name: "Design".to_owned(),
+        cwd: "C:\\work\\resident".to_owned(),
+        expected_account_id: None,
+        expected_project_id: "project-resident".to_owned(),
+    }));
+    assert!(matches!(result, Err(HarnessError::StateViolation)));
+}
+
+#[test]
+fn resident_creation_rejects_a_child_reusing_the_new_root_identity() {
+    let mut broker = HarnessBroker::new(
+        sidecar("broker-resident-self-child"),
+        "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900".to_owned(),
+        "prime-agent-daemon-v7-schema13-816309b1cd50".to_owned(),
+        Vec::new(),
+        None,
+    )
+    .unwrap();
+    tauri::async_runtime::block_on(broker.bootstrap()).unwrap();
+    let result = tauri::async_runtime::block_on(broker.create_resident(ResidentCreateRequest {
+        creation_id: "creation-00000004".to_owned(),
+        name: "Design".to_owned(),
+        cwd: "C:\\work\\resident".to_owned(),
+        expected_account_id: None,
+        expected_project_id: "project-resident".to_owned(),
+    }));
+    assert!(matches!(result, Err(HarnessError::OwnershipViolation)));
+    assert!(broker.projects().is_empty());
 }
 
 #[test]

@@ -23,6 +23,7 @@
     "RequestId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,96}$" },
     "Label": { "type": "string", "minLength": 1, "maxLength": 200 },
     "Text": { "type": "string", "maxLength": 131072 },
+    "Path": { "type": "string", "minLength": 1, "maxLength": 4096 },
     "Digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
     "HarnessCapability": {
       "type": "string",
@@ -326,10 +327,21 @@
         "idempotencyKey": { "oneOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] }
       }
     },
+    "CreateResidentRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "creationId", "name", "cwd"],
+      "properties": {
+        "type": { "const": "create_resident" },
+        "creationId": { "$ref": "#/$defs/Id" },
+        "name": { "$ref": "#/$defs/Label" },
+        "cwd": { "$ref": "#/$defs/Path" }
+      }
+    },
     "StudioRequest": {
       "oneOf": [
         { "$ref": "#/$defs/DiscoverRuntimeRequest" },
         { "$ref": "#/$defs/BootstrapRequest" },
+        { "$ref": "#/$defs/CreateResidentRequest" },
         { "$ref": "#/$defs/AttachSessionRequest" },
         { "$ref": "#/$defs/SessionCommandRequest" },
         { "$ref": "#/$defs/InspectorRequest" },
@@ -366,6 +378,15 @@
         "snapshot": { "$ref": "#/$defs/RootSessionSnapshot" }
       }
     },
+    "ResidentCreatedResponse": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "creationId", "snapshot"],
+      "properties": {
+        "type": { "const": "resident_created" },
+        "creationId": { "$ref": "#/$defs/Id" },
+        "snapshot": { "$ref": "#/$defs/RootSessionSnapshot" }
+      }
+    },
     "ProtocolErrorResponse": {
       "type": "object", "additionalProperties": false, "required": ["type", "code", "message"],
       "properties": {
@@ -396,6 +417,7 @@
         { "$ref": "#/$defs/BootstrapResponse" },
         { "$ref": "#/$defs/SnapshotResponse" },
         { "$ref": "#/$defs/CommandResponse" },
+        { "$ref": "#/$defs/ResidentCreatedResponse" },
         { "$ref": "#/$defs/InspectorResponse" },
         { "$ref": "#/$defs/StudioOperationResponse" },
         { "$ref": "#/$defs/ProtocolErrorResponse" }
