@@ -240,4 +240,34 @@ describe("ParentConversation", () => {
     expect(reason).toHaveFocus();
   });
 
+  it("does not apply a pending history anchor after navigating to another session", async () => {
+    const onLoadOlder = vi.fn();
+    const { rerender } = render(<ParentConversation title="History A" session={session} archived={false}
+      history={{ status: "idle", sessionId: session.sessionId, snapshotCursor: session.cursor, messages: [] }}
+      onLoadOlder={onLoadOlder} />);
+    const log = screen.getByRole("log", { name: "History A conversation" });
+    let height = 500;
+    Object.defineProperty(log, "scrollHeight", { configurable: true, get: () => height });
+    log.scrollTop = 90;
+    await userEvent.click(screen.getByRole("button", { name: "Load earlier messages" }));
+
+    const sessionB: RootSessionProjection = {
+      ...session,
+      sessionId: "session-2",
+      chatId: "chat-2",
+      cursor: { runtimeGeneration: "g2", sequence: 1 },
+      parentMessages: [
+        { channel: "parent", kind: "user", id: "b1", text: "Session B prompt", emittedAtMs: 3 },
+        { channel: "parent", kind: "assistant", id: "b2", blocks: [{ kind: "text", text: "Session B answer" }], streaming: false, emittedAtMs: 4 },
+      ],
+    };
+    height = 900;
+    rerender(<ParentConversation title="History B" session={sessionB} archived={false}
+      history={{ status: "available", sessionId: sessionB.sessionId, snapshotCursor: sessionB.cursor, messages: [], totalMessages: 2, omittedBefore: 0, omittedAfter: 2, olderCursor: null, truncatedByBytes: false }}
+      onLoadOlder={onLoadOlder} />);
+
+    expect(log.scrollTop).toBe(90);
+    expect(screen.getByText("Session B prompt").closest("article")).not.toHaveFocus();
+  });
+
 });

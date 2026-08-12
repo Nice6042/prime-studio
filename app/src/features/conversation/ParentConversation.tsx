@@ -113,11 +113,25 @@ export function ParentConversation({
   const [editing, setEditing] = useState<Readonly<{ id: string; text: string }> | null>(null);
   const [expandedWork, setExpandedWork] = useState<ReadonlySet<string>>(() => new Set());
   const transcriptRef = useRef<HTMLDivElement | null>(null);
-  const pendingHistoryAnchor = useRef<Readonly<{ scrollHeight: number; scrollTop: number; knownIds: ReadonlySet<string> }> | null>(null);
+  const historyRequestSequence = useRef(0);
+  const pendingHistoryAnchor = useRef<Readonly<{
+    requestId: number;
+    sessionId: string;
+    runtimeGeneration: string;
+    sequence: number;
+    scrollHeight: number;
+    scrollTop: number;
+    knownIds: ReadonlySet<string>;
+  }> | null>(null);
 
   const requestOlder = () => {
-    if (!onLoadOlder || !transcriptRef.current) return;
+    if (!onLoadOlder || !transcriptRef.current || !session) return;
+    historyRequestSequence.current += 1;
     pendingHistoryAnchor.current = {
+      requestId: historyRequestSequence.current,
+      sessionId: session.sessionId,
+      runtimeGeneration: session.cursor.runtimeGeneration,
+      sequence: session.cursor.sequence,
       scrollHeight: transcriptRef.current.scrollHeight,
       scrollTop: transcriptRef.current.scrollTop,
       knownIds: new Set(transcript.messages.map((message) => message.id)),
@@ -129,6 +143,14 @@ export function ParentConversation({
     const pending = pendingHistoryAnchor.current;
     const surface = transcriptRef.current;
     if (!pending || !surface) return;
+    if (!session
+      || pending.sessionId !== session.sessionId
+      || pending.runtimeGeneration !== session.cursor.runtimeGeneration
+      || pending.sequence !== session.cursor.sequence
+      || pending.requestId !== historyRequestSequence.current) {
+      pendingHistoryAnchor.current = null;
+      return;
+    }
     const inserted = transcript.messages.find((message) => !pending.knownIds.has(message.id));
     if (!inserted) {
       if (exactHistory?.status === "unavailable" || exactHistory?.status === "available") pendingHistoryAnchor.current = null;
@@ -138,7 +160,7 @@ export function ParentConversation({
     const target = Array.from(surface.querySelectorAll<HTMLElement>("[data-parent-message-id]")).find((element) => element.dataset.parentMessageId === inserted.id);
     target?.focus({ preventScroll: true });
     pendingHistoryAnchor.current = null;
-  }, [exactHistory?.status, transcript.messages]);
+  }, [exactHistory?.status, session, transcript.messages]);
 
   useEffect(() => {
     const streaming = latestAssistant?.kind === "assistant" ? latestAssistant.streaming : false;

@@ -353,6 +353,25 @@ function messageBlocks(message: Record<string, unknown>, completedToolCalls: Rea
   return blocks;
 }
 
+function projectAtomicParentMessages(
+  rawMessages: readonly unknown[],
+  streaming: Record<string, unknown> | null,
+  sessionTree: unknown,
+): ParentMessage[] {
+  const parentRows = [...rawMessages, ...(streaming ? [streaming] : [])]
+    .filter((raw): raw is Record<string, unknown> => plain(raw) && (raw.channel === undefined || raw.channel === "parent"));
+  const completedToolCalls = new Set(parentRows.flatMap((raw) => raw.role === "toolResult" && typeof raw.toolCallId === "string" ? [raw.toolCallId] : []));
+  const upstreamMessageIds = sessionTreeMessageIds(sessionTree);
+  return parentRows.map((raw, index): ParentMessage => {
+    const signature = JSON.stringify(raw).slice(0, 16_384);
+    const id = upstreamMessageIds.get(signature)?.shift() ?? messageId(raw, index);
+    const emittedAtMs = safeInteger(raw.timestamp);
+    if (raw.role === "user") return { channel: "parent", kind: "user", id, text: contentText(raw.content), emittedAtMs };
+    if (raw.role === "assistant") return { channel: "parent", kind: "assistant", id, blocks: messageBlocks(raw, completedToolCalls, raw === streaming), streaming: raw === streaming, emittedAtMs };
+    return { channel: "parent", kind: "notice", id, text: contentText(raw.content), emittedAtMs };
+  });
+}
+
 function projectId(cwd: string): string { return stableId("project", cwd.toLocaleLowerCase("en-US")); }
 function residentMarker(creationId: string, fingerprint: string, name: string): Readonly<{ prefix: string; marker: string }> {
   const prefix = `prime-studio:${createHash("sha256").update(creationId).digest("hex").slice(0, 24)}:`;
@@ -914,18 +933,7 @@ export class PrimeDaemonBridge {
       if (historyMessages.length > 4_096 || sourceBytes > 8 * 1024 * 1024) {
         return { type: "error", code: "history_unavailable", message: "The installed Harness history exceeds the verified paging proof bounds" };
       }
-      const completedToolCalls = new Set(rawMessages.flatMap((raw) => plain(raw) && raw.role === "toolResult" && typeof raw.toolCallId === "string" ? [raw.toolCallId] : []));
-      const upstreamMessageIds = sessionTreeMessageIds(barrier.source.sessionTree);
-      const projected: ParentMessage[] = [];
-      for (const [index, raw] of historyMessages.entries()) {
-        if (!plain(raw) || raw.channel !== undefined && raw.channel !== "parent") continue;
-        const signature = JSON.stringify(raw).slice(0, 16_384);
-        const id = upstreamMessageIds.get(signature)?.shift() ?? messageId(raw, index);
-        const emittedAtMs = safeInteger(raw.timestamp);
-        if (raw.role === "user") projected.push({ channel: "parent", kind: "user", id, text: contentText(raw.content), emittedAtMs });
-        else if (raw.role === "assistant") projected.push({ channel: "parent", kind: "assistant", id, blocks: messageBlocks(raw, completedToolCalls, raw === streaming), streaming: raw === streaming, emittedAtMs });
-        else projected.push({ channel: "parent", kind: "notice", id, text: contentText(raw.content), emittedAtMs });
-      }
+      const projected = projectAtomicParentMessages(rawMessages, streaming, barrier.source.sessionTree);
       const sourceDigest = createHash("sha256").update(JSON.stringify(projected)).digest("hex");
       if (cursorRecord && cursorRecord.sourceDigest !== sourceDigest) {
         return { type: "error", code: "stale_cursor", message: "History source changed after the cursor was issued" };
@@ -946,6 +954,9 @@ export class PrimeDaemonBridge {
         if (selectedBytes + candidateBytes > 1024 * 1024) break;
         selected.unshift(candidate);
         selectedBytes += candidateBytes;
+      }
+      if (end > 0 && selected.length === 0) {
+        return { type: "error", code: "history_unavailable", message: "The next parent history row exceeds the verified page byte bound" };
       }
       const start = end - selected.length;
       const olderCursor = start > 0 ? `history-${createHash("sha256").update(this.#parentHistorySecret).update(JSON.stringify({ activeSessionId, expectedCursor, sourceDigest, start })).digest("hex")}` : null;
@@ -991,18 +1002,7 @@ export class PrimeDaemonBridge {
     if (!Number.isSafeInteger(nextSequence) || nextSequence > Number.MAX_SAFE_INTEGER || (bound.initialized && minimumSequence > nextSequence)) {
       throw new Error("Studio projection cursor cannot advance exactly one revision");
     }
-    const completedToolCalls = new Set(rawMessages.flatMap((raw) => plain(raw) && raw.role === "toolResult" && typeof raw.toolCallId === "string" ? [raw.toolCallId] : []));
-    const upstreamMessageIds = sessionTreeMessageIds(source.sessionTree);
-    const messages: ParentMessage[] = [];
-    for (const [index, raw] of [...rawMessages, ...(streaming ? [streaming] : [])].slice(-300).entries()) {
-      if (!plain(raw)) continue;
-      const signature = JSON.stringify(raw).slice(0, 16_384);
-      const id = upstreamMessageIds.get(signature)?.shift() ?? messageId(raw, index);
-      const emittedAtMs = safeInteger(raw.timestamp);
-      if (raw.role === "user") messages.push({ channel: "parent", kind: "user", id, text: contentText(raw.content), emittedAtMs });
-      else if (raw.role === "assistant") messages.push({ channel: "parent", kind: "assistant", id, blocks: messageBlocks(raw, completedToolCalls, raw === streaming), streaming: raw === streaming, emittedAtMs });
-      else messages.push({ channel: "parent", kind: "notice", id, text: contentText(raw.content), emittedAtMs });
-    }
+    const messages = projectAtomicParentMessages(rawMessages, streaming, source.sessionTree).slice(-300);
     const children = Array.isArray(source.children) ? source.children.slice(0, 256).flatMap((raw) => {
       if (!plain(raw) || typeof raw.id !== "string") return [];
       const status = ["queued", "running", "done", "error", "cancelled"].includes(String(raw.status)) ? raw.status as "queued" | "running" | "done" | "error" | "cancelled" : "unknown" as const;

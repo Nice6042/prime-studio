@@ -120,8 +120,18 @@ describe("Studio application state", () => {
     });
     expect(loading.conversationHistory[chat.id]?.status).toBe("loading");
 
+    const wrongRequest = reduceStudio(loading, {
+      type: "conversation/history-page-loaded", chatId: chat.id, before: "different-window",
+      page: {
+        sessionId: rootSession.sessionId, snapshotCursor: rootSession.cursor,
+        messages: [{ channel: "parent", kind: "user", id: "older-1", text: "Earlier", emittedAtMs: 0 }],
+        totalMessages: 3, omittedBefore: 0, omittedAfter: 2, olderCursor: null, truncatedByBytes: false,
+      },
+    } as never);
+    expect(wrongRequest).toBe(loading);
+
     const loaded = reduceStudio(loading, {
-      type: "conversation/history-page-loaded", chatId: chat.id,
+      type: "conversation/history-page-loaded", chatId: chat.id, before: null,
       page: {
         sessionId: rootSession.sessionId, snapshotCursor: rootSession.cursor,
         messages: [{ channel: "parent", kind: "user", id: "older-1", text: "Earlier", emittedAtMs: 0 }],
@@ -133,7 +143,7 @@ describe("Studio application state", () => {
     expect(Object.isFrozen(loaded.conversationHistory[chat.id]?.messages)).toBe(true);
 
     const stale = reduceStudio(loading, {
-      type: "conversation/history-page-loaded", chatId: chat.id,
+      type: "conversation/history-page-loaded", chatId: chat.id, before: null,
       page: { ...loaded.conversationHistory[chat.id]!, snapshotCursor: { ...rootSession.cursor, sequence: 1 }, status: undefined, reason: undefined, requestedBefore: undefined },
     } as never);
     expect(stale).toBe(loading);
@@ -157,7 +167,7 @@ describe("Studio application state", () => {
     let before: string | null = null;
     for (const page of pages) {
       state = reduceStudio(state, { type: "conversation/history-requested", chatId: chat.id, sessionId: rootSession.sessionId, expectedCursor: rootSession.cursor, before });
-      state = reduceStudio(state, { type: "conversation/history-page-loaded", chatId: chat.id, page: {
+      state = reduceStudio(state, { type: "conversation/history-page-loaded", chatId: chat.id, before, page: {
         sessionId: rootSession.sessionId, snapshotCursor: rootSession.cursor, totalMessages: 302,
         truncatedByBytes: false, ...page,
       } });

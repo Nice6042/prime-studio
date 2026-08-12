@@ -879,10 +879,10 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     if (store.getSnapshot().conversationHistory[chatId]?.status !== "loading") return;
     try {
       const page = await rpc.pageHarnessConversationHistory(session.sessionId, session.cursor, before);
-      store.dispatch({ type: "conversation/history-page-loaded", chatId, page });
+      store.dispatch({ type: "conversation/history-page-loaded", chatId, before, page });
     } catch {
       store.dispatch({
-        type: "conversation/history-unavailable", chatId, sessionId: session.sessionId, expectedCursor: session.cursor,
+        type: "conversation/history-unavailable", chatId, sessionId: session.sessionId, expectedCursor: session.cursor, before,
         reason: "The verified Harness could not prove an atomic older-history page for this snapshot.",
       });
     }

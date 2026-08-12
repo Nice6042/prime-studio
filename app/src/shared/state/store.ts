@@ -107,8 +107,8 @@ export type StudioIntent =
   | Readonly<{ type: "conversation/version-appended"; chatId: string; messageId: string; kind: DisplayMessageKind; text: string }>
   | Readonly<{ type: "conversation/version-selected"; chatId: string; messageId: string; kind: DisplayMessageKind; version: number }>
   | Readonly<{ type: "conversation/history-requested"; chatId: string; sessionId: string; expectedCursor: HarnessCursor; before: string | null }>
-  | Readonly<{ type: "conversation/history-page-loaded"; chatId: string; page: ParentHistoryPage }>
-  | Readonly<{ type: "conversation/history-unavailable"; chatId: string; sessionId: string; expectedCursor: HarnessCursor; reason: string }>
+  | Readonly<{ type: "conversation/history-page-loaded"; chatId: string; before: string | null; page: ParentHistoryPage }>
+  | Readonly<{ type: "conversation/history-unavailable"; chatId: string; sessionId: string; expectedCursor: HarnessCursor; before: string | null; reason: string }>
   | Readonly<{ type: "harness/bootstrap-loaded"; projection: BootProjection }>
   | Readonly<{ type: "harness/session-projected"; session: RootSessionProjection }>
   | Readonly<{ type: "project-catalog/loaded"; snapshot: Readonly<{ revision: number; state: ProjectChatState }> }>
@@ -259,7 +259,7 @@ export function reduceStudio(state: StudioAppState, intent: StudioIntent): Studi
       const current = state.conversationHistory[intent.chatId];
       const session = sessionForStudioChat(state, intent.chatId);
       const page = intent.page;
-      if (!current || current.status !== "loading" || !session || page.sessionId !== current.sessionId || session.sessionId !== page.sessionId
+      if (!current || current.status !== "loading" || current.requestedBefore !== intent.before || !session || page.sessionId !== current.sessionId || session.sessionId !== page.sessionId
         || !sameCursor(current.snapshotCursor, page.snapshotCursor) || !sameCursor(session.cursor, page.snapshotCursor)) return state;
       if (!Number.isSafeInteger(page.totalMessages) || !Number.isSafeInteger(page.omittedBefore) || !Number.isSafeInteger(page.omittedAfter)
         || page.totalMessages < 0 || page.totalMessages > 4_096 || page.omittedBefore < 0 || page.omittedAfter < 0
@@ -283,7 +283,7 @@ export function reduceStudio(state: StudioAppState, intent: StudioIntent): Studi
     case "conversation/history-unavailable": {
       const current = state.conversationHistory[intent.chatId];
       const session = sessionForStudioChat(state, intent.chatId);
-      if (!current || current.status !== "loading" || !session || current.sessionId !== intent.sessionId
+      if (!current || current.status !== "loading" || current.requestedBefore !== intent.before || !session || current.sessionId !== intent.sessionId
         || session.sessionId !== intent.sessionId || !sameCursor(current.snapshotCursor, intent.expectedCursor) || !sameCursor(session.cursor, intent.expectedCursor)) return state;
       const next: ParentHistoryState = Object.freeze({ ...current, status: "unavailable", requestedBefore: undefined, reason: intent.reason.slice(0, 512) });
       return { ...state, conversationHistory: Object.freeze({ ...state.conversationHistory, [intent.chatId]: next }) };
