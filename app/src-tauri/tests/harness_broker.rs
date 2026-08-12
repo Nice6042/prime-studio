@@ -1,12 +1,14 @@
 use prime_studio_lib::harness::broker::{
-    BrokerState, HarnessBroker, ProjectionFreshness, SessionOwnership,
+    AttachRequest, BrokerState, HarnessBroker, ProjectionFreshness, RefreshSessionRequest,
+    SessionCommandRequest, SessionOwnership, StudioOperationRequest,
 };
 use prime_studio_lib::harness::generated::{
     ChildAgentStatus, ChildAgentSummary, CurrentChatUsage, HarnessCursor, HarnessEvent,
-    RootSessionSnapshot, RootSessionState,
+    HarnessStudioAction, RootSessionSnapshot, RootSessionState, SessionCommandKind,
+    StudioOperationStatus,
 };
 use prime_studio_lib::harness::recovery::{RecoveredSession, RecoveryRecord};
-use prime_studio_lib::harness::sidecar::{SidecarSupervisor, VerifiedSidecarSpec};
+use prime_studio_lib::harness::sidecar::{HarnessError, SidecarSupervisor, VerifiedSidecarSpec};
 use sha2::{Digest, Sha256};
 
 fn ownership(session: &str, project: &str, chat: &str) -> (String, SessionOwnership) {
@@ -83,6 +85,156 @@ fn live_broker() -> HarnessBroker {
     broker.apply_snapshot(admitted).unwrap();
     broker.finish_snapshot().unwrap();
     broker
+}
+
+fn live_quarantine_broker() -> HarnessBroker {
+    let mut broker = HarnessBroker::new(
+        sidecar("broker-quarantine"),
+        "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900".to_owned(),
+        "prime-agent-daemon-v7-schema13-816309b1cd50".to_owned(),
+        vec![
+            ownership("root-a", "project-a", "chat-a"),
+            ownership("root-b", "project-b", "chat-b"),
+        ],
+        None,
+    )
+    .unwrap();
+    tauri::async_runtime::block_on(broker.bootstrap()).unwrap();
+    broker
+}
+
+fn unknown_operation(session_id: &str, operation_id: &str) -> StudioOperationRequest {
+    StudioOperationRequest {
+        session_id: session_id.to_owned(),
+        operation_id: operation_id.to_owned(),
+        action: HarnessStudioAction::HarnessSessionPrompt,
+        payload_json: format!(r#"{{"sessionId":"{session_id}","text":"uncertain"}}"#),
+        expected_cursor: Some(HarnessCursor {
+            runtime_generation: "generation".to_owned(),
+            sequence: 1,
+        }),
+        idempotency_key: Some(format!("key-{operation_id}")),
+    }
+}
+
+#[test]
+fn unknown_outcome_quarantine_is_session_scoped_and_gates_both_mutation_apis() {
+    let mut broker = live_quarantine_broker();
+    let unknown = tauri::async_runtime::block_on(
+        broker.execute_operation(unknown_operation("root-a", "unknown-a")),
+    )
+    .unwrap();
+    assert_eq!(unknown.status, StudioOperationStatus::UnknownOutcome);
+    assert_eq!(
+        broker.project("root-a").unwrap().freshness,
+        ProjectionFreshness::UnknownOutcome
+    );
+    assert_eq!(
+        broker.project("root-b").unwrap().freshness,
+        ProjectionFreshness::Live
+    );
+
+    let legacy = tauri::async_runtime::block_on(broker.submit(SessionCommandRequest {
+        session_id: "root-a".to_owned(),
+        command_id: "legacy-after-unknown".to_owned(),
+        expected_cursor: HarnessCursor {
+            runtime_generation: "generation".to_owned(),
+            sequence: 1,
+        },
+        kind: SessionCommandKind::Prompt,
+        text: "must remain quarantined".to_owned(),
+    }));
+    assert!(matches!(legacy, Err(HarnessError::OwnershipViolation)));
+
+    let repeated = tauri::async_runtime::block_on(
+        broker.execute_operation(unknown_operation("root-a", "unknown-a-second")),
+    );
+    assert!(matches!(repeated, Err(HarnessError::OwnershipViolation)));
+
+    let other = tauri::async_runtime::block_on(broker.execute_operation(StudioOperationRequest {
+        session_id: "root-b".to_owned(),
+        operation_id: "safe-b".to_owned(),
+        action: HarnessStudioAction::UsageCurrentRefresh,
+        payload_json: r#"{"sessionId":"root-b"}"#.to_owned(),
+        expected_cursor: Some(HarnessCursor {
+            runtime_generation: "generation".to_owned(),
+            sequence: 1,
+        }),
+        idempotency_key: None,
+    }))
+    .unwrap();
+    assert_eq!(other.status, StudioOperationStatus::Updated);
+    assert_eq!(other.session.unwrap().cursor.sequence, 2);
+}
+
+#[test]
+fn refresh_never_reconciles_unknown_outcomes_and_attach_clears_only_its_session() {
+    let mut broker = live_quarantine_broker();
+    for (session, operation) in [("root-a", "unknown-a"), ("root-b", "unknown-b")] {
+        let result = tauri::async_runtime::block_on(
+            broker.execute_operation(unknown_operation(session, operation)),
+        )
+        .unwrap();
+        assert_eq!(result.status, StudioOperationStatus::UnknownOutcome);
+    }
+
+    let refreshed = tauri::async_runtime::block_on(broker.refresh_session(RefreshSessionRequest {
+        session_id: "root-a".to_owned(),
+        known_cursor: HarnessCursor {
+            runtime_generation: "generation".to_owned(),
+            sequence: 1,
+        },
+    }))
+    .unwrap();
+    assert_eq!(refreshed.cursor.sequence, 2);
+    assert_eq!(refreshed.freshness, ProjectionFreshness::UnknownOutcome);
+    assert_eq!(
+        broker.project("root-b").unwrap().freshness,
+        ProjectionFreshness::UnknownOutcome
+    );
+
+    let attached = tauri::async_runtime::block_on(broker.attach(AttachRequest {
+        session_id: "root-a".to_owned(),
+    }))
+    .unwrap();
+    assert_eq!(attached.cursor.sequence, 3);
+    assert_eq!(attached.freshness, ProjectionFreshness::Live);
+    assert_eq!(
+        broker.project("root-b").unwrap().freshness,
+        ProjectionFreshness::UnknownOutcome
+    );
+
+    let mut replay = unknown_operation("root-a", "unknown-a");
+    replay.expected_cursor = Some(HarnessCursor {
+        runtime_generation: "generation".to_owned(),
+        sequence: 3,
+    });
+    let replay = tauri::async_runtime::block_on(broker.execute_operation(replay)).unwrap();
+    assert_eq!(replay.status, StudioOperationStatus::UnknownOutcome);
+    assert_eq!(
+        replay.reason.as_deref(),
+        Some("operation remains tombstoned")
+    );
+    assert_eq!(broker.project("root-a").unwrap().cursor.sequence, 3);
+}
+
+#[test]
+fn reconnect_snapshot_batch_does_not_reconcile_an_unknown_mutation() {
+    let mut broker = live_broker();
+    broker
+        .mark_unknown_outcome("root", "unknown-operation", Some("unknown-key"))
+        .unwrap();
+    broker.begin_reconnect().unwrap();
+    broker.begin_snapshot(1).unwrap();
+    let replacement = broker
+        .admit_snapshot(snapshot("root", "project", "chat", "generation-b", 1))
+        .unwrap();
+    broker.apply_snapshot(replacement).unwrap();
+    broker.finish_snapshot().unwrap();
+    assert_eq!(
+        broker.project("root").unwrap().freshness,
+        ProjectionFreshness::UnknownOutcome
+    );
 }
 
 #[test]
@@ -296,7 +448,9 @@ fn projections_distinguish_live_reconnecting_unknown_and_closed() {
         broker.project("root").unwrap().freshness,
         ProjectionFreshness::Stale
     );
-    broker.mark_unknown_outcome();
+    broker
+        .mark_unknown_outcome("root", "operation", Some("idempotency-key"))
+        .unwrap();
     assert_eq!(
         broker.project("root").unwrap().freshness,
         ProjectionFreshness::UnknownOutcome

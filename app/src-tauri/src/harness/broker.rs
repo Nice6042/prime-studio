@@ -93,6 +93,12 @@ pub struct StudioOperationResult {
     pub session: Option<RootSessionProjection>,
 }
 
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct UnknownOperation {
+    operation_id: String,
+    idempotency_key: Option<String>,
+}
+
 pub struct HarnessBroker {
     id: Uuid,
     sidecar: Option<SidecarHandle>,
@@ -104,7 +110,7 @@ pub struct HarnessBroker {
     expected_snapshots: Option<usize>,
     recovery: Option<RecoveryRecord>,
     compatibility: Option<HarnessCompatibility>,
-    unknown_outcome: bool,
+    unknown_outcomes: BTreeMap<String, BTreeSet<UnknownOperation>>,
     runtime_digest: String,
     profile: String,
 }
@@ -172,7 +178,7 @@ impl HarnessBroker {
             expected_snapshots: None,
             recovery,
             compatibility: None,
-            unknown_outcome: false,
+            unknown_outcomes: BTreeMap::new(),
             runtime_digest,
             profile,
         })
@@ -281,7 +287,6 @@ impl HarnessBroker {
         request: AttachRequest,
     ) -> Result<RootSessionProjection, HarnessError> {
         if self.state != BrokerState::Live
-            || self.unknown_outcome
             || !valid_id(&request.session_id)
             || !self.ownership.contains_key(&request.session_id)
         {
@@ -301,7 +306,11 @@ impl HarnessBroker {
         };
         let admission = self.admit_event(HarnessEvent::Snapshot { snapshot })?;
         self.apply_event(admission)?;
-        self.unknown_outcome = false;
+        // Attach is the explicit reconciliation boundary: only after an owned, exact-next
+        // snapshot is admitted may this session accept new mutations. The sidecar retains its
+        // per-operation/idempotency tombstone, so the uncertain operation itself cannot execute
+        // again even though unrelated new work for this session is unblocked.
+        self.unknown_outcomes.remove(&request.session_id);
         self.project(&request.session_id)
             .ok_or(HarnessError::OwnershipViolation)
     }
@@ -317,6 +326,9 @@ impl HarnessBroker {
             || !valid_command_text(&request.kind, &request.text)
         {
             return Err(HarnessError::ProtocolViolation);
+        }
+        if self.unknown_outcomes.contains_key(&request.session_id) {
+            return Err(HarnessError::OwnershipViolation);
         }
         let current = self
             .committed
@@ -341,7 +353,7 @@ impl HarnessBroker {
         let response = match response {
             Ok(response) => response,
             Err(HarnessError::DeadlineExceeded { uncertain: true }) => {
-                self.mark_unknown_outcome();
+                self.mark_unknown_outcome(&request.session_id, &request.command_id, None)?;
                 return Err(HarnessError::DeadlineExceeded { uncertain: true });
             }
             Err(error) => return Err(error),
@@ -419,7 +431,6 @@ impl HarnessBroker {
         };
         let admission = self.admit_event(HarnessEvent::Snapshot { snapshot })?;
         self.apply_event(admission)?;
-        self.unknown_outcome = false;
         self.project(&request.session_id)
             .ok_or(HarnessError::OwnershipViolation)
     }
@@ -429,7 +440,7 @@ impl HarnessBroker {
         request: StudioOperationRequest,
     ) -> Result<StudioOperationResult, HarnessError> {
         if self.state != BrokerState::Live
-            || self.unknown_outcome
+            || self.unknown_outcomes.contains_key(&request.session_id)
             || !valid_id(&request.session_id)
             || !valid_id(&request.operation_id)
             || request.payload_json.chars().count() > 131_072
@@ -460,7 +471,7 @@ impl HarnessBroker {
                     action: request.action,
                     payload_json: request.payload_json,
                     expected_cursor: request.expected_cursor,
-                    idempotency_key: request.idempotency_key,
+                    idempotency_key: request.idempotency_key.clone(),
                 },
                 Instant::now() + Duration::from_secs(30),
             )
@@ -468,7 +479,11 @@ impl HarnessBroker {
         let response = match response {
             Ok(response) => response,
             Err(HarnessError::DeadlineExceeded { uncertain: true }) => {
-                self.mark_unknown_outcome();
+                self.mark_unknown_outcome(
+                    &request.session_id,
+                    &request.operation_id,
+                    request.idempotency_key.as_deref(),
+                )?;
                 return Err(HarnessError::DeadlineExceeded { uncertain: true });
             }
             Err(error) => return Err(error),
@@ -500,7 +515,11 @@ impl HarnessBroker {
             return Err(HarnessError::ProtocolViolation);
         }
         if matches!(&status, StudioOperationStatus::UnknownOutcome) {
-            self.mark_unknown_outcome();
+            self.mark_unknown_outcome(
+                &request.session_id,
+                &request.operation_id,
+                request.idempotency_key.as_deref(),
+            )?;
         }
         let session = if let Some(snapshot) = snapshot {
             let admission = self.admit_event(HarnessEvent::Snapshot { snapshot })?;
@@ -617,7 +636,6 @@ impl HarnessBroker {
         }
         self.committed = std::mem::take(&mut self.staged);
         self.state = BrokerState::Live;
-        self.unknown_outcome = false;
         Ok(())
     }
 
@@ -659,7 +677,7 @@ impl HarnessBroker {
     }
 
     pub fn project(&self, session_id: &str) -> Option<RootSessionProjection> {
-        let freshness = if self.unknown_outcome {
+        let freshness = if self.unknown_outcomes.contains_key(session_id) {
             ProjectionFreshness::UnknownOutcome
         } else {
             match self.state {
@@ -721,12 +739,31 @@ impl HarnessBroker {
         Ok(())
     }
 
-    pub fn mark_unknown_outcome(&mut self) {
-        self.unknown_outcome = true;
+    pub fn mark_unknown_outcome(
+        &mut self,
+        session_id: &str,
+        operation_id: &str,
+        idempotency_key: Option<&str>,
+    ) -> Result<(), HarnessError> {
+        if !valid_id(session_id)
+            || !valid_id(operation_id)
+            || idempotency_key.is_some_and(|value| !valid_id(value))
+            || !self.ownership.contains_key(session_id)
+        {
+            return Err(HarnessError::OwnershipViolation);
+        }
+        self.unknown_outcomes
+            .entry(session_id.to_owned())
+            .or_default()
+            .insert(UnknownOperation {
+                operation_id: operation_id.to_owned(),
+                idempotency_key: idempotency_key.map(str::to_owned),
+            });
+        Ok(())
     }
 
     pub fn close(&mut self) {
-        self.unknown_outcome = false;
+        self.unknown_outcomes.clear();
         self.state = BrokerState::Closed;
     }
 

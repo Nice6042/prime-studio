@@ -45,6 +45,17 @@ fn broker_compatibility(profile: &str) -> Value {
     })
 }
 
+fn quarantine_snapshot(session_id: &str, sequence: u64) -> Value {
+    let suffix = session_id.strip_prefix("root-").unwrap();
+    json!({
+        "sessionId":session_id,"accountId":"account",
+        "projectId":format!("project-{suffix}"),"chatId":format!("chat-{suffix}"),
+        "cursor":{"runtimeGeneration":"generation","sequence":sequence},"state":"idle",
+        "parentMessages":[],"children":[],"queue":[],"tools":[],"resources":[],
+        "usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null}
+    })
+}
+
 fn main() {
     let mode = std::env::args().nth(1).unwrap_or_else(|| "echo".to_owned());
     match mode.as_str() {
@@ -170,6 +181,86 @@ fn main() {
                     }]
                 }
             }));
+        }
+        "broker-quarantine" => {
+            let discovery = read_frame();
+            write_frame(&json!({
+                "studioProtocol": 1,
+                "requestId": discovery["requestId"],
+                "payload": {
+                    "type":"discover_runtime_result",
+                    "runtime":broker_runtime(),
+                    "compatibility":broker_compatibility("prime-agent-daemon-v7-schema13-816309b1cd50")
+                }
+            }));
+            let bootstrap = read_frame();
+            write_frame(&json!({
+                "studioProtocol": 1,
+                "requestId": bootstrap["requestId"],
+                "payload": {
+                    "type":"bootstrap_result",
+                    "compatibility":broker_compatibility("prime-agent-daemon-v7-schema13-816309b1cd50"),
+                    "sessions":[quarantine_snapshot("root-a", 1), quarantine_snapshot("root-b", 1)]
+                }
+            }));
+            let mut sequences = std::collections::BTreeMap::from([
+                ("root-a".to_owned(), 1_u64),
+                ("root-b".to_owned(), 1_u64),
+            ]);
+            let mut unknown_operations = std::collections::BTreeSet::new();
+            loop {
+                let request = read_frame();
+                let payload = &request["payload"];
+                let session_id = payload["sessionId"].as_str().unwrap();
+                let mut next_snapshot = || {
+                    let sequence = sequences.get_mut(session_id).unwrap();
+                    *sequence += 1;
+                    quarantine_snapshot(session_id, *sequence)
+                };
+                let response = match payload["type"].as_str().unwrap() {
+                    "attach_session" | "refresh_session" => json!({
+                        "type":"snapshot_result", "snapshot":next_snapshot()
+                    }),
+                    "session_command" => json!({
+                        "type":"command_result",
+                        "commandId":payload["commandId"],
+                        "outcome":"accepted",
+                        "snapshot":next_snapshot()
+                    }),
+                    "studio_operation" => {
+                        let operation_id = payload["operationId"].as_str().unwrap();
+                        if operation_id.starts_with("unknown-") {
+                            let tombstone = (
+                                session_id.to_owned(),
+                                operation_id.to_owned(),
+                                payload["idempotencyKey"].as_str().map(str::to_owned),
+                            );
+                            let first_admission = unknown_operations.insert(tombstone);
+                            json!({
+                                "type":"studio_operation_result","operationId":operation_id,
+                                "status":"unknown_outcome","commandId":null,"position":null,
+                                "revision":null,
+                                "reason":if first_admission { "outcome uncertain" } else { "operation remains tombstoned" },
+                                "retryable":false,
+                                "snapshot":null
+                            })
+                        } else {
+                            json!({
+                                "type":"studio_operation_result","operationId":operation_id,
+                                "status":"updated","commandId":null,"position":null,
+                                "revision":null,"reason":null,"retryable":null,
+                                "snapshot":next_snapshot()
+                            })
+                        }
+                    }
+                    other => panic!("unexpected quarantine request: {other}"),
+                };
+                write_frame(&json!({
+                    "studioProtocol":1,
+                    "requestId":request["requestId"],
+                    "payload":response
+                }));
+            }
         }
         "diagnostic" => {
             eprintln!(
