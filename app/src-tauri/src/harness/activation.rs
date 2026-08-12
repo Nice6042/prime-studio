@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use super::broker::{HarnessBroker, SessionOwnership};
 use super::generated::{reject_duplicate_json_keys, HarnessUnavailableReason};
 use super::sidecar::{SidecarSupervisor, VerifiedSidecarSpec};
-use crate::project_catalog::{CatalogSnapshot, ProjectRootKind};
+use crate::project_catalog::{CatalogSnapshot, ProjectKind, ProjectRootKind};
 
 const MAX_MANIFEST_BYTES: u64 = 256 * 1024;
 const MAX_RUNTIME_FILE_BYTES: u64 = 64 * 1024 * 1024;
@@ -117,6 +117,7 @@ pub(crate) struct ProductionActivationInput {
     pub node: PathBuf,
     pub resource_root: PathBuf,
     pub catalog: CatalogSnapshot,
+    pub personal_workspace: PathBuf,
 }
 
 pub(crate) async fn activate_production(
@@ -150,7 +151,8 @@ pub(crate) async fn activate_production(
     .map_err(|_| ActivationError::ResourceVerificationFailed)?;
     let sidecar =
         SidecarSupervisor::start(spec).map_err(|_| ActivationError::TransportUnavailable)?;
-    let ownership = derive_catalog_ownership(&input.catalog)?;
+    let ownership =
+        derive_catalog_ownership_for_runtime(&input.catalog, &input.personal_workspace)?;
     let mut broker = HarnessBroker::new(
         sidecar,
         runtime.package_digest,
@@ -184,6 +186,13 @@ impl ActivationError {
 pub fn derive_catalog_ownership(
     snapshot: &CatalogSnapshot,
 ) -> Result<Vec<(String, SessionOwnership)>, ActivationError> {
+    derive_catalog_ownership_for_runtime(snapshot, Path::new(""))
+}
+
+fn derive_catalog_ownership_for_runtime(
+    snapshot: &CatalogSnapshot,
+    personal_workspace: &Path,
+) -> Result<Vec<(String, SessionOwnership)>, ActivationError> {
     let mut ownership = BTreeMap::<String, SessionOwnership>::new();
     let mut daemon_chat_ids = BTreeSet::new();
     for project in snapshot
@@ -200,14 +209,22 @@ pub fn derive_catalog_ownership(
         if bound_chats.is_empty() {
             continue;
         }
-        if project.root.kind != ProjectRootKind::Folder {
-            return Err(ActivationError::CatalogBindingInvalid);
-        }
-        let root = project
-            .root
-            .path
-            .as_deref()
-            .ok_or(ActivationError::CatalogBindingInvalid)?;
+        let root = match (
+            project.kind,
+            project.root.kind,
+            project.root.path.as_deref(),
+        ) {
+            (ProjectKind::Folder, ProjectRootKind::Folder, Some(root)) => root.to_owned(),
+            (ProjectKind::Personal, ProjectRootKind::StudioManagedEmpty, None)
+                if personal_workspace.is_absolute() && personal_workspace.is_dir() =>
+            {
+                personal_workspace
+                    .to_str()
+                    .ok_or(ActivationError::CatalogBindingInvalid)?
+                    .to_owned()
+            }
+            _ => return Err(ActivationError::CatalogBindingInvalid),
+        };
         let daemon_project_id = stable_id("project", &root.to_lowercase());
         for chat in bound_chats {
             let binding = chat
@@ -558,6 +575,35 @@ mod tests {
     }
 
     #[test]
+    fn catalog_ownership_maps_bound_personal_chats_to_the_owned_personal_workspace() {
+        let workspace =
+            std::env::temp_dir().join(format!("prime-studio-personal-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&workspace).unwrap();
+        let mut catalog = folder_catalog(Path::new(r"C:\Work\Prime Studio"), Vec::new());
+        catalog.state.projects[0].chats.push(ProjectChat {
+            id: "studio-personal-chat".to_owned(),
+            project_id: "project:personal".to_owned(),
+            title: "Personal chat".to_owned(),
+            pinned: false,
+            archived: false,
+            binding: Some(binding(
+                "daemon-personal-active",
+                Some("daemon-personal-chat"),
+            )),
+        });
+        let ownership = derive_catalog_ownership_for_runtime(&catalog, &workspace).unwrap();
+        let personal = ownership
+            .iter()
+            .find(|(session, _)| session == "daemon-personal-active")
+            .unwrap();
+        assert_eq!(
+            personal.1.project_id,
+            stable_id("project", &workspace.display().to_string().to_lowercase())
+        );
+        fs::remove_dir(workspace).unwrap();
+    }
+
+    #[test]
     fn catalog_ownership_rejects_incomplete_or_duplicate_bindings() {
         let root = Path::new("C:\\Work\\Prime Studio");
         let incomplete = folder_catalog(root, vec![binding("daemon-active", None)]);
@@ -694,6 +740,7 @@ mod tests {
                 node: crate::production_node().unwrap(),
                 resource_root,
                 catalog,
+                personal_workspace: crate::config_dir().join("personal-workspace"),
             }))
             .unwrap();
 

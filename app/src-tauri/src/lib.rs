@@ -3861,6 +3861,7 @@ fn start_production_harness_activation(app: &AppHandle) {
             node,
             resource_root,
             catalog,
+            personal_workspace: config_dir().join("personal-workspace"),
         })
     })();
     match input {
