@@ -45,9 +45,8 @@ use commands::editor::{
 use commands::harness::{
     harness_artifact_open, harness_attach_session, harness_bootstrap, harness_branch_resident_chat,
     harness_child_data_page, harness_composer_projection, harness_conversation_history_page,
-    harness_create_resident_chat,
-    harness_inspector, harness_projection, harness_refresh_session, harness_retry_worker,
-    harness_session_command, harness_studio_operation,
+    harness_create_resident_chat, harness_inspector, harness_projection, harness_refresh_session,
+    harness_retry_worker, harness_session_command, harness_studio_operation,
 };
 use commands::settings::{get_layout_preferences, set_layout_preferences};
 use commands::usage::export_account_usage_csv;

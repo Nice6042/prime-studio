@@ -9,8 +9,8 @@ use super::compatibility::decide_compatibility;
 use super::generated::{
     ChildDataPageTab, CommandOutcome, HarnessCapability, HarnessCompatibility, HarnessCursor,
     HarnessEvent, HarnessStudioAction, ParentHistoryPage, ParentMessage, RootSessionSnapshot,
-    SessionCommandKind,
-    StudioOperationStatus, StudioRequest, StudioResponse, WorkerRecoveryStatus, WorkerRetryOutcome,
+    SessionCommandKind, StudioOperationStatus, StudioRequest, StudioResponse, WorkerRecoveryStatus,
+    WorkerRetryOutcome,
 };
 pub use super::projections::{BootProjection, ProjectionFreshness, RootSessionProjection};
 use super::recovery::{RecoveredSession, RecoveryRecord};

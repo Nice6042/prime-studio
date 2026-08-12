@@ -6,14 +6,12 @@ use crate::commands::editor::{ArtifactAdmission, ArtifactOpenResult};
 use crate::harness::activation::canonical_workspace_identity;
 use crate::harness::broker::{
     AttachRequest, ChildDataPageRequest, InspectorRequest, ParentHistoryPageRequest,
-    RefreshSessionRequest,
-    ResidentBranchRequest, ResidentCreateRequest, SessionCommandRequest, StudioOperationRequest,
-    WorkerRetryRequest,
+    RefreshSessionRequest, ResidentBranchRequest, ResidentCreateRequest, SessionCommandRequest,
+    StudioOperationRequest, WorkerRetryRequest,
 };
 use crate::harness::generated::{
     ChildDataPageTab, CommandOutcome, HarnessCursor, HarnessStudioAction, ParentHistoryPage,
-    ParentMessage,
-    SessionCommandKind, StudioOperationStatus, WorkerRetryOutcome,
+    ParentMessage, SessionCommandKind, StudioOperationStatus, WorkerRetryOutcome,
 };
 use crate::harness::projections::{BootProjection, RootSessionProjection};
 use crate::project_catalog::{
