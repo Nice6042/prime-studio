@@ -231,8 +231,19 @@ impl ArtifactAuthority {
             .bindings
             .lock()
             .map_err(|_| "artifact authority is unavailable".to_owned())?;
-        if bindings.contains_key(&key) {
-            return Err("artifact identity is already admitted".to_owned());
+        if let Some(existing) = bindings.get(&key) {
+            if existing.root != root
+                || existing.path != path
+                || existing.writable != admission.writable
+            {
+                return Err("artifact identity was reused for a different file".to_owned());
+            }
+            return Ok(ArtifactRef::new(
+                admission.broker_id,
+                admission.root_session_id,
+                admission.artifact_id,
+                existing.revision,
+            ));
         }
         bindings.insert(
             key,
@@ -389,4 +400,71 @@ pub(crate) fn editor_artifact_save(
     request: ArtifactSaveRequest,
 ) -> ArtifactSaveResult {
     state.artifacts.save(request)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_root(label: &str) -> PathBuf {
+        let path =
+            std::env::temp_dir().join(format!("prime-studio-{label}-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn admission_never_allows_a_candidate_outside_its_authoritative_root() {
+        let root = temp_root("artifact-root");
+        let outside = temp_root("artifact-outside").join("secret.txt");
+        std::fs::write(&outside, "secret").unwrap();
+        let authority = ArtifactAuthority::default();
+        let result = authority.admit_harness_artifact(ArtifactAdmission::new(
+            "broker",
+            "session",
+            "candidate",
+            &root,
+            &outside,
+            true,
+        ));
+        assert_eq!(result.unwrap_err(), "artifact is outside its admitted root");
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(outside.parent().unwrap());
+    }
+
+    #[test]
+    fn stale_disk_identity_cannot_be_opened_or_saved() {
+        let root = temp_root("artifact-stale");
+        let path = root.join("report.md");
+        std::fs::write(&path, "one").unwrap();
+        let authority = ArtifactAuthority::default();
+        let artifact_ref = authority
+            .admit_harness_artifact(ArtifactAdmission::new(
+                "broker",
+                "session",
+                "candidate",
+                &root,
+                &path,
+                true,
+            ))
+            .unwrap();
+        let ArtifactOpenResult::Opened { document } = authority.open(&artifact_ref) else {
+            panic!("expected admitted document")
+        };
+        std::fs::write(&path, "external change").unwrap();
+        assert!(matches!(
+            authority.open(&artifact_ref),
+            ArtifactOpenResult::Unsupported { .. }
+        ));
+        assert!(matches!(
+            authority.save(ArtifactSaveRequest::new(
+                artifact_ref,
+                document.identity().to_owned(),
+                1,
+                "two".to_owned()
+            )),
+            ArtifactSaveResult::Conflict { .. }
+        ));
+        let _ = std::fs::remove_dir_all(root);
+    }
 }

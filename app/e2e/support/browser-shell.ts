@@ -64,6 +64,9 @@ export const test = base.extend<ShellFixtures>({
         editorOpen: false,
         editorWidth: 400,
       };
+      let artifactRevision = 1;
+      let artifactIdentity = `sha256:${"a".repeat(64)}`;
+      let artifactContent = "# Verified browser artifact\n\nOpened through an opaque Harness candidate.";
 
       const emit = (event: string, payload: unknown) => {
         for (const id of listeners.get(event) ?? []) {
@@ -230,6 +233,35 @@ export const test = base.extend<ShellFixtures>({
           }
           case "harness_projection":
             return [];
+          case "harness_inspector":
+            return JSON.stringify({
+              observedAtMs: 1_775_995_220_000, startedAtMs: null, context: null,
+              contributions: [], notices: [], activity: [],
+              outputs: [{ id: "output-browser", label: "Harness report", candidateId: "candidate-browser-output", kind: "file" }],
+              sources: [{ id: "source-browser", label: "Harness contract", detail: "Verified fixture source", candidateId: "candidate-browser-source", kind: "file" }],
+              children: {},
+            });
+          case "harness_artifact_open": {
+            const request = args.request as { sessionId?: string; candidateId?: string } | undefined;
+            if (request?.sessionId !== "session-e2e" || !["candidate-browser-output", "candidate-browser-source"].includes(request?.candidateId ?? "")) {
+              return { kind: "unsupported", reason: "The artifact candidate is forged, stale, or belongs to another Harness session." };
+            }
+            return { kind: "opened", document: {
+              label: request.candidateId === "candidate-browser-output" ? "harness-report.md" : "harness-contract.md",
+              ref: { brokerId: "browser-broker", rootSessionId: "session-e2e", artifactId: request.candidateId, revision: artifactRevision },
+              identity: artifactIdentity, content: artifactContent, writable: true, diff: [],
+            } };
+          }
+          case "editor_artifact_save": {
+            const request = args.request as { ref?: { revision?: number }; expectedRevision?: number; expectedIdentity?: string; content?: string } | undefined;
+            if (!request || request.content === "external conflict" || request.ref?.revision !== artifactRevision || request.expectedRevision !== artifactRevision || request.expectedIdentity !== artifactIdentity) {
+              return { kind: "conflict", message: "The file changed on disk. Reopen it before saving." };
+            }
+            artifactRevision += 1;
+            artifactIdentity = `sha256:${"b".repeat(63)}${artifactRevision % 10}`;
+            artifactContent = request.content;
+            return { kind: "saved", revision: artifactRevision, identity: artifactIdentity };
+          }
           case "get_layout_preferences":
             return { ...layoutPreferences };
           case "set_layout_preferences":

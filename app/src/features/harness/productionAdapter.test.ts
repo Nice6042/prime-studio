@@ -121,4 +121,14 @@ describe("production Harness inspector adapter", () => {
       .resolves.toEqual({ status: "rejected", reason: "Session changed; refresh before retrying the operation.", retryable: true });
     expect(execute).toHaveBeenCalledOnce();
   });
+
+  it("passes only an opaque candidate ID for an admitted root session", async () => {
+    const store = boundStore();
+    const openArtifact = vi.fn(async () => ({ kind: "unsupported" as const, reason: "fixture" }));
+    const adapter = createProductionHarnessInspectorAdapter(store, { load: vi.fn(), execute: vi.fn(), openArtifact });
+    await expect(adapter.openArtifact!(session.sessionId, "candidate-opaque")).resolves.toEqual({ kind: "unsupported", reason: "fixture" });
+    expect(openArtifact).toHaveBeenCalledWith(session.sessionId, "candidate-opaque");
+    await expect(adapter.openArtifact!("cross-session", "candidate-opaque")).resolves.toMatchObject({ kind: "unsupported" });
+    expect(openArtifact).toHaveBeenCalledTimes(1);
+  });
 });

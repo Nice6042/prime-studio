@@ -154,7 +154,9 @@
 .harness-switch[aria-checked="true"] span { inset-inline-start: 16.5px; }
 .harness-resource-button,
 .harness-source-row { display: grid; inline-size: 100%; min-inline-size: 0; gap: 1px; padding: 6px 7px; border: 0; border-radius: 7px; background: transparent; text-align: start; }
-.harness-resource-button:hover { background: var(--hi-raised); }
+.harness-resource-button:not(:disabled):hover { background: var(--hi-raised); }
+.harness-resource-button:disabled { cursor: not-allowed; }
+.harness-resource-button:disabled > * { opacity: .72; }
 .harness-resource-button > *, .harness-source-row > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .harness-resource-button strong, .harness-source-row strong, .harness-resource-button span { font-size: 12px; font-weight: 500; }
 .harness-resource-button small, .harness-source-row small { color: var(--hi-muted); font-size: 11px; }

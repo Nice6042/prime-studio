@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tauri::State;
 
+use crate::commands::editor::{ArtifactAdmission, ArtifactOpenResult};
 use crate::harness::activation::canonical_workspace_identity;
 use crate::harness::broker::{
     AttachRequest, InspectorRequest, RefreshSessionRequest, ResidentCreateRequest,
@@ -50,6 +51,13 @@ pub(crate) struct HarnessSessionCommandInput {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub(crate) struct HarnessInspectorInput {
     session_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub(crate) struct HarnessArtifactOpenInput {
+    session_id: String,
+    candidate_id: String,
 }
 
 #[derive(Deserialize)]
@@ -304,6 +312,104 @@ pub(crate) async fn harness_inspector(
     })
     .await
     .map_err(|_| "Harness inspector task failed".to_owned())?
+}
+
+fn artifact_unavailable(reason: impl Into<String>) -> ArtifactOpenResult {
+    ArtifactOpenResult::Unsupported {
+        reason: reason.into(),
+    }
+}
+
+#[tauri::command]
+pub(crate) fn harness_artifact_open(
+    state: State<'_, crate::AppState>,
+    request: HarnessArtifactOpenInput,
+) -> ArtifactOpenResult {
+    let Some(broker) = state.harness.broker() else {
+        return artifact_unavailable("The verified Harness broker is unavailable.");
+    };
+    let coordinator = state.harness.resident_transaction();
+    let Ok(_catalog_transaction) = coordinator.lock() else {
+        return artifact_unavailable(
+            "The authoritative project catalog transaction is unavailable.",
+        );
+    };
+    let Ok(catalog) = state.project_catalog.load() else {
+        return artifact_unavailable("The authoritative project catalog is unavailable.");
+    };
+    let matches = catalog
+        .state
+        .projects
+        .iter()
+        .filter_map(|project| {
+            if project.archived {
+                return None;
+            }
+            let chats = project
+                .chats
+                .iter()
+                .filter(|chat| {
+                    !chat.archived
+                        && chat
+                            .binding
+                            .as_ref()
+                            .is_some_and(|binding| binding.session_id == request.session_id)
+                })
+                .count();
+            (chats == 1).then_some(project)
+        })
+        .collect::<Vec<_>>();
+    if matches.len() != 1 {
+        return artifact_unavailable(
+            "The Harness session is not uniquely bound to an active catalog project.",
+        );
+    }
+    let project = matches[0];
+    let Ok(workspace) = project_workspace(project) else {
+        return artifact_unavailable("The authoritative project workspace is unavailable.");
+    };
+    // Keep the broker chronology lock through admission. Otherwise a Harness event could advance
+    // the session after candidate resolution but before the file becomes an ArtifactAuthority
+    // binding, turning a stale renderer gesture into a newly admitted artifact.
+    let Ok(broker) = broker.lock() else {
+        return artifact_unavailable("The verified Harness broker is unavailable.");
+    };
+    let resolution =
+        match broker.resolve_artifact_candidate(&request.session_id, &request.candidate_id) {
+            Ok(candidate) => candidate,
+            Err(_) => return artifact_unavailable(
+                "The artifact candidate is forged, stale, or belongs to another Harness session.",
+            ),
+        };
+    if daemon_project_id(&workspace) != resolution.project_id {
+        return artifact_unavailable(
+            "The Harness candidate does not belong to the catalog project workspace.",
+        );
+    }
+    let root = PathBuf::from(workspace);
+    let candidate_path = if resolution.path.is_absolute() {
+        resolution.path.clone()
+    } else {
+        root.join(&resolution.path)
+    };
+    let artifact_ref =
+        match state
+            .artifacts
+            .admit_harness_artifact(ArtifactAdmission::new(
+                resolution.broker_id,
+                resolution.root_session_id,
+                resolution.artifact_id,
+                root,
+                candidate_path,
+                resolution.writable,
+            )) {
+            Ok(artifact_ref) => artifact_ref,
+            Err(_) => return artifact_unavailable(
+                "The Harness artifact could not be admitted inside its authoritative project root.",
+            ),
+        };
+    drop(broker);
+    state.artifacts.open(&artifact_ref)
 }
 
 #[tauri::command]

@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use uuid::Uuid;
@@ -19,6 +20,7 @@ const TEST_RUNTIME_DIGEST: &str =
 #[cfg(feature = "test-support-bin")]
 const TEST_PROFILE: &str = "daemon-v7-schema13";
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+const MAX_INSPECTOR_ARTIFACT_CANDIDATES: usize = 2_048;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BrokerState {
@@ -92,6 +94,25 @@ pub struct InspectorRequest {
     pub session_id: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ArtifactCandidateResolution {
+    pub broker_id: String,
+    pub root_session_id: String,
+    pub artifact_id: String,
+    pub project_id: String,
+    pub path: PathBuf,
+    pub writable: bool,
+}
+
+#[derive(Clone, Debug)]
+struct ArtifactCandidate {
+    session_id: String,
+    project_id: String,
+    cursor: HarnessCursor,
+    path: PathBuf,
+    writable: bool,
+}
+
 pub struct RefreshSessionRequest {
     pub session_id: String,
     pub known_cursor: HarnessCursor,
@@ -136,6 +157,7 @@ pub struct HarnessBroker {
     compatibility: Option<HarnessCompatibility>,
     unknown_outcomes: BTreeMap<String, BTreeSet<UnknownOperation>>,
     resident_creations: BTreeMap<String, ResidentCreation>,
+    artifact_candidates: BTreeMap<String, ArtifactCandidate>,
     runtime_digest: String,
     profile: String,
 }
@@ -205,6 +227,7 @@ impl HarnessBroker {
             compatibility: None,
             unknown_outcomes: BTreeMap::new(),
             resident_creations: BTreeMap::new(),
+            artifact_candidates: BTreeMap::new(),
             runtime_digest,
             profile,
         })
@@ -638,7 +661,53 @@ impl HarnessBroker {
         if details_json.chars().count() > 131_072 {
             return Err(HarnessError::ProtocolViolation);
         }
+        let current = self
+            .committed
+            .get(&request.session_id)
+            .ok_or(HarnessError::OwnershipViolation)?;
+        let ownership = self
+            .ownership
+            .get(&request.session_id)
+            .ok_or(HarnessError::OwnershipViolation)?;
+        self.artifact_candidates
+            .retain(|_, candidate| candidate.session_id != request.session_id);
+        let (details_json, candidates) = sanitize_inspector_artifacts(
+            &details_json,
+            &request.session_id,
+            &ownership.project_id,
+            &current.cursor,
+        )?;
+        self.artifact_candidates.extend(candidates);
         Ok(details_json)
+    }
+
+    pub fn resolve_artifact_candidate(
+        &self,
+        session_id: &str,
+        candidate_id: &str,
+    ) -> Result<ArtifactCandidateResolution, HarnessError> {
+        if self.state != BrokerState::Live || !valid_id(session_id) || !valid_id(candidate_id) {
+            return Err(HarnessError::OwnershipViolation);
+        }
+        let candidate = self
+            .artifact_candidates
+            .get(candidate_id)
+            .ok_or(HarnessError::OwnershipViolation)?;
+        let current = self
+            .committed
+            .get(session_id)
+            .ok_or(HarnessError::OwnershipViolation)?;
+        if candidate.session_id != session_id || candidate.cursor != current.cursor {
+            return Err(HarnessError::ChronologyViolation);
+        }
+        Ok(ArtifactCandidateResolution {
+            broker_id: self.id.to_string(),
+            root_session_id: session_id.to_owned(),
+            artifact_id: candidate_id.to_owned(),
+            project_id: candidate.project_id.clone(),
+            path: candidate.path.clone(),
+            writable: candidate.writable,
+        })
     }
 
     pub async fn refresh_session(
@@ -1118,6 +1187,200 @@ impl HarnessBroker {
     }
 }
 
+fn artifact_label(path: &str) -> String {
+    PathBuf::from(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or("Artifact")
+        .chars()
+        .take(200)
+        .collect()
+}
+
+fn admit_inspector_candidate(
+    object: &mut serde_json::Map<String, serde_json::Value>,
+    raw_keys: &[&str],
+    session_id: &str,
+    project_id: &str,
+    cursor: &HarnessCursor,
+    writable: bool,
+    candidates: &mut BTreeMap<String, ArtifactCandidate>,
+) -> Result<(), HarnessError> {
+    let mut raw_path = None;
+    for key in raw_keys {
+        if let Some(value) = object.remove(*key) {
+            if raw_path.is_some() || !value.is_string() {
+                return Err(HarnessError::ProtocolViolation);
+            }
+            raw_path = value.as_str().map(str::to_owned);
+        }
+    }
+    let Some(path) = raw_path else {
+        return Ok(());
+    };
+    if !valid_path(&path) {
+        return Err(HarnessError::ProtocolViolation);
+    }
+    if candidates.len() >= MAX_INSPECTOR_ARTIFACT_CANDIDATES {
+        return Err(HarnessError::ProtocolViolation);
+    }
+    let candidate_id = format!("artifact-candidate-{}", Uuid::new_v4().simple());
+    candidates.insert(
+        candidate_id.clone(),
+        ArtifactCandidate {
+            session_id: session_id.to_owned(),
+            project_id: project_id.to_owned(),
+            cursor: cursor.clone(),
+            path: PathBuf::from(&path),
+            writable,
+        },
+    );
+    object.insert(
+        "candidateId".to_owned(),
+        serde_json::Value::String(candidate_id),
+    );
+    object
+        .entry("label".to_owned())
+        .or_insert_with(|| serde_json::Value::String(artifact_label(&path)));
+    Ok(())
+}
+
+fn contains_renderer_path_authority(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Array(values) => values.iter().any(contains_renderer_path_authority),
+        serde_json::Value::Object(object) => object.iter().any(|(key, value)| {
+            matches!(key.as_str(), "path" | "filePath" | "candidatePath")
+                || contains_renderer_path_authority(value)
+        }),
+        _ => false,
+    }
+}
+
+fn sanitize_inspector_artifacts(
+    details_json: &str,
+    session_id: &str,
+    project_id: &str,
+    cursor: &HarnessCursor,
+) -> Result<(String, BTreeMap<String, ArtifactCandidate>), HarnessError> {
+    let mut details: serde_json::Value =
+        serde_json::from_str(details_json).map_err(|_| HarnessError::ProtocolViolation)?;
+    let root = details
+        .as_object_mut()
+        .ok_or(HarnessError::ProtocolViolation)?;
+    let mut candidates = BTreeMap::new();
+
+    for output in root
+        .get_mut("outputs")
+        .and_then(serde_json::Value::as_array_mut)
+        .ok_or(HarnessError::ProtocolViolation)?
+    {
+        admit_inspector_candidate(
+            output
+                .as_object_mut()
+                .ok_or(HarnessError::ProtocolViolation)?,
+            &["candidatePath", "path"],
+            session_id,
+            project_id,
+            cursor,
+            true,
+            &mut candidates,
+        )?;
+    }
+    for source in root
+        .get_mut("sources")
+        .and_then(serde_json::Value::as_array_mut)
+        .ok_or(HarnessError::ProtocolViolation)?
+    {
+        admit_inspector_candidate(
+            source
+                .as_object_mut()
+                .ok_or(HarnessError::ProtocolViolation)?,
+            &["candidatePath"],
+            session_id,
+            project_id,
+            cursor,
+            false,
+            &mut candidates,
+        )?;
+    }
+    for activity in root
+        .get_mut("activity")
+        .and_then(serde_json::Value::as_array_mut)
+        .ok_or(HarnessError::ProtocolViolation)?
+    {
+        let activity = activity
+            .as_object_mut()
+            .ok_or(HarnessError::ProtocolViolation)?;
+        admit_inspector_candidate(
+            activity,
+            &["candidatePath", "filePath"],
+            session_id,
+            project_id,
+            cursor,
+            true,
+            &mut candidates,
+        )?;
+        if let Some(files) = activity
+            .get_mut("tool")
+            .and_then(serde_json::Value::as_object_mut)
+            .and_then(|tool| tool.get_mut("files"))
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            for file in files {
+                let path = file
+                    .as_str()
+                    .filter(|path| valid_path(path))
+                    .ok_or(HarnessError::ProtocolViolation)?
+                    .to_owned();
+                let mut object = serde_json::Map::new();
+                object.insert("candidatePath".to_owned(), serde_json::Value::String(path));
+                admit_inspector_candidate(
+                    &mut object,
+                    &["candidatePath"],
+                    session_id,
+                    project_id,
+                    cursor,
+                    true,
+                    &mut candidates,
+                )?;
+                *file = serde_json::Value::Object(object);
+            }
+        }
+    }
+    let children = root
+        .get_mut("children")
+        .and_then(serde_json::Value::as_object_mut)
+        .ok_or(HarnessError::ProtocolViolation)?;
+    for child in children.values_mut() {
+        let files = child
+            .as_object_mut()
+            .and_then(|child| child.get_mut("files"))
+            .and_then(serde_json::Value::as_array_mut)
+            .ok_or(HarnessError::ProtocolViolation)?;
+        for file in files {
+            admit_inspector_candidate(
+                file.as_object_mut()
+                    .ok_or(HarnessError::ProtocolViolation)?,
+                &["candidatePath", "path"],
+                session_id,
+                project_id,
+                cursor,
+                true,
+                &mut candidates,
+            )?;
+        }
+    }
+    if contains_renderer_path_authority(&details) {
+        return Err(HarnessError::ProtocolViolation);
+    }
+    let sanitized = serde_json::to_string(&details).map_err(|_| HarnessError::ProtocolViolation)?;
+    if sanitized.chars().count() > 131_072 {
+        return Err(HarnessError::ProtocolViolation);
+    }
+    Ok((sanitized, candidates))
+}
+
 fn valid_id(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
@@ -1151,5 +1414,124 @@ fn compatibility_uses_profile(compatibility: &HarnessCompatibility, expected: &s
         HarnessCompatibility::Ready { profile, .. }
         | HarnessCompatibility::Degraded { profile, .. } => profile == expected,
         HarnessCompatibility::ReadOnly { .. } | HarnessCompatibility::Unavailable { .. } => true,
+    }
+}
+
+#[cfg(test)]
+mod artifact_candidate_tests {
+    use super::*;
+    use crate::harness::generated::{CurrentChatUsage, RootSessionState};
+
+    fn snapshot(session_id: &str, project_id: &str, sequence: u64) -> RootSessionSnapshot {
+        RootSessionSnapshot {
+            session_id: session_id.to_owned(),
+            account_id: None,
+            project_id: project_id.to_owned(),
+            chat_id: format!("chat-{session_id}"),
+            cursor: HarnessCursor {
+                runtime_generation: "generation-a".to_owned(),
+                sequence,
+            },
+            state: RootSessionState::Idle,
+            parent_messages: vec![],
+            children: vec![],
+            queue: vec![],
+            tools: vec![],
+            resources: vec![],
+            usage: CurrentChatUsage {
+                input: 0,
+                output: 0,
+                cache_read: 0,
+                cache_write: 0,
+                total_tokens: 0,
+                cost: None,
+            },
+        }
+    }
+
+    fn broker() -> HarnessBroker {
+        let mut broker = HarnessBroker::for_tests(
+            vec![
+                (
+                    "session-a".to_owned(),
+                    SessionOwnership {
+                        account_id: None,
+                        project_id: "project-a".to_owned(),
+                        chat_id: "chat-session-a".to_owned(),
+                    },
+                ),
+                (
+                    "session-b".to_owned(),
+                    SessionOwnership {
+                        account_id: None,
+                        project_id: "project-b".to_owned(),
+                        chat_id: "chat-session-b".to_owned(),
+                    },
+                ),
+            ],
+            None,
+        )
+        .unwrap();
+        broker.state = BrokerState::Live;
+        broker.committed.insert(
+            "session-a".to_owned(),
+            snapshot("session-a", "project-a", 1),
+        );
+        broker.committed.insert(
+            "session-b".to_owned(),
+            snapshot("session-b", "project-b", 1),
+        );
+        broker
+    }
+
+    #[test]
+    fn inspector_paths_become_opaque_candidates_before_renderer_projection() {
+        let source = r#"{"observedAtMs":1,"startedAtMs":null,"context":null,"contributions":[],"notices":[],"activity":[{"id":"a","occurredAtMs":1,"group":"Tools","kind":"tool","title":"read","detail":"done","tool":{"command":"read","status":"succeeded","durationMs":1,"files":["src/main.ts"]}}],"outputs":[{"id":"o","label":"Report","path":"reports/out.md","kind":"file"}],"sources":[{"id":"s","label":"Rules","detail":"context","kind":"file","candidatePath":"AGENTS.md"}],"children":{}}"#;
+        let cursor = HarnessCursor {
+            runtime_generation: "generation-a".to_owned(),
+            sequence: 1,
+        };
+        let (sanitized, candidates) =
+            sanitize_inspector_artifacts(source, "session-a", "project-a", &cursor).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&sanitized).unwrap();
+        assert!(!contains_renderer_path_authority(&value));
+        assert_eq!(candidates.len(), 3);
+        assert!(sanitized.contains("candidateId"));
+        assert!(!sanitized.contains("reports/out.md"));
+    }
+
+    #[test]
+    fn forged_cross_session_and_stale_candidates_are_rejected() {
+        let mut broker = broker();
+        broker.artifact_candidates.insert(
+            "candidate-a".to_owned(),
+            ArtifactCandidate {
+                session_id: "session-a".to_owned(),
+                project_id: "project-a".to_owned(),
+                cursor: HarnessCursor {
+                    runtime_generation: "generation-a".to_owned(),
+                    sequence: 1,
+                },
+                path: PathBuf::from("src/main.ts"),
+                writable: true,
+            },
+        );
+        assert!(broker
+            .resolve_artifact_candidate("session-a", "forged")
+            .is_err());
+        assert!(matches!(
+            broker.resolve_artifact_candidate("session-b", "candidate-a"),
+            Err(HarnessError::ChronologyViolation)
+        ));
+        broker
+            .committed
+            .get_mut("session-a")
+            .unwrap()
+            .cursor
+            .sequence = 2;
+        assert!(matches!(
+            broker.resolve_artifact_candidate("session-a", "candidate-a"),
+            Err(HarnessError::ChronologyViolation)
+        ));
     }
 }

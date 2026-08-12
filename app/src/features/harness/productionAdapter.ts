@@ -8,10 +8,13 @@ import {
 } from "../../shared/ipc/client";
 import type { StudioStore } from "../../shared/state/store";
 import type { HarnessInspectorAdapter, HarnessPanelDetails } from "./adapter";
+import type { ArtifactOpenResult } from "../../entities/editor/types";
+import { openHarnessArtifactCandidate } from "../../rpc";
 
 interface ProductionHarnessPorts {
   load(sessionId: string): Promise<HarnessPanelDetails>;
   execute(request: HarnessStudioOperationRequest): Promise<Readonly<{ outcome: StudioOperationOutcome; session: RootSessionProjection | null }>>;
+  openArtifact?(sessionId: string, candidateId: string): Promise<ArtifactOpenResult>;
 }
 
 const TERMINAL_RUNTIME_STATES = new Set<RootSessionProjection["state"]>(["disconnected", "failed", "stopped"]);
@@ -23,6 +26,7 @@ const realPorts: ProductionHarnessPorts = {
     const outcome = await executeHarnessStudioOperation(request, (session) => { projected = session; });
     return { outcome, session: projected };
   },
+  openArtifact: openHarnessArtifactCandidate,
 };
 
 function reject(reason: string): StudioOperationOutcome {
@@ -67,6 +71,12 @@ export function createProductionHarnessInspectorAdapter(
       status: "unavailable" as const,
       reason: "Prime Studio cannot safely retry a silent worker because the native Harness bridge does not expose a verified closure reason and retry identity.",
     }),
+    openArtifact(sessionId: string, candidateId: string) {
+      const session = store.getSnapshot().sessions[sessionId];
+      if (!session) return Promise.resolve({ kind: "unsupported" as const, reason: "The artifact candidate is not bound to an authoritative Harness session." });
+      if (!ports.openArtifact) return Promise.resolve({ kind: "unsupported" as const, reason: "The native artifact candidate resolver is unavailable." });
+      return ports.openArtifact(session.sessionId, candidateId);
+    },
     async execute(operation: StudioOperation): Promise<StudioOperationOutcome> {
       const descriptor = STUDIO_ACTIONS[operation.action];
       if (descriptor.owner.kind === "renderer") return { status: "updated", revision: "renderer" };

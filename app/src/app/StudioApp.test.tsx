@@ -339,7 +339,34 @@ describe("Studio application state", () => {
     store.dispatch({ type: "chat/open", chatId: chat.id });
     render(<AppProviders store={store}><StudioApp /></AppProviders>);
     await userEvent.click(screen.getByRole("button", { name: "Open editor" }));
-    expect(screen.getByText(/No identity-bound native or Harness artifact reference/i)).toBeVisible();
+    expect(screen.getByText(/Open an identity-bound candidate from Harness/i)).toBeVisible();
+  });
+
+  it("hydrates an opaque Harness candidate through the centralized dispatcher and opens the editor", async () => {
+    const openArtifact = vi.fn(async () => ({
+      kind: "opened" as const,
+      document: {
+        label: "report.md",
+        ref: { brokerId: "broker-1", rootSessionId: rootSession.sessionId, artifactId: "candidate-1", revision: 1 },
+        identity: `sha256:${"a".repeat(64)}`,
+        content: "verified content",
+        writable: true,
+        diff: [],
+      },
+    }));
+    const adapter: HarnessInspectorAdapter = {
+      availability: { status: "available" },
+      load: async () => ({ observedAtMs: 1, startedAtMs: null, context: null, contributions: [], notices: [], activity: [], outputs: [{ id: "output-1", label: "Report", candidateId: "candidate-1", kind: "file" }], sources: [], children: {} }),
+      execute: async () => ({ status: "rejected", reason: "wrong route", retryable: false }),
+      openArtifact,
+    };
+    const store = createStudioStore(initialStudioState({ projectCatalog: catalogBoundToRootSession(), sessions: [rootSession] }));
+    render(<AppProviders store={store}><StudioApp harnessAdapter={adapter} /></AppProviders>);
+    await userEvent.click(await screen.findByText("Outputs"));
+    await userEvent.click(await screen.findByRole("button", { name: /Report/ }));
+    await waitFor(() => expect(openArtifact).toHaveBeenCalledWith(rootSession.sessionId, "candidate-1"));
+    await userEvent.click(await screen.findByRole("tab", { name: "Edit" }));
+    expect(screen.getByRole("textbox", { name: "File content" })).toHaveValue("verified content");
   });
 
   it("opens the centralized command palette and routes enabled commands", async () => {

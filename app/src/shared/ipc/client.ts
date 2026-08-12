@@ -500,24 +500,25 @@ export interface HarnessInspectorDetails {
     title: string;
     detail: string;
     childId?: string;
-    filePath?: string;
+    artifactCandidateId?: string;
     tool?: Readonly<{
       command: string;
       status: "pending" | "running" | "blocked" | "succeeded" | "failed";
       durationMs: number | null;
-      files: readonly string[];
+      files: readonly Readonly<{ candidateId: string; label: string }>[];
     }>;
   }>[];
   readonly outputs: readonly Readonly<{
     id: string;
     label: string;
-    path: string;
+    candidateId?: string;
     kind: string;
   }>[];
   readonly sources: readonly Readonly<{
     id: string;
     label: string;
     detail: string;
+    candidateId?: string;
     kind: string;
   }>[];
   readonly children: Readonly<
@@ -545,7 +546,8 @@ export interface HarnessInspectorDetails {
         }>[];
         files: readonly Readonly<{
           id: string;
-          path: string;
+          label: string;
+          candidateId: string;
           change: "added" | "modified" | "deleted" | "read";
         }>[];
         error: Readonly<{
@@ -622,10 +624,11 @@ export function decodeHarnessInspectorDetails(value: unknown): HarnessInspectorD
         };
       }),
       files: array(child.files, 4_096).map((entry) => {
-        const item = record(entry, ["id", "path", "change"]);
+        const item = record(entry, ["id", "label", "candidateId", "change"]);
         return {
           id: id(item.id),
-          path: bounded(item.path, 32_768),
+          label: bounded(item.label, 8_192),
+          candidateId: id(item.candidateId),
           change: oneOf(item.change, new Set(["added", "modified", "deleted", "read"] as const)),
         };
       }),
@@ -656,10 +659,10 @@ export function decodeHarnessInspectorDetails(value: unknown): HarnessInspectorD
       };
     }),
     activity: array(source.activity, 4_096).map((entry) => {
-      const item = recordWithOptional(entry, ["id", "occurredAtMs", "group", "kind", "title", "detail"], ["childId", "filePath", "tool"]);
+      const item = recordWithOptional(entry, ["id", "occurredAtMs", "group", "kind", "title", "detail"], ["childId", "artifactCandidateId", "tool"]);
       const activity: HarnessInspectorDetails["activity"][number] & {
         childId?: string;
-        filePath?: string;
+        artifactCandidateId?: string;
         tool?: HarnessInspectorDetails["activity"][number]["tool"];
       } = {
         id: id(item.id),
@@ -670,34 +673,38 @@ export function decodeHarnessInspectorDetails(value: unknown): HarnessInspectorD
         detail: bounded(item.detail, 32_768, true),
       };
       if (item.childId !== undefined) activity.childId = id(item.childId);
-      if (item.filePath !== undefined) activity.filePath = bounded(item.filePath, 32_768);
+      if (item.artifactCandidateId !== undefined) activity.artifactCandidateId = id(item.artifactCandidateId);
       if (item.tool !== undefined) {
         const tool = record(item.tool, ["command", "status", "durationMs", "files"]);
         activity.tool = {
           command: bounded(tool.command, 32_768, true),
           status: oneOf(tool.status, new Set(["pending", "running", "blocked", "succeeded", "failed"] as const)),
           durationMs: nullableSafeInteger(tool.durationMs),
-          files: array(tool.files, 1_024).map((file) => bounded(file, 32_768)),
+          files: array(tool.files, 1_024).map((file) => {
+            const candidate = record(file, ["candidateId", "label"]);
+            return { candidateId: id(candidate.candidateId), label: bounded(candidate.label, 8_192) };
+          }),
         };
       }
       return activity;
     }),
     outputs: array(source.outputs, 1_024).map((entry) => {
-      const item = record(entry, ["id", "label", "path", "kind"]);
+      const item = recordWithOptional(entry, ["id", "label", "kind"], ["candidateId"]);
       return {
         id: id(item.id),
         label: bounded(item.label, 8_192),
-        path: bounded(item.path, 32_768),
         kind: bounded(item.kind, 128),
+        ...(item.candidateId === undefined ? {} : { candidateId: id(item.candidateId) }),
       };
     }),
     sources: array(source.sources, 1_024).map((entry) => {
-      const item = record(entry, ["id", "label", "detail", "kind"]);
+      const item = recordWithOptional(entry, ["id", "label", "detail", "kind"], ["candidateId"]);
       return {
         id: id(item.id),
         label: bounded(item.label, 8_192),
         detail: bounded(item.detail, 32_768, true),
         kind: bounded(item.kind, 128),
+        ...(item.candidateId === undefined ? {} : { candidateId: id(item.candidateId) }),
       };
     }),
     children,

@@ -66,8 +66,9 @@ export interface PrimeHarnessInspectorDetails {
     id: string; occurredAtMs: number; group: string; kind: "agent" | "tool" | "file" | "system"; title: string; detail: string; childId?: string; filePath?: string;
     tool?: Readonly<{ command: string; status: "pending" | "running" | "blocked" | "succeeded" | "failed"; durationMs: number | null; files: readonly string[] }>;
   }>[];
-  readonly outputs: readonly Readonly<{ id: string; label: string; path: string; kind: string }>[];
-  readonly sources: readonly Readonly<{ id: string; label: string; detail: string; kind: string }>[];
+  /** candidatePath is broker-private input and is stripped before details reach the renderer. */
+  readonly outputs: readonly Readonly<{ id: string; label: string; candidatePath: string; kind: string }>[];
+  readonly sources: readonly Readonly<{ id: string; label: string; detail: string; kind: string; candidatePath?: string }>[];
   readonly children: Readonly<Record<string, Readonly<{
     summary: string; startedAtMs: number | null; context: PrimeHarnessInspectorDetails["context"];
     transcript: readonly Readonly<{ id: string; actor: string; occurredAtMs: number; text: string }>[];
@@ -400,9 +401,11 @@ export class PrimeDaemonBridge {
       for (const [index, raw] of rows.entries()) {
         if (!plain(raw)) continue;
         const path = [raw.path, raw.filePath, raw.sourcePath].find((value) => typeof value === "string") as string | undefined;
-        const label = typeof raw.name === "string" ? raw.name : path;
-        if (!label) continue;
-        sources.push({ id: stableId("source", `${kind}:${index}:${label}`), label: boundedString(label, 200), detail: path ? boundedString(path, 4096) : kind, kind });
+        const label = typeof raw.name === "string" ? raw.name : "Context file";
+        sources.push({
+          id: stableId("source", `${kind}:${index}:${label}`), label: boundedString(label, 200), detail: kind, kind,
+          ...(path ? { candidatePath: boundedString(path, 4096) } : {}),
+        });
       }
     }
     const children: Record<string, PrimeHarnessInspectorDetails["children"][string]> = {};

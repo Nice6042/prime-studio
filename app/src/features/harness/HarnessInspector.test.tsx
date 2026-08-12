@@ -44,12 +44,12 @@ const details: HarnessPanelDetails = {
   notices: [{ id: "overload", kind: "warning", title: "Auto-compaction failed", detail: "server_is_overloaded", retryable: true, dismissible: true }],
   activity: [
     { id: "act-agent", occurredAtMs: 1_725_700_100_000, group: "Today", kind: "agent", title: "Review protocol spawned", detail: "rlm() child", childId: "child-1" },
-    { id: "act-tool", occurredAtMs: 1_725_700_200_000, group: "Today", kind: "tool", title: "Workspace inspection", detail: "Completed", tool: { command: "rg --files", status: "succeeded", durationMs: 820, files: ["src/protocol.ts"] } },
+    { id: "act-tool", occurredAtMs: 1_725_700_200_000, group: "Today", kind: "tool", title: "Workspace inspection", detail: "Completed", tool: { command: "rg --files", status: "succeeded", durationMs: 820, files: [{ candidateId: "candidate-tool-file", label: "src/protocol.ts" }] } },
     { id: "act-system", occurredAtMs: 1_725_700_250_000, group: "Today", kind: "system", title: "Snapshot synchronized", detail: "Harness projection refreshed" },
-    { id: "act-file", occurredAtMs: 1_725_700_300_000, group: "Yesterday", kind: "file", title: "Protocol updated", detail: "src/protocol.ts", filePath: "src/protocol.ts" },
+    { id: "act-file", occurredAtMs: 1_725_700_300_000, group: "Yesterday", kind: "file", title: "Protocol updated", detail: "src/protocol.ts", artifactCandidateId: "candidate-activity-file" },
   ],
-  outputs: [{ id: "out-1", label: "Protocol report", path: "reports/protocol.md", kind: "file" }],
-  sources: [{ id: "source-1", label: "Harness contract", detail: "Generated protocol schema", kind: "document" }],
+  outputs: [{ id: "out-1", label: "Protocol report", candidateId: "candidate-output", kind: "file" }],
+  sources: [{ id: "source-1", label: "Harness contract", detail: "Generated protocol schema", candidateId: "candidate-source", kind: "document" }],
   children: {
     "child-1": {
       summary: "Review the runtime protocol and report compatibility gaps.",
@@ -60,7 +60,7 @@ const details: HarnessPanelDetails = {
         { id: "child-msg-2", actor: "Agent", occurredAtMs: 1_725_700_060_000, text: "Reading the protocol schema." },
       ],
       activity: [{ id: "child-act-1", occurredAtMs: 1_725_700_070_000, label: "Opened protocol schema" }],
-      files: [{ id: "child-file-1", path: "src/protocol.ts", change: "modified" }],
+      files: [{ id: "child-file-1", label: "src/protocol.ts", candidateId: "candidate-child-file", change: "modified" }],
       error: null,
     },
     "child-3": {
@@ -159,7 +159,7 @@ describe("HarnessInspector", () => {
     await user.click(screen.getByRole("button", { name: "Stop task" }));
 
     expect(commands).toEqual(expect.arrayContaining([
-      { action: "editor.artifact.open", payload: { sessionId: "root-a", artifactId: "child-file-1" } },
+      { action: "editor.artifact.open", payload: { sessionId: "root-a", artifactId: "candidate-child-file" } },
       { action: "harness.child.stop", payload: { sessionId: "root-a", childId: "child-1" } },
     ]));
   });
@@ -207,7 +207,7 @@ describe("HarnessInspector", () => {
     await user.click(screen.getByRole("button", { name: "Open src/protocol.ts" }));
     expect(commands).toEqual(expect.arrayContaining([
       { action: "activity.command.copy", payload: { activityId: "act-tool", command: "rg --files" } },
-      { action: "activity.file.open", payload: { sessionId: "root-a", activityId: "act-tool", fileId: "src/protocol.ts" } },
+      { action: "activity.file.open", payload: { sessionId: "root-a", activityId: "act-tool", fileId: "candidate-tool-file" } },
     ]));
   });
 

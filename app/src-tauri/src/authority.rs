@@ -278,6 +278,7 @@ pub enum TauriCommand {
     HarnessAttachSession,
     HarnessSessionCommand,
     HarnessInspector,
+    HarnessArtifactOpen,
     HarnessRefreshSession,
     HarnessStudioOperation,
     HarnessCreateResidentChat,
@@ -296,7 +297,7 @@ pub enum TauriCommand {
     ComputerUseReadiness,
 }
 
-pub const ALL_TAURI_COMMANDS: [TauriCommand; 58] = [
+pub const ALL_TAURI_COMMANDS: [TauriCommand; 59] = [
     TauriCommand::StartSession,
     TauriCommand::AttachSession,
     TauriCommand::DetachSession,
@@ -339,6 +340,7 @@ pub const ALL_TAURI_COMMANDS: [TauriCommand; 58] = [
     TauriCommand::HarnessAttachSession,
     TauriCommand::HarnessSessionCommand,
     TauriCommand::HarnessInspector,
+    TauriCommand::HarnessArtifactOpen,
     TauriCommand::HarnessRefreshSession,
     TauriCommand::HarnessStudioOperation,
     TauriCommand::HarnessCreateResidentChat,
@@ -409,6 +411,7 @@ impl TauriCommand {
             Self::HarnessAttachSession => "harness_attach_session",
             Self::HarnessSessionCommand => "harness_session_command",
             Self::HarnessInspector => "harness_inspector",
+            Self::HarnessArtifactOpen => "harness_artifact_open",
             Self::HarnessRefreshSession => "harness_refresh_session",
             Self::HarnessStudioOperation => "harness_studio_operation",
             Self::HarnessCreateResidentChat => "harness_create_resident_chat",
@@ -466,6 +469,7 @@ impl TauriCommand {
             Self::HarnessAttachSession
             | Self::HarnessSessionCommand
             | Self::HarnessInspector
+            | Self::HarnessArtifactOpen
             | Self::HarnessRefreshSession
             | Self::HarnessStudioOperation
             | Self::HarnessCreateResidentChat => CommandAuthority::VerifiedBroker,

@@ -17,6 +17,7 @@ import {
   setLayoutPreferences,
   exportAccountUsageCsv,
   openEditorArtifact,
+  openHarnessArtifactCandidate,
   saveEditorArtifact,
 } from "./rpc";
 
@@ -81,6 +82,16 @@ describe("identity-bound editor RPC", () => {
       request: { artifactRef },
     });
     expect(invokeMock.mock.calls[0]?.[1]).not.toHaveProperty("path");
+  });
+
+  it("resolves a Harness artifact by opaque candidate identity without accepting a path", async () => {
+    invokeMock.mockResolvedValueOnce({ kind: "unsupported", reason: "stale candidate" });
+    await expect(openHarnessArtifactCandidate("session-1", "candidate-1")).resolves.toEqual({ kind: "unsupported", reason: "stale candidate" });
+    expect(invokeMock).toHaveBeenCalledWith("harness_artifact_open", {
+      request: { sessionId: "session-1", candidateId: "candidate-1" },
+    });
+    expect(invokeMock.mock.calls[0]?.[1]).not.toHaveProperty("path");
+    await expect(openHarnessArtifactCandidate("session-1", "..\\secret.txt")).rejects.toThrow("candidate is invalid");
   });
 
   it("saves with exact identity and revision and preserves conflict outcomes", async () => {

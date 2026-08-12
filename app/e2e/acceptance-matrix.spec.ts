@@ -45,9 +45,9 @@ test("archive route and parent conversation remain distinct from Harness child d
   }
   await expect(harness.getByText("Summarize verification", { exact: true })).toBeVisible();
   await expect(harness.getByRole("switch", { name: "Workspace inspect" })).toBeChecked();
-  await expect(harness.getByRole("button", { name: /Synthetic project/ })).toBeEnabled();
-  await expect(harness.getByText("Verified outputs unavailable.")).toBeVisible();
-  await expect(harness.getByText("Verified sources unavailable.")).toBeVisible();
+  await expect(harness.getByRole("button", { name: /Synthetic project/ })).toBeDisabled();
+  await expect(harness.getByRole("button", { name: /Harness report/ })).toBeEnabled();
+  await expect(harness.getByRole("button", { name: /Harness contract/ })).toBeEnabled();
 
   const runningChild = harness.getByRole("button", { name: "Verify runtime compatibility, running" });
   await activateWithKeyboard(runningChild);
@@ -83,11 +83,11 @@ test("Harness overview, usage, and activity expose every truthful fixture projec
   await expect(harness.getByText("Parent and child attribution is unavailable. Totals are not guessed.")).toBeVisible();
   await tabs.getByRole("tab", { name: "Usage" }).press("ArrowRight");
   await expect(tabs.getByRole("tab", { name: "Activity" })).toBeFocused();
-  await expect(harness.getByText("Activity evidence is unavailable for this chat.")).toBeVisible();
+  await expect(harness.getByText("No activity matches this filter.")).toBeVisible();
   await expect(harness.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
   await activateWithKeyboard(harness.getByRole("button", { name: "Tools" }));
   await expect(harness.getByRole("button", { name: "Tools" })).toHaveAttribute("aria-pressed", "true");
-  await expect(harness.getByText("Activity evidence is unavailable for this chat.")).toBeVisible();
+  await expect(harness.getByText("No activity matches this filter.")).toBeVisible();
   await tabs.getByRole("tab", { name: "Activity" }).press("Home");
   await expect(tabs.getByRole("tab", { name: "Harness" })).toBeFocused();
   await expect(harness.getByRole("region", { name: "Main agent" })).toBeVisible();
@@ -98,7 +98,7 @@ test("editor covers empty, Canvas edit, and conflict-safe authority-unavailable 
   await activateWithKeyboard(shellPage.getByRole("button", { name: "Open editor" }));
   const editor = shellPage.getByRole("region", { name: "Editor" });
   await expect(editor.getByText("No verified file or Canvas revision")).toBeVisible();
-  await expect(editor.getByText("No identity-bound native or Harness artifact reference is available for this editor.")).toBeVisible();
+  await expect(editor.getByText(/Open an identity-bound candidate from Harness/)).toBeVisible();
   await expect(editor.getByRole("tab", { name: "Diff" })).toHaveCount(0);
   await expect(editor.getByRole("tab", { name: "Edit" })).toBeVisible();
   await expect(editor.getByRole("button", { name: "Save" })).toBeDisabled();
@@ -168,10 +168,27 @@ test("window controls remain inside the viewport at attached-pane widths", async
   await expectNoDocumentOverflow(shellPage);
 });
 
-test.fixme("production Harness adapter admits detail-backed Outputs and Sources", async () => {
-  // App.tsx currently mounts the unavailable adapter. Keep this blocked instead of fabricating detail evidence.
+test("production Harness adapter exposes only identity-bound Output and Source candidates", async ({ shellPage }) => {
+  const harness = shellPage.getByRole("complementary", { name: "Harness" });
+  await harness.locator("summary").filter({ hasText: /^Outputs/u }).click();
+  await harness.locator("summary").filter({ hasText: /^Sources/u }).click();
+  await expect(harness.getByRole("button", { name: /Harness report/ })).toBeEnabled();
+  await expect(harness.getByRole("button", { name: /Harness contract/ })).toBeEnabled();
+  await expect(harness.getByText(/\\|\/Users|C:/u)).toHaveCount(0);
 });
 
-test.fixme("identity-bound artifact opens Diff/Edit and exercises conflict-safe save", async () => {
-  // StudioApp currently passes artifact={null}. A real admitted artifact identity is required for this browser contract.
+test("identity-bound Harness artifact opens Diff/Edit and reconciles save conflicts", async ({ shellPage }) => {
+  const harness = shellPage.getByRole("complementary", { name: "Harness" });
+  await harness.locator("summary").filter({ hasText: /^Outputs/u }).click();
+  await activateWithKeyboard(harness.getByRole("button", { name: /Harness report/ }));
+  const editor = shellPage.getByRole("region", { name: "Editor" });
+  await expect(editor.getByRole("tab", { name: "Diff" })).toHaveAttribute("aria-selected", "true");
+  await activateWithKeyboard(editor.getByRole("tab", { name: "Edit" }));
+  const content = editor.getByRole("textbox", { name: "File content" });
+  await content.fill("saved through authority");
+  await activateWithKeyboard(editor.getByRole("button", { name: "Save" }));
+  await expect(editor.getByText("Saved revision 2")).toBeVisible();
+  await content.fill("external conflict");
+  await activateWithKeyboard(editor.getByRole("button", { name: "Save" }));
+  await expect(editor.getByRole("alert")).toContainText("changed on disk");
 });

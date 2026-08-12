@@ -1,7 +1,13 @@
 import type { StudioOperation, StudioOperationOutcome } from "../../contracts/studioOperations";
 import type { ComposerRuntimeChoice, ThinkingLevel } from "../conversation/workspacePresentation";
+import type { ArtifactOpenResult } from "../../entities/editor/types";
 
 export type HarnessActivityKind = "agent" | "tool" | "file" | "system";
+
+export interface HarnessArtifactCandidate {
+  readonly candidateId: string;
+  readonly label: string;
+}
 
 export interface HarnessContextWindow {
   readonly usedTokens: number;
@@ -36,12 +42,12 @@ export interface HarnessActivityItem {
   /** Runtime-projected acknowledgement state. Absent means unknown, never unseen. */
   readonly seen?: boolean;
   readonly childId?: string;
-  readonly filePath?: string;
+  readonly artifactCandidateId?: string;
   readonly tool?: Readonly<{
     command: string;
     status: "pending" | "running" | "blocked" | "succeeded" | "failed";
     durationMs: number | null;
-    files: readonly string[];
+    files: readonly HarnessArtifactCandidate[];
   }>;
 }
 
@@ -62,7 +68,8 @@ export interface HarnessChildDetails {
   }>[];
   readonly files: readonly Readonly<{
     id: string;
-    path: string;
+    label: string;
+    candidateId: string;
     change: "added" | "modified" | "deleted" | "read";
   }>[];
   readonly error: Readonly<{ code: string; message: string; retryable: boolean }> | null;
@@ -77,8 +84,8 @@ export interface HarnessPanelDetails {
   readonly contributions: readonly HarnessContribution[];
   readonly notices: readonly HarnessNotice[];
   readonly activity: readonly HarnessActivityItem[];
-  readonly outputs: readonly Readonly<{ id: string; label: string; path: string; kind: string }>[];
-  readonly sources: readonly Readonly<{ id: string; label: string; detail: string; kind: string }>[];
+  readonly outputs: readonly Readonly<{ id: string; label: string; candidateId?: string; kind: string }>[];
+  readonly sources: readonly Readonly<{ id: string; label: string; detail: string; candidateId?: string; kind: string }>[];
   readonly children: Readonly<Record<string, HarnessChildDetails>>;
 }
 
@@ -92,6 +99,7 @@ export interface HarnessInspectorAdapter {
   readonly workerRecovery?:
     | Readonly<{ status: "available"; maximumAutomaticRetries: 1 }>
     | Readonly<{ status: "unavailable"; reason: string }>;
+  openArtifact?(sessionId: string, candidateId: string): Promise<ArtifactOpenResult>;
   /** Explicit settings-operation authority; inspector availability alone is insufficient. */
   readonly settings?: Readonly<{
     harnessPolicy: boolean;

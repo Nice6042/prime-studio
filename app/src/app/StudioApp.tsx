@@ -26,6 +26,7 @@ import { CommandPalette } from "../features/command-palette/CommandPalette";
 import type { PaletteChat, PaletteMessage } from "../features/command-palette/searchIndex";
 import { studioCommands, type StudioCommandId } from "../entities/commands/commandRegistry";
 import { EditorPane } from "../features/editor/EditorPane";
+import type { ArtifactDocument } from "../entities/editor/types";
 import type { StudioOperation, StudioOperationOutcome } from "../contracts/studioOperations";
 import { createStudioOperationDispatcher } from "../contracts/dispatcher/studioOperationDispatcher";
 import { useStudioSelector, useStudioStore } from "./AppProviders";
@@ -102,6 +103,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const [activeSheet, setActiveSheet] = useState<"sidebar" | "inspector" | "editor" | null>(null);
   const sheetOpener = useRef<HTMLElement | null>(null);
   const [canvas, setCanvas] = useState<Readonly<{ chatId: string; messageId: string; displayRevision: number; content: string }> | null>(null);
+  const [editorArtifact, setEditorArtifact] = useState<ArtifactDocument | null>(null);
   const [displayRevisions, setDisplayRevisions] = useState<Readonly<Record<string, Readonly<Record<string, Readonly<{ revision: number; content: string }>>>>>>({});
   const [inspectorRouteRequest, setInspectorRouteRequest] = useState<Readonly<{ id: number; route: "overview" | "usage" | "activity" }> | undefined>();
   const [admissionPhase, setAdmissionPhase] = useState<"idle" | "submitting" | "aborting">("idle");
@@ -183,6 +185,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   useEffect(() => {
     setAdmissionPhase("idle");
     setAdmissionMessage("");
+    setEditorArtifact(null);
   }, [navigation.selectedChatId]);
 
   useEffect(() => {
@@ -447,6 +450,19 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   };
 
   const harnessExecutor = async (operation: StudioOperation): Promise<StudioOperationOutcome> => {
+    if (operation.action === "editor.artifact.open" || operation.action === "activity.file.open" || operation.action === "harness.context-source.open") {
+      if (harnessAdapter.availability.status !== "available") return { status: "unavailable", reason: harnessAdapter.availability.reason };
+      if (!harnessAdapter.openArtifact) return { status: "unavailable", reason: "The native identity-bound artifact resolver is unavailable." };
+      const sessionId = operation.payload.sessionId;
+      const candidateId = operation.action === "editor.artifact.open" ? operation.payload.artifactId : operation.action === "activity.file.open" ? operation.payload.fileId : operation.payload.sourceId;
+      const result = await harnessAdapter.openArtifact(sessionId, candidateId);
+      if (result.kind === "unsupported") return { status: "unavailable", reason: result.reason };
+      setEditorArtifact(result.document);
+      setCanvas(null);
+      await changeLayout({ editorOpen: true });
+      if (viewport <= 900) setActiveSheet("editor");
+      return { status: "updated", revision: result.document.ref.revision };
+    }
     if (operation.action === "harness.session.prompt" || operation.action === "harness.session.follow-up" || operation.action === "harness.session.steer" || operation.action === "harness.session.abort") {
       const sessionId = operation.payload.sessionId;
       const session = Object.values(store.getSnapshot().sessions).find((candidate) => candidate.sessionId === sessionId);
@@ -815,9 +831,9 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       />}
       editorContent={<EditorPane
         onClose={() => { void dispatchOperation({ action: "layout.editor.close", payload: {} }); }}
-        artifact={null}
+        artifact={editorArtifact}
         onArtifactSave={rpc.saveEditorArtifact}
-        unsupportedReason="No identity-bound native or Harness artifact reference is available for this editor."
+        unsupportedReason="Open an identity-bound candidate from Harness Outputs, Sources, Activity, or a subagent file list."
         canvas={canvas?.chatId === navigation.selectedChatId ? canvas : null}
         onCanvasApply={canvas ? (content) => {
           const revision = canvas.displayRevision + 1;

@@ -306,16 +306,17 @@ describe("Harness IPC client", () => {
             command: "read",
             status: "succeeded",
             durationMs: 2,
-            files: ["package.json"],
+            files: [{ candidateId: "candidate-tool", label: "package.json" }],
           },
         },
       ],
-      outputs: [{ id: "output-1", label: "Report", path: "report.md", kind: "file" }],
+      outputs: [{ id: "output-1", label: "Report", candidateId: "candidate-output", kind: "file" }],
       sources: [
         {
           id: "source-1",
           label: "package.json",
           detail: "Workspace file",
+          candidateId: "candidate-source",
           kind: "file",
         },
       ],
@@ -345,6 +346,9 @@ describe("Harness IPC client", () => {
     });
 
     mocks.invoke.mockResolvedValueOnce(JSON.stringify({ ...details, untrusted: true }));
+    await expect(loadHarnessInspector("root")).rejects.toThrow("Harness projection unavailable");
+
+    mocks.invoke.mockResolvedValueOnce(JSON.stringify({ ...details, outputs: [{ id: "output-1", label: "Report", path: "C:\\secrets.txt", kind: "file" }] }));
     await expect(loadHarnessInspector("root")).rejects.toThrow("Harness projection unavailable");
   });
 

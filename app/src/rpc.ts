@@ -526,6 +526,12 @@ export async function openEditorArtifact(artifactRef: ArtifactRef): Promise<Arti
   return strictInvoke<ArtifactOpenResult>("editor_artifact_open", { request: { artifactRef } });
 }
 
+export async function openHarnessArtifactCandidate(sessionId: string, candidateId: string): Promise<ArtifactOpenResult> {
+  const id = /^[A-Za-z0-9_.:-]{1,128}$/;
+  if (!id.test(sessionId) || !id.test(candidateId)) throw new Error("Harness artifact candidate is invalid");
+  return strictInvoke<ArtifactOpenResult>("harness_artifact_open", { request: { sessionId, candidateId } });
+}
+
 export async function saveEditorArtifact(request: ArtifactSaveRequest): Promise<ArtifactSaveResult> {
   if (!validArtifactRef(request.ref) || request.expectedRevision !== request.ref.revision || !/^sha256:[0-9a-f]{64}$/.test(request.expectedIdentity) || request.content.length > 2 * 1024 * 1024 || request.content.includes("\0")) throw new Error("artifact save request is invalid");
   return strictInvoke<ArtifactSaveResult>("editor_artifact_save", { request });
