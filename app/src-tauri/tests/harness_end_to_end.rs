@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use prime_studio_lib::harness::broker::{
-    AttachRequest, BrokerState, HarnessBroker, InspectorRequest, SessionCommandRequest,
-    SessionOwnership, StudioOperationRequest,
+    AttachRequest, BrokerState, HarnessBroker, InspectorRequest, RefreshSessionRequest,
+    SessionCommandRequest, SessionOwnership, StudioOperationRequest,
 };
 use prime_studio_lib::harness::generated::{
     ChildAgentStatus, CommandOutcome, HarnessCursor, HarnessStudioAction, RootSessionState,
@@ -168,6 +168,14 @@ fn tauri_broker_bootstraps_through_the_real_sidecar_against_a_fake_daemon() {
     assert_eq!(submitted.outcome, CommandOutcome::Accepted);
     assert_eq!(submitted.session.cursor.sequence, 9);
     assert_eq!(submitted.session.parent_messages.len(), 4);
+    let live_refreshed = tauri::async_runtime::block_on(broker.refresh_session(
+        RefreshSessionRequest {
+            session_id: "session-e2e".to_owned(),
+            known_cursor: submitted.session.cursor.clone(),
+        },
+    ))
+    .expect("the real Rust broker must continue polling from the direct-command cursor");
+    assert_eq!(live_refreshed.cursor.sequence, 10);
     let inspector = tauri::async_runtime::block_on(broker.inspector(InspectorRequest {
         session_id: "session-e2e".to_owned(),
     }))
@@ -185,7 +193,7 @@ fn tauri_broker_bootstraps_through_the_real_sidecar_against_a_fake_daemon() {
         }))
         .unwrap();
     assert_eq!(refreshed.status, StudioOperationStatus::Updated);
-    assert_eq!(refreshed.session.unwrap().cursor.sequence, 10);
+    assert_eq!(refreshed.session.unwrap().cursor.sequence, 11);
     assert_eq!(broker.recovery_record(1).unwrap().sessions.len(), 1);
     broker.close();
 }
