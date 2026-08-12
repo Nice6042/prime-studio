@@ -270,6 +270,8 @@ pub enum TauriCommand {
     GetAppSettings,
     ProjectCatalogLoad,
     ProjectCatalogApply,
+    AttentionLoad,
+    AttentionMarkSeen,
     SchedulerProjection,
     HarnessBootstrap,
     HarnessProjection,
@@ -294,7 +296,7 @@ pub enum TauriCommand {
     ComputerUseReadiness,
 }
 
-pub const ALL_TAURI_COMMANDS: [TauriCommand; 56] = [
+pub const ALL_TAURI_COMMANDS: [TauriCommand; 58] = [
     TauriCommand::StartSession,
     TauriCommand::AttachSession,
     TauriCommand::DetachSession,
@@ -329,6 +331,8 @@ pub const ALL_TAURI_COMMANDS: [TauriCommand; 56] = [
     TauriCommand::GetAppSettings,
     TauriCommand::ProjectCatalogLoad,
     TauriCommand::ProjectCatalogApply,
+    TauriCommand::AttentionLoad,
+    TauriCommand::AttentionMarkSeen,
     TauriCommand::SchedulerProjection,
     TauriCommand::HarnessBootstrap,
     TauriCommand::HarnessProjection,
@@ -397,6 +401,8 @@ impl TauriCommand {
             Self::GetAppSettings => "get_app_settings",
             Self::ProjectCatalogLoad => "project_catalog_load",
             Self::ProjectCatalogApply => "project_catalog_apply",
+            Self::AttentionLoad => "attention_load",
+            Self::AttentionMarkSeen => "attention_mark_seen",
             Self::SchedulerProjection => "scheduler_projection",
             Self::HarnessBootstrap => "harness_bootstrap",
             Self::HarnessProjection => "harness_projection",
@@ -465,7 +471,9 @@ impl TauriCommand {
             | Self::HarnessCreateResidentChat => CommandAuthority::VerifiedBroker,
             Self::ExportAccountUsageCsv => CommandAuthority::SafetyControl,
             Self::EditorArtifactOpen | Self::EditorArtifactSave => CommandAuthority::VerifiedBroker,
-            Self::NoteAgent | Self::ProjectCatalogApply => CommandAuthority::LocalBookkeeping,
+            Self::NoteAgent | Self::ProjectCatalogApply | Self::AttentionMarkSeen => {
+                CommandAuthority::LocalBookkeeping
+            }
             Self::SendRpc => CommandAuthority::DynamicRawRpc,
             Self::GetProviderProductSnapshot
             | Self::ListAccounts
@@ -480,6 +488,7 @@ impl TauriCommand {
             | Self::BrowserCheckIntentAdmission
             | Self::GetAppSettings
             | Self::ProjectCatalogLoad
+            | Self::AttentionLoad
             | Self::SchedulerProjection
             | Self::HarnessBootstrap
             | Self::HarnessProjection

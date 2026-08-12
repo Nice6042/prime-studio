@@ -31,6 +31,8 @@ import { createStudioOperationDispatcher } from "../contracts/dispatcher/studioO
 import { useStudioSelector, useStudioStore } from "./AppProviders";
 import { installWorkspacePreferences } from "./workspacePreferences";
 import { hasOpenStudioOverlay } from "../surfaceEscape";
+import { activityAttentionForChat, deriveUnreadChatIds } from "../attention/attentionLedger";
+import { loadAttentionSnapshot, markAttentionSeen } from "../attention/attentionClient";
 
 let bootstrapPromise: ReturnType<typeof rpc.bootstrapHarness> | null = null;
 let catalogPromise: ReturnType<typeof loadProjectCatalog> | null = null;
@@ -79,6 +81,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const drafts = useStudioSelector((state) => state.drafts);
   const attachments = useStudioSelector((state) => state.attachments);
   const conversationDisplay = useStudioSelector((state) => state.conversationDisplay);
+  const attention = useStudioSelector((state) => state.attention);
   const viewport = useViewportWidth();
   const [layout, setLayout] = useState<LayoutPreferencesV1>({
     schemaVersion: 1,
@@ -118,10 +121,14 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const projects = useMemo(() => selectNavigationProjects(projectCatalog, {
     expandedProjectIds,
     activityMs: {},
-    unreadChatIds: new Set(),
+    unreadChatIds: deriveUnreadChatIds(projectCatalog, sessions, navigation.selectedChatId, attention),
     sessionStates,
     query,
-  }), [expandedProjectIds, projectCatalog, query, sessionStates]);
+  }), [attention, expandedProjectIds, navigation.selectedChatId, projectCatalog, query, sessionStates, sessions]);
+  const activityAttention = useMemo(
+    () => navigation.selectedChatId ? activityAttentionForChat(navigation.selectedChatId, selectedSession, attention) : { status: "unavailable" as const, reason: "Activity cursor evidence is unavailable for this chat." },
+    [attention, navigation.selectedChatId, selectedSession],
+  );
   const paletteChats = useMemo<readonly PaletteChat[]>(() => projectCatalog.projects.flatMap((project) =>
     project.chats.map((chat) => ({ id: chat.id, title: chat.title, project: project.name, archived: project.archived || chat.archived })),
   ), [projectCatalog]);
@@ -136,11 +143,6 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       return { id: message.id, chatId: chat.id, project: project?.name ?? "Personal", excerpt, channel: "parent" as const };
     });
   }), [projectCatalog.projects, sessions]);
-
-  const openCatalogChat = (chatId: string) => {
-    const project = projectCatalog.projects.find((candidate) => candidate.chats.some((chat) => chat.id === chatId && !chat.archived));
-    if (project) void dispatchOperation({ action: "catalog.chat.select", payload: { projectId: project.id, chatId } });
-  };
 
   useEffect(() => {
     let active = true;
@@ -211,6 +213,16 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     return () => { active = false; };
   }, [store]);
 
+  useEffect(() => {
+    let active = true;
+    void loadAttentionSnapshot().then((snapshot) => {
+      if (active) store.dispatch({ type: "attention/loaded", snapshot });
+    }).catch((error) => {
+      if (active) store.dispatch({ type: "attention/unavailable", reason: error instanceof Error ? error.message : "Attention ledger unavailable." });
+    });
+    return () => { active = false; };
+  }, [store]);
+
   const changeLayout = async (patch: Partial<LayoutPreferencesV1>): Promise<StudioOperationOutcome> => {
     const next = { ...layout, ...patch };
     setLayout(next);
@@ -249,6 +261,33 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       setCatalogOperation({ phase: "error", message: `${label} failed. Retry the action.` });
       return { status: "rejected", reason: `${label} failed. Retry the action.`, retryable: true };
     }
+  };
+
+  const persistSeenCursor = async (chatId: string, channel: "chat" | "activity", throughSequence?: number): Promise<StudioOperationOutcome> => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const current = store.getSnapshot();
+      if (current.attention.status !== "available") return { status: "unavailable", reason: current.attention.status === "unavailable" ? current.attention.reason : "Attention ledger is still loading." };
+      const matches = current.projectCatalog.projects.flatMap((project) => project.chats).filter((chat) => chat.id === chatId && !chat.archived);
+      const binding = matches.length === 1 ? matches[0]!.binding : null;
+      const session = binding ? current.sessions[binding.sessionId] ?? null : null;
+      if (!binding || !session || binding.accountId !== session.accountId || (binding.agentId !== null && binding.agentId !== session.chatId)) return { status: "unavailable", reason: "The chat has no authoritative Harness cursor." };
+      if (throughSequence !== undefined && throughSequence !== session.cursor.sequence) return { status: "rejected", reason: "The Activity cursor advanced before it could be acknowledged.", retryable: true };
+      try {
+        const snapshot = await markAttentionSeen(current.attention.revision, chatId, channel, session.cursor);
+        store.dispatch({ type: "attention/loaded", snapshot });
+        return { status: "updated", revision: snapshot.revision };
+      } catch (error) {
+        if (attempt > 0) return { status: "rejected", reason: error instanceof Error ? error.message : "Attention state could not be saved.", retryable: true };
+        try {
+          store.dispatch({ type: "attention/loaded", snapshot: await loadAttentionSnapshot() });
+        } catch (reloadError) {
+          const reason = reloadError instanceof Error ? reloadError.message : "Attention ledger unavailable.";
+          store.dispatch({ type: "attention/unavailable", reason });
+          return { status: "unavailable", reason };
+        }
+      }
+    }
+    return { status: "rejected", reason: "Attention state could not be saved.", retryable: true };
   };
 
   const createResidentChat = async (projectId: string): Promise<StudioOperationOutcome> => {
@@ -317,6 +356,10 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         const label = operation.action === "catalog.chat.archive" ? "Archiving chat" : operation.action === "catalog.chat.delete" ? "Deleting chat" : "Restoring chat";
         return applyCatalog({ type, projectId: project.id, chatId: operation.payload.chatId }, label);
       }
+      case "catalog.chat.unread-clear":
+        return persistSeenCursor(operation.payload.chatId, "chat");
+      case "activity.seen.mark":
+        return persistSeenCursor(operation.payload.chatId, "activity", operation.payload.throughSequence);
       case "conversation.user-version.select":
       case "conversation.assistant-version.select":
         store.dispatch({ type: "conversation/version-selected", chatId: operation.payload.chatId, messageId: operation.payload.messageId, kind: operation.action === "conversation.user-version.select" ? "user" : "assistant", version: operation.payload.version });
@@ -431,6 +474,24 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     },
   });
 
+  const selectCatalogChat = async (projectId: string, chatId: string) => {
+    const selected = await dispatchOperation({ action: "catalog.chat.select", payload: { projectId, chatId } });
+    if (selected.status === "updated" || selected.status === "accepted") {
+      await dispatchOperation({ action: "catalog.chat.unread-clear", payload: { chatId } });
+    }
+  };
+
+  const openCatalogChat = (chatId: string) => {
+    const project = store.getSnapshot().projectCatalog.projects.find((candidate) => candidate.chats.some((chat) => chat.id === chatId && !chat.archived));
+    if (project) void selectCatalogChat(project.id, chatId);
+  };
+
+  useEffect(() => {
+    if (attention.status === "available" && navigation.selectedChatId && selectedSession) {
+      void dispatchOperation({ action: "catalog.chat.unread-clear", payload: { chatId: navigation.selectedChatId } });
+    }
+  }, [attention.status, navigation.selectedChatId, selectedSession?.cursor.runtimeGeneration, selectedSession?.cursor.sequence]);
+
   const createChat = () => {
     const projectId = store.getSnapshot().projectCatalog.selectedProjectId;
     void dispatchOperation({ action: "catalog.chat.create", payload: { projectId } });
@@ -500,7 +561,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         onSearch={setQuery}
         onSelectChat={(chatId) => {
           const project = projectCatalog.projects.find((candidate) => candidate.chats.some((chat) => chat.id === chatId));
-          if (project) void dispatchOperation({ action: "catalog.chat.select", payload: { projectId: project.id, chatId } });
+          if (project) void selectCatalogChat(project.id, chatId);
         }}
         onToggleProject={(projectId) => { void dispatchOperation({ action: "catalog.project.toggle", payload: { projectId } }); }}
         onNewChat={createChat}
@@ -671,7 +732,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
             moveTargets={projectCatalog.projects.filter((candidate) => !candidate.archived && candidate.id !== project?.id).map((candidate) => ({ id: candidate.id, name: candidate.name }))}
             operation={catalogOperation}
             inspectorHidden={!layout.inspectorOpen}
-            onSelectChat={(chatId) => { if (project) void dispatchOperation({ action: "catalog.chat.select", payload: { projectId: project.id, chatId } }); }}
+            onSelectChat={(chatId) => { if (project) void selectCatalogChat(project.id, chatId); }}
             onSetPinned={() => { void dispatchOperation({ action: "catalog.chat.pin-toggle", payload: { chatId: selectedChat.id } }); }}
             onRename={(nextTitle) => { void dispatchOperation({ action: "catalog.chat.rename", payload: { chatId: selectedChat.id, title: nextTitle } }); }}
             onDuplicate={() => { void dispatchOperation({ action: "catalog.chat.duplicate", payload: { chatId: selectedChat.id } }); }}
@@ -746,6 +807,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         session={selectedSession}
         compatibility={compatibility}
         adapter={harnessAdapter}
+        activityAttention={activityAttention}
         onExecute={dispatchOperation}
         routeRequest={inspectorRouteRequest}
         onCollapse={() => { if (layout.inspectorOpen) void dispatchOperation({ action: "layout.inspector.toggle", payload: {} }); setActiveSheet(null); }}

@@ -211,6 +211,23 @@ describe("HarnessInspector", () => {
     ]));
   });
 
+  it("marks Activity seen through the typed action only when an authoritative unseen cursor exists", async () => {
+    const onExecute = vi.fn(async () => ({ status: "updated" as const, revision: 8 }));
+    const user = userEvent.setup();
+    const view = render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={adapter()} onExecute={onExecute} activityAttention={{ status: "unseen", throughSequence: 8 }} />);
+    await screen.findByText("This chat");
+    expect(screen.getByRole("tab", { name: "Activity, unseen" })).toBeVisible();
+    await user.click(screen.getByRole("tab", { name: "Activity, unseen" }));
+    await waitFor(() => expect(onExecute).toHaveBeenCalledWith({ action: "activity.seen.mark", payload: { chatId: "chat-a", throughSequence: 8 } }));
+
+    view.unmount();
+    onExecute.mockClear();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={adapter()} onExecute={onExecute} activityAttention={{ status: "unavailable", reason: "Activity cursor evidence unavailable." }} />);
+    await user.click(await screen.findByRole("tab", { name: "Activity" }));
+    expect(await screen.findByText("Activity cursor evidence unavailable.")).toBeVisible();
+    expect(onExecute).not.toHaveBeenCalledWith(expect.objectContaining({ action: "activity.seen.mark" }));
+  });
+
   it("routes system activity rows instead of leaving an interactive no-op", async () => {
     const commands: StudioOperation[] = [];
     const user = userEvent.setup();

@@ -1,6 +1,7 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 
 import { createControlBinding, type StudioOperation, type StudioOperationOutcome } from "../../contracts/studioOperations";
+import type { ActivityAttention } from "../../attention/attentionLedger";
 import type { RootSessionProjection } from "../../entities/harness/types";
 import type { HarnessCompatibility } from "../../shared/ipc/harness.generated";
 import { ActivityFeed } from "./ActivityFeed";
@@ -36,7 +37,7 @@ function outcomeMessage(outcome: StudioOperationOutcome): { kind: "status" | "al
   return { kind: "alert", text: outcome.reason };
 }
 
-export function HarnessInspector({ chatId, session, compatibility, adapter = unavailableHarnessInspectorAdapter, onExecute, onOpenAccountUsage, onCollapse, routeRequest }: {
+export function HarnessInspector({ chatId, session, compatibility, adapter = unavailableHarnessInspectorAdapter, onExecute, onOpenAccountUsage, onCollapse, routeRequest, activityAttention }: {
   readonly chatId: string | null;
   readonly session: RootSessionProjection | null;
   readonly compatibility: HarnessCompatibility;
@@ -45,6 +46,7 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
   readonly onOpenAccountUsage?: () => void;
   readonly onCollapse?: () => void;
   readonly routeRequest?: Readonly<{ id: number; route: "overview" | "usage" | "activity" }>;
+  readonly activityAttention?: ActivityAttention;
 }) {
   const [state, dispatch] = useReducer(reduceInspector, chatId, (id) => createInspectorState(restoreRoute(id)));
   const [details, setDetails] = useState<HarnessPanelDetails | null>(null);
@@ -53,6 +55,7 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
   const [feedback, setFeedback] = useState<{ kind: "status" | "alert"; text: string } | null>(null);
   const [hiddenNoticeIds, setHiddenNoticeIds] = useState<ReadonlySet<string>>(new Set());
   const childReturnFocus = useRef<HTMLElement | null>(null);
+  const activitySeenAttempt = useRef<string | null>(null);
 
   const loadDetails = async () => {
     if (!session || adapter.availability.status === "unavailable") {
@@ -105,6 +108,14 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
     }
   };
 
+  useEffect(() => {
+    if (state.route.kind !== "activity" || !chatId || activityAttention?.status !== "unseen" || pendingKey) return;
+    const key = `${chatId}:${activityAttention.throughSequence}`;
+    if (activitySeenAttempt.current === key) return;
+    activitySeenAttempt.current = key;
+    void runAction({ action: "activity.seen.mark", payload: { chatId, throughSequence: activityAttention.throughSequence } }, `activity-seen:${key}`, true);
+  }, [activityAttention, chatId, pendingKey, state.route.kind]);
+
   const selectTopRoute = (route: "overview" | "usage" | "activity") => {
     dispatch({ type: "route/open", route });
     if (chatId) void runAction({ action: "harness.tab.select", payload: { chatId, tab: route === "overview" ? "harness" : route } }, `tab:${route}`, true);
@@ -124,7 +135,7 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
   const child = selectedChildId ? session?.children.find((candidate) => candidate.id === selectedChildId) : null;
   const collapse = createControlBinding("layout.inspector.toggle:harness", "layout.inspector.toggle");
   return <div className="harness-inspector" data-load-phase={loadPhase}>
-    {state.route.kind !== "child" && <><div className="harness-inspector-header"><div><strong>Harness</strong>{compatibility.status !== "ready" && <span className="harness-compatibility">{compatibility.status.replace("_", " ")}</span>}</div><button type="button" data-control-id={collapse.controlId} className="harness-collapse" aria-label="Collapse inspector" disabled={!onCollapse} title={onCollapse ? undefined : "Inspector layout control is unavailable in this host."} onClick={onCollapse}><HarnessIcon kind="collapse" /></button></div><InspectorTabs route={state.route} onSelect={selectTopRoute} /></>}
+    {state.route.kind !== "child" && <><div className="harness-inspector-header"><div><strong>Harness</strong>{compatibility.status !== "ready" && <span className="harness-compatibility">{compatibility.status.replace("_", " ")}</span>}</div><button type="button" data-control-id={collapse.controlId} className="harness-collapse" aria-label="Collapse inspector" disabled={!onCollapse} title={onCollapse ? undefined : "Inspector layout control is unavailable in this host."} onClick={onCollapse}><HarnessIcon kind="collapse" /></button></div><InspectorTabs route={state.route} onSelect={selectTopRoute} activityAttention={activityAttention} /></>}
     {state.notice && <p className="harness-notice" role="status">{state.notice}</p>}
     {feedback && <p className="harness-operation-feedback" role={feedback.kind}>{feedback.text}</p>}
     {session && adapter.workerRecovery?.status === "unavailable" && <p className="harness-recovery-unavailable" role="status" aria-label="Silent worker recovery unavailable"><strong>Silent worker recovery unavailable.</strong> {adapter.workerRecovery.reason}</p>}
@@ -134,7 +145,7 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
       {session && loadPhase === "unavailable" && <p className="harness-detail-unavailable" role="status">{adapter.availability.status === "unavailable" ? adapter.availability.reason : "Harness details are unavailable."}</p>}
       {session && state.route.kind === "overview" && <HarnessOverview session={session} compatibility={compatibility} details={details} pendingKey={pendingKey} hiddenNoticeIds={hiddenNoticeIds} onOpenChild={openChild} onOpenActivity={() => selectTopRoute("activity")} onAction={runAction} />}
       {session && state.route.kind === "usage" && <ChatUsage usage={session.usage} details={details} refreshing={pendingKey === "usage-refresh"} onRefresh={() => void runAction({ action: "usage.current.refresh", payload: { sessionId: session.sessionId } }, "usage-refresh")} onOpenAccountUsage={onOpenAccountUsage ? () => { void runAction({ action: "usage.account.open", payload: {} }, "usage-account", true); onOpenAccountUsage(); } : undefined} />}
-      {session && state.route.kind === "activity" && <ActivityFeed sessionId={session.sessionId} details={details} filter={state.activityFilter} expandedId={state.expandedActivityId} onFilter={(filter) => { dispatch({ type: "activity/filter", filter }); if (chatId) void runAction({ action: "activity.filter.select", payload: { chatId, filter: filter === "agent" ? "agents" : filter === "tool" ? "tools" : filter === "file" ? "files" : "all" } }, `activity-filter:${filter}`, true); }} onToggle={(activityId) => { dispatch({ type: "activity/toggle", activityId }); if (chatId) void runAction({ action: "activity.row.toggle", payload: { chatId, activityId } }, `activity-row:${activityId}`, true); }} onOpenChild={openChild} onAction={runAction} />}
+      {session && state.route.kind === "activity" && <>{activityAttention?.status === "unavailable" && <p className="activity-evidence-note" role="status">{activityAttention.reason}</p>}<ActivityFeed sessionId={session.sessionId} details={details} filter={state.activityFilter} expandedId={state.expandedActivityId} onFilter={(filter) => { dispatch({ type: "activity/filter", filter }); if (chatId) void runAction({ action: "activity.filter.select", payload: { chatId, filter: filter === "agent" ? "agents" : filter === "tool" ? "tools" : filter === "file" ? "files" : "all" } }, `activity-filter:${filter}`, true); }} onToggle={(activityId) => { dispatch({ type: "activity/toggle", activityId }); if (chatId) void runAction({ action: "activity.row.toggle", payload: { chatId, activityId } }, `activity-row:${activityId}`, true); }} onOpenChild={openChild} onAction={runAction} /></>}
       {session && state.route.kind === "child" && child && <ChildDetail sessionId={session.sessionId} child={child} details={details?.children[child.id] ?? null} observedAtMs={details?.observedAtMs ?? Date.now()} tab={state.route.tab} pendingKey={pendingKey} onBack={backFromChild} onTab={(tab) => dispatch({ type: "child/tab", tab })} onAction={runAction} />}
     </div>
   </div>;

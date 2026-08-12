@@ -1,4 +1,5 @@
 import type { HarnessCompatibility } from "../ipc/harness.generated";
+import { reconcileAttentionSnapshot, type AttentionSnapshot, type AttentionState } from "../../attention/attentionLedger";
 import type { BootProjection, RootSessionProjection } from "../../entities/harness/types";
 import {
   createInitialProjectChatState,
@@ -36,6 +37,7 @@ export interface StudioAppState {
   readonly attachments: Readonly<Record<string, readonly DraftAttachment[]>>;
   readonly conversationDisplay: Readonly<Record<string, ConversationDisplay>>;
   readonly async: Readonly<Record<string, AsyncState>>;
+  readonly attention: AttentionState;
 }
 
 export interface DraftAttachment {
@@ -79,6 +81,8 @@ export type StudioIntent =
   | Readonly<{ type: "harness/session-projected"; session: RootSessionProjection }>
   | Readonly<{ type: "project-catalog/loaded"; snapshot: Readonly<{ revision: number; state: ProjectChatState }> }>
   | Readonly<{ type: "account/default-selected"; accountId: string | null }>
+  | Readonly<{ type: "attention/loaded"; snapshot: AttentionSnapshot }>
+  | Readonly<{ type: "attention/unavailable"; reason: string }>
   | Readonly<{ type: "route/settings"; section?: string }>
   | Readonly<{ type: "route/workspace" }>
   | Readonly<{ type: "async/started"; key: string; generation: number }>
@@ -119,6 +123,7 @@ export function initialStudioState(input: {
     attachments: Object.freeze({}),
     conversationDisplay,
     async: Object.freeze({}),
+    attention: { status: "loading" },
   };
 }
 
@@ -235,6 +240,11 @@ export function reduceStudio(state: StudioAppState, intent: StudioIntent): Studi
     }
     case "account/default-selected":
       return state.defaultAccountId === intent.accountId ? state : { ...state, defaultAccountId: intent.accountId };
+    case "attention/loaded":
+      if (state.attention.status === "available" && state.attention.revision >= intent.snapshot.revision) return state;
+      return { ...state, attention: reconcileAttentionSnapshot(intent.snapshot) };
+    case "attention/unavailable":
+      return { ...state, attention: { status: "unavailable", reason: intent.reason } };
     case "route/settings":
       return { ...state, navigation: { route: "settings", settingsSection: intent.section ?? null, selectedChatId: state.navigation.selectedChatId } };
     case "route/workspace":

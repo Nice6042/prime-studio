@@ -1,11 +1,13 @@
 import { useRef, type KeyboardEvent } from "react";
 
 import { createControlBinding } from "../../contracts/studioOperations";
+import type { ActivityAttention } from "../../attention/attentionLedger";
 import type { InspectorRoute } from "./inspectorStore";
 
-export function InspectorTabs({ route, onSelect }: {
+export function InspectorTabs({ route, onSelect, activityAttention }: {
   readonly route: InspectorRoute;
   readonly onSelect: (route: "overview" | "usage" | "activity") => void;
+  readonly activityAttention?: ActivityAttention;
 }) {
   const refs = useRef<Array<HTMLButtonElement | null>>([]);
   const tabs = ["overview", "usage", "activity"] as const;
@@ -27,8 +29,9 @@ export function InspectorTabs({ route, onSelect }: {
       tabIndex={active === tab ? 0 : -1}
       ref={(node) => { refs.current[index] = node; }}
       key={tab}
+      aria-label={tab === "activity" && activityAttention?.status === "unseen" ? "Activity, unseen" : undefined}
       onClick={() => onSelect(tab)}
       onKeyDown={(event) => onKeyDown(event, index)}
-    >{tab === "overview" ? "Harness" : `${tab[0]?.toLocaleUpperCase()}${tab.slice(1)}`}</button>; })}
+    >{tab === "overview" ? "Harness" : `${tab[0]?.toLocaleUpperCase()}${tab.slice(1)}`}{tab === "activity" && activityAttention?.status === "unseen" && <span className="activity-unseen-dot" aria-hidden="true" />}</button>; })}
   </div>;
 }

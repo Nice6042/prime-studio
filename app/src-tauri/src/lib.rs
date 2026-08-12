@@ -9,6 +9,7 @@
 
 pub mod accounts;
 pub mod app_state;
+pub mod attention_ledger;
 pub mod authority;
 mod bounded_io;
 pub mod browser;
@@ -25,6 +26,7 @@ pub mod session_process;
 
 use accounts::delete::{AccountDeletion, DeletionError, DeletionErrorCode, RemovalPlan};
 use accounts::{Account, AccountRegistry, MAX_AUTH_FILE_BYTES};
+use attention_ledger::{AttentionChannel, AttentionCursor, AttentionLedger, AttentionSnapshot};
 use authority::{
     authorize_known_session_rpc, authorize_tauri_invoke, run_guarded_tauri_command, AuthorityGate,
     EffectClass, TauriCommand,
@@ -487,6 +489,10 @@ fn scheduler_state_path() -> PathBuf {
 
 fn project_catalog_path() -> PathBuf {
     config_dir().join("projects-v2.json")
+}
+
+fn attention_ledger_path() -> PathBuf {
+    config_dir().join("attention-v1.json")
 }
 
 fn read_settings() -> Settings {
@@ -2627,6 +2633,7 @@ struct AppState {
     scheduler: SchedulerService,
     harness: app_state::HarnessState,
     project_catalog: Arc<ProjectCatalog>,
+    attention_ledger: Arc<AttentionLedger>,
     artifacts: ArtifactAuthority,
 }
 
@@ -2647,6 +2654,7 @@ impl AppState {
             scheduler: SchedulerService::open(scheduler_state_path()),
             harness: app_state::HarnessState::default(),
             project_catalog: Arc::new(ProjectCatalog::new(project_catalog_path())),
+            attention_ledger: Arc::new(AttentionLedger::new(attention_ledger_path())),
             artifacts: ArtifactAuthority::default(),
         }
     }
@@ -2720,6 +2728,82 @@ fn project_catalog_apply(
     state
         .project_catalog
         .apply(expected_revision, command)
+        .map_err(|error| error.to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct AttentionMarkSeenInput {
+    expected_revision: u64,
+    chat_id: String,
+    channel: AttentionChannel,
+    cursor: AttentionCursor,
+}
+
+#[tauri::command]
+fn attention_load(state: State<AppState>) -> Result<AttentionSnapshot, String> {
+    state
+        .attention_ledger
+        .load()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn attention_mark_seen(
+    state: State<AppState>,
+    request: AttentionMarkSeenInput,
+) -> Result<AttentionSnapshot, String> {
+    let coordinator = state.harness.resident_transaction();
+    let _transaction = coordinator
+        .lock()
+        .map_err(|_| "Attention transaction is unavailable".to_owned())?;
+    let catalog = state
+        .project_catalog
+        .load()
+        .map_err(|error| error.to_string())?;
+    let matches: Vec<_> = catalog
+        .state
+        .projects
+        .iter()
+        .flat_map(|project| project.chats.iter())
+        .filter(|chat| chat.id == request.chat_id && !chat.archived)
+        .collect();
+    let chat = match matches.as_slice() {
+        [chat] => *chat,
+        _ => return Err("Attention chat identity is unavailable".to_owned()),
+    };
+    let binding = chat
+        .binding
+        .as_ref()
+        .ok_or_else(|| "Attention chat has no authoritative Harness binding".to_owned())?;
+    let sessions: Vec<_> = state
+        .harness
+        .session_projections()
+        .into_iter()
+        .filter(|session| session.session_id == binding.session_id)
+        .collect();
+    let session = match sessions.as_slice() {
+        [session] => session,
+        _ => return Err("Attention Harness session identity is unavailable".to_owned()),
+    };
+    if binding.account_id != session.account_id
+        || binding
+            .agent_id
+            .as_ref()
+            .is_some_and(|agent_id| agent_id != &session.chat_id)
+        || request.cursor.runtime_generation != session.cursor.runtime_generation
+        || request.cursor.sequence != session.cursor.sequence
+    {
+        return Err("Attention cursor is not the current authoritative Harness cursor".to_owned());
+    }
+    state
+        .attention_ledger
+        .mark_seen(
+            request.expected_revision,
+            &request.chat_id,
+            request.channel,
+            request.cursor,
+        )
         .map_err(|error| error.to_string())
 }
 
@@ -3962,6 +4046,8 @@ pub fn run() {
             get_app_settings,
             project_catalog_load,
             project_catalog_apply,
+            attention_load,
+            attention_mark_seen,
             scheduler_projection,
             harness_bootstrap,
             harness_projection,

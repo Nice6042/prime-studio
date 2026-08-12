@@ -62,6 +62,7 @@
 .child-tabs button[aria-selected="true"]::after { background: var(--hi-accent); }
 .harness-tabs button:hover,
 .child-tabs button:hover { color: var(--hi-soft); }
+.activity-unseen-dot { display: inline-block; inline-size: 6px; block-size: 6px; margin-inline-start: 6px; border-radius: 50%; background: var(--hi-accent-soft); box-shadow: 0 0 0 2px rgb(169 162 255 / 0.14); vertical-align: middle; }
 
 .harness-inspector-content { min-block-size: 0; overflow: auto; scrollbar-color: #33333a transparent; }
 .harness-overview,
