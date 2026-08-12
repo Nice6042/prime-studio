@@ -32,7 +32,7 @@ test("configured workspace footer owns a keyboard menu with explicit operation o
   await expect(shellPage.getByRole("main", { name: "Settings" })).toBeVisible();
 });
 
-test("expanded workspace menu closes across Tab order and responsive mode changes", async ({ shellPage }) => {
+test("workspace menu transfers focus across pane and rail replacements without reopening", async ({ shellPage }) => {
   const trigger = shellPage.getByRole("button", { name: "Prime Studio workspace menu" });
   await trigger.click();
   await shellPage.keyboard.press("Tab");
@@ -47,9 +47,34 @@ test("expanded workspace menu closes across Tab order and responsive mode change
   await trigger.click();
   await shellPage.setViewportSize({ width: 700, height: 800 });
   await expect(shellPage.getByRole("menu", { name: "Workspace actions" })).toHaveCount(0);
+  const railTrigger = shellPage.locator('[data-control-id="rail-workspace-menu"]');
+  await expect(railTrigger).toBeFocused();
+  await expect(railTrigger).toHaveAttribute("aria-expanded", "false");
+
+  await railTrigger.click();
   await shellPage.setViewportSize({ width: 1280, height: 800 });
-  await expect(trigger).toHaveAttribute("aria-expanded", "false");
   await expect(shellPage.getByRole("menu", { name: "Workspace actions" })).toHaveCount(0);
+  const expandedTrigger = shellPage.locator('[data-control-id="sidebar-workspace-menu"]');
+  await expect(expandedTrigger).toBeFocused();
+  await expect(expandedTrigger).toHaveAttribute("aria-expanded", "false");
+
+  await shellPage.setViewportSize({ width: 700, height: 800 });
+  await shellPage.getByRole("button", { name: "Projects" }).click();
+  const sheet = shellPage.locator('[data-studio-sheet="sidebar"]');
+  const sheetTrigger = sheet.locator('[data-control-id="sidebar-workspace-menu"]');
+  await sheetTrigger.click();
+  await shellPage.setViewportSize({ width: 1280, height: 800 });
+  await expect(shellPage.getByRole("menu", { name: "Workspace actions" })).toHaveCount(0);
+  const replacementPaneTrigger = shellPage.locator('[data-control-id="sidebar-workspace-menu"]');
+  await expect(replacementPaneTrigger).toBeFocused();
+  await expect(replacementPaneTrigger).toHaveAttribute("aria-expanded", "false");
+
+  await replacementPaneTrigger.click();
+  await shellPage.setViewportSize({ width: 700, height: 800 });
+  const replacementSheetTrigger = shellPage.locator('[data-studio-sheet="sidebar"] [data-control-id="sidebar-workspace-menu"]');
+  await expect(shellPage.getByRole("menu", { name: "Workspace actions" })).toHaveCount(0);
+  await expect(replacementSheetTrigger).toBeFocused();
+  await expect(replacementSheetTrigger).toHaveAttribute("aria-expanded", "false");
 });
 
 test("Harness keeps child work, activity, and current-chat usage out of the parent chat", async ({ shellPage }) => {

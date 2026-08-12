@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
@@ -113,7 +113,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const [settingsLoadFailed, setSettingsLoadFailed] = useState(false);
   const [accounts, setAccounts] = useState<readonly Account[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [workspaceMenuSurface, setWorkspaceMenuSurface] = useState<"expanded" | "rail" | null>(null);
+  const [workspaceMenuHost, setWorkspaceMenuHost] = useState<"pane" | "rail" | "sheet" | null>(null);
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
   const [createProjectOpener, setCreateProjectOpener] = useState<HTMLElement | null>(null);
   const [paletteOpener, setPaletteOpener] = useState<HTMLElement | null>(null);
@@ -509,7 +509,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       case "layout.editor.toggle": return changeLayout((current) => ({ ...current, editorOpen: !current.editorOpen }));
       case "layout.editor.resize": return changeLayout({ editorWidth: operation.payload.width });
       case "layout.editor.close": setActiveSheet(null); return changeLayout({ editorOpen: false });
-      case "route.settings.open": setWorkspaceMenuSurface(null); store.dispatch({ type: "route/settings", section: operation.payload.section }); break;
+      case "route.settings.open": setWorkspaceMenuHost(null); store.dispatch({ type: "route/settings", section: operation.payload.section }); break;
       case "route.archived.open": store.dispatch({ type: "route/settings", section: "archived" }); break;
       case "route.settings.back":
       case "route.workspace.open": store.dispatch({ type: "route/workspace" }); break;
@@ -517,10 +517,10 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       case "palette.open": openPalette(); break;
       case "palette.close": setPaletteOpen(false); break;
       case "surface.popover.toggle":
-        if (operation.payload.popoverId === "create-project") { setWorkspaceMenuSurface(null); openCreateProject(); }
-        else if (operation.payload.popoverId === "workspace-footer-expanded") { setCreateProjectOpen(false); setWorkspaceMenuSurface("expanded"); }
-        else if (operation.payload.popoverId === "workspace-footer-rail") { setCreateProjectOpen(false); setWorkspaceMenuSurface("rail"); }
-        else if (operation.payload.popoverId === null) { setCreateProjectOpen(false); setWorkspaceMenuSurface(null); }
+        if (operation.payload.popoverId === "create-project") { setWorkspaceMenuHost(null); openCreateProject(); }
+        else if (operation.payload.popoverId === "workspace-footer-expanded" && (workspaceFooterHost === "pane" || workspaceFooterHost === "sheet")) { setCreateProjectOpen(false); setWorkspaceMenuHost(workspaceFooterHost); }
+        else if (operation.payload.popoverId === "workspace-footer-rail" && workspaceFooterHost === "rail") { setCreateProjectOpen(false); setWorkspaceMenuHost("rail"); }
+        else if (operation.payload.popoverId === null) { setCreateProjectOpen(false); setWorkspaceMenuHost(null); }
         else return { status: "unavailable", reason: `Popover ${operation.payload.popoverId} is unavailable.` };
         break;
       case "catalog.project.toggle": {
@@ -727,13 +727,25 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     inspector: { open: layout.inspectorOpen, preferred: layout.inspectorWidth },
     editor: { open: layout.editorOpen, preferred: layout.editorWidth },
   }).sidebar.mode;
-  const expandedWorkspaceFooterVisible = solvedSidebarMode === "pane"
-    || (viewport < layoutBounds.sheetBreakpoint && activeSheet === "sidebar");
-  const railWorkspaceFooterVisible = solvedSidebarMode === "rail";
-  useEffect(() => {
-    if (workspaceMenuSurface === "expanded" && !expandedWorkspaceFooterVisible) setWorkspaceMenuSurface(null);
-    if (workspaceMenuSurface === "rail" && !railWorkspaceFooterVisible) setWorkspaceMenuSurface(null);
-  }, [expandedWorkspaceFooterVisible, railWorkspaceFooterVisible, workspaceMenuSurface]);
+  const workspaceFooterHost: "pane" | "rail" | "sheet" | null = viewport < layoutBounds.sheetBreakpoint && activeSheet === "sidebar"
+    ? "sheet"
+    : solvedSidebarMode === "pane"
+      ? "pane"
+      : solvedSidebarMode === "rail"
+        ? "rail"
+        : null;
+  useLayoutEffect(() => {
+    if (workspaceMenuHost === null || workspaceMenuHost === workspaceFooterHost) return;
+    setWorkspaceMenuHost(null);
+    const replacementControlId = workspaceFooterHost === "rail"
+      ? "rail-workspace-menu"
+      : workspaceFooterHost === "pane" || workspaceFooterHost === "sheet"
+        ? "sidebar-workspace-menu"
+        : null;
+    if (replacementControlId) {
+      document.querySelector<HTMLButtonElement>(`[data-control-id="${replacementControlId}"]`)?.focus();
+    }
+  }, [workspaceFooterHost, workspaceMenuHost]);
   const newChatDisabledReason = catalogOperation.phase === "pending" ? catalogOperation.label : residentCreationDisabledReason(settings) ?? undefined;
   const admissionConnected = Boolean(
     selectedSession
@@ -773,7 +785,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         onCollapse={() => { if (layout.sidebarOpen) void dispatchOperation({ action: "layout.sidebar.toggle", payload: {} }); }}
         onOpenSettings={openSettings}
         workspace={workspaceIdentity}
-        workspaceMenuOpen={workspaceMenuSurface === "expanded" && expandedWorkspaceFooterVisible}
+        workspaceMenuOpen={workspaceMenuHost === workspaceFooterHost && (workspaceFooterHost === "pane" || workspaceFooterHost === "sheet")}
         onExecuteWorkspaceOperation={dispatchOperation}
       />
     : <CollapsedSidebar
@@ -783,7 +795,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         onOpenSearch={openPalette}
         onOpenSettings={openSettings}
         workspace={workspaceIdentity}
-        workspaceMenuOpen={workspaceMenuSurface === "rail" && railWorkspaceFooterVisible}
+        workspaceMenuOpen={workspaceMenuHost === "rail" && workspaceFooterHost === "rail"}
         onExecuteWorkspaceOperation={dispatchOperation}
       />;
   const sidebarRailContent = <CollapsedSidebar
@@ -797,7 +809,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     onOpenSearch={openPalette}
     onOpenSettings={openSettings}
     workspace={workspaceIdentity}
-    workspaceMenuOpen={workspaceMenuSurface === "rail" && railWorkspaceFooterVisible}
+    workspaceMenuOpen={workspaceMenuHost === "rail" && workspaceFooterHost === "rail"}
     onExecuteWorkspaceOperation={dispatchOperation}
   />;
 
