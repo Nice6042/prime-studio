@@ -154,10 +154,13 @@ fn reopening_a_saved_artifact_returns_a_real_bounded_structured_diff() {
     };
     let encoded = serde_json::to_value(document).expect("serialize document");
     assert_eq!(encoded["diffTruncated"], false);
-    assert_eq!(encoded["diff"], json!([
-        {"kind":"context","oldLine":1,"newLine":1,"text":"first"},
-        {"kind":"add","oldLine":null,"newLine":2,"text":"second"}
-    ]));
+    assert_eq!(
+        encoded["diff"],
+        json!([
+            {"kind":"context","oldLine":1,"newLine":1,"text":"first"},
+            {"kind":"add","oldLine":null,"newLine":2,"text":"second"}
+        ])
+    );
 }
 
 #[test]
@@ -181,11 +184,17 @@ fn save_copy_uses_the_held_artifact_authority_and_a_native_selected_destination(
     let destination = fixture.root.join("artifact-copy.txt");
     let result = authority.save_copy_at(&artifact_ref, "unsaved recovery\n", &destination);
     assert!(matches!(result, ArtifactSaveCopyResult::SavedCopy { .. }));
-    assert_eq!(fs::read_to_string(destination).unwrap(), "unsaved recovery\n");
+    assert_eq!(
+        fs::read_to_string(destination).unwrap(),
+        "unsaved recovery\n"
+    );
 
     let forged = ArtifactRef::new("broker-1", "session-1", "forged", 1);
     let denied = fixture.root.join("forged-copy.txt");
-    assert!(matches!(authority.save_copy_at(&forged, "secret", &denied), ArtifactSaveCopyResult::Unsupported { .. }));
+    assert!(matches!(
+        authority.save_copy_at(&forged, "secret", &denied),
+        ArtifactSaveCopyResult::Unsupported { .. }
+    ));
     assert!(!denied.exists());
 }
 

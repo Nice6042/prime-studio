@@ -38,7 +38,10 @@ use bounded_io::{
 use browser::{
     BrowserBroker, BrowserIntentAdmission, BrowserIntentAdmissionRequest, BrowserSecurityStatus,
 };
-use commands::editor::{editor_artifact_open, editor_artifact_reload, editor_artifact_save, editor_artifact_save_copy, ArtifactAuthority};
+use commands::editor::{
+    editor_artifact_open, editor_artifact_reload, editor_artifact_save, editor_artifact_save_copy,
+    ArtifactAuthority,
+};
 use commands::harness::{
     harness_artifact_open, harness_attach_session, harness_bootstrap, harness_branch_resident_chat,
     harness_composer_projection,

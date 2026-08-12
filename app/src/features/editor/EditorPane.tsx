@@ -74,6 +74,13 @@ export function EditorPane({
   const [baseline, setBaseline] = useState(artifact?.content ?? canvas?.content ?? "");
 
   useEffect(() => {
+    const parentEchoesLocalArtifact = Boolean(artifact && displayArtifact
+      && artifact.ref.brokerId === displayArtifact.ref.brokerId
+      && artifact.ref.rootSessionId === displayArtifact.ref.rootSessionId
+      && artifact.ref.artifactId === displayArtifact.ref.artifactId
+      && artifact.ref.revision === displayArtifact.ref.revision
+      && artifact.identity === displayArtifact.identity);
+    if (parentEchoesLocalArtifact) return;
     setDisplayArtifact(artifact ?? null);
     setMode(artifact ? "diff" : "edit");
     setContent(artifact ? (draftContent ?? artifact.content) : (canvas?.content ?? ""));

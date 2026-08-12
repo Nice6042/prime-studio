@@ -47,4 +47,13 @@ describe("ChatUsage", () => {
     expect(screen.getByRole("img", { name: "Context utilization history" })).toBeVisible();
     expect(screen.getByText("30% latest")).toBeVisible();
   });
+
+  it("marks current-chat totals unavailable when the daemon reports no usage evidence", () => {
+    const unavailable: CurrentChatUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: null };
+    render(<ChatUsage usage={unavailable} details={null} onRefresh={vi.fn()} refreshing={false} />);
+
+    expect(screen.getByText("Chat usage unavailable")).toBeVisible();
+    expect(screen.getByText("Token-type usage is unavailable.")).toBeVisible();
+    expect(screen.queryByText("0%")) .not.toBeInTheDocument();
+  });
 });

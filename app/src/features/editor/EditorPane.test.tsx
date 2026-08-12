@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import type { ArtifactDocument } from "../../entities/editor/types";
 import { EditorPane } from "./EditorPane";
 
 describe("EditorPane", () => {
@@ -42,6 +43,25 @@ describe("EditorPane", () => {
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(onArtifactSave).toHaveBeenCalledWith(expect.objectContaining({ expectedRevision: 7, expectedIdentity: "sha256:old", content: expect.stringContaining("export default") }));
     expect(await screen.findByText("Saved revision 8")).toBeVisible();
+  });
+
+  it("keeps the save acknowledgement when the parent echoes the committed revision", async () => {
+    const artifact: ArtifactDocument = { label: "notes.md", ref: { brokerId: "b", rootSessionId: "s", artifactId: "a", revision: 1 }, identity: "sha256:first", content: "first", writable: true, diff: [] };
+    const onArtifactSave = vi.fn(async () => ({ kind: "saved" as const, revision: 2, identity: "sha256:second" }));
+    let view: ReturnType<typeof render>;
+    const pane = (current: ArtifactDocument) => <EditorPane
+      onClose={() => undefined}
+      artifact={current}
+      onArtifactSave={onArtifactSave}
+      onArtifactSaved={(saved) => view.rerender(pane(saved))}
+    />;
+    view = render(pane(artifact));
+    await userEvent.click(screen.getByRole("tab", { name: "Edit" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "File content" }), " changed");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("Saved revision 2")).toBeVisible();
+    expect(screen.getByRole("tab", { name: "Edit" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("keeps dirty content visible when the native save reports a conflict", async () => {
