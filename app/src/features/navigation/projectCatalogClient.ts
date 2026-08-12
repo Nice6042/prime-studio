@@ -162,6 +162,7 @@ export async function branchResidentCatalogChat(
     !branch
     || branchChatId === request.sourceChatId
     || branchChatId === request.sourceSessionId
+    || session.sessionId === request.sourceSessionId
     || branchChatId === session.sessionId
     || branchChatId === session.chatId
     || branch.binding?.sessionId !== session.sessionId

@@ -170,6 +170,14 @@ describe("project catalog client", () => {
       messageId: "message-1",
       expectedCursor: { runtimeGeneration: "generation-source", sequence: 7 },
     } });
+    await expect(branchResidentCatalogChat({
+      expectedRevision: 2,
+      projectId: "project:personal",
+      sourceChatId: "studio-chat-1",
+      sourceSessionId: "daemon-active-branch",
+      messageId: "message-1",
+      expectedCursor: { runtimeGeneration: "generation-source", sequence: 7 },
+    })).rejects.toThrow("Project catalog unavailable");
   });
 
   it("rejects a branch response that conflates the Studio chat id with daemon identity", async () => {
