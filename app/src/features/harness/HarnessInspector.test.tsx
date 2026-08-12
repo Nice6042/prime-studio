@@ -92,6 +92,7 @@ const compatibility = {
 afterEach(() => {
   localStorage.clear();
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe("HarnessInspector", () => {
@@ -123,6 +124,13 @@ describe("HarnessInspector", () => {
     expect(within(inspector).getAllByText("Context")).toHaveLength(2);
     expect(within(inspector).getByText("Outputs")).toBeVisible();
     expect(within(inspector).getByText("Sources")).toBeVisible();
+  });
+
+  it.each([1, 9_000_000_000_000])("anchors elapsed presentation to daemon observation despite renderer clock %d", async (rendererNow) => {
+    vi.spyOn(Date, "now").mockReturnValue(rendererNow);
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={adapter()} />);
+
+    expect(await screen.findByText("13:20")).toBeVisible();
   });
 
   it("routes every overview action through the typed adapter and reports success", async () => {

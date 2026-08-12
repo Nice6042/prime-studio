@@ -1,17 +1,27 @@
-import { describe, expect, it } from "vitest";
+import { renderHook } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { MonotonicEpochClock } from "./monotonicClock";
+import { MonotonicEpochClock, useMonotonicNow } from "./monotonicClock";
+
+afterEach(() => vi.restoreAllMocks());
 
 describe("MonotonicEpochClock", () => {
-  it("never moves elapsed-time presentation backward when wall time regresses", () => {
-    const clock = new MonotonicEpochClock(10_000, 1_000);
-    expect(clock.read(900, 9_700)).toBe(10_000);
-    expect(clock.read(1_250, 10_100)).toBe(10_250);
+  it.each([1, 9_000_000_000_000])("ignores renderer wall-clock skew at %d", (rendererNow) => {
+    vi.spyOn(Date, "now").mockReturnValue(rendererNow);
+    vi.spyOn(performance, "now").mockReturnValue(500);
+
+    const { result } = renderHook(() => useMonotonicNow(10_000, 60_000));
+
+    expect(result.current).toBe(10_000);
   });
 
-  it("retains a forward wall-clock correction after the wall clock normalizes", () => {
-    const clock = new MonotonicEpochClock(10_000, 1_000);
-    expect(clock.read(1_100, 20_000)).toBe(20_000);
-    expect(clock.read(1_200, 10_200)).toBe(20_000);
+  it("advances from daemon observations without moving backward across refreshes or sessions", () => {
+    const clock = new MonotonicEpochClock();
+    expect(clock.observe(10_000, 1_000)).toBe(10_000);
+    expect(clock.read(1_500)).toBe(10_500);
+    expect(clock.observe(10_200, 1_600)).toBe(10_600);
+    expect(clock.observe(9_000, 1_700)).toBe(10_700);
+    expect(clock.observe(20_000, 1_800)).toBe(20_000);
+    expect(clock.read(1_900)).toBe(20_100);
   });
 });

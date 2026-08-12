@@ -78,7 +78,7 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
   const currentLoadPhase = useRef(loadPhase);
   currentDetails.current = details;
   currentLoadPhase.current = loadPhase;
-  const now = useMonotonicNow();
+  const now = useMonotonicNow(details?.observedAtMs);
   const activityAttention = chatId ? activityAttentionForChat(chatId, activityEvidence, attention) : { status: "unavailable" as const, reason: "Activity content evidence is unavailable for this chat." };
 
   const loadDetails = async (mode: "foreground" | "background" = "foreground") => {
