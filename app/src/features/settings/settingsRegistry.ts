@@ -2,7 +2,6 @@ export type StudioSettingsSectionId =
   | "general"
   | "appearance"
   | "composer"
-  | "archived"
   | "harness"
   | "usage"
   | "models"
@@ -28,7 +27,6 @@ export const settingsSections: readonly SettingsSectionDefinition[] = Object.fre
   { id: "general", group: "Preferences", label: "General", description: "Workspace, language, and file-opening defaults.", keywords: ["workspace", "editor", "language"] },
   { id: "appearance", group: "Preferences", label: "Appearance", description: "Theme, density, motion, and panel defaults.", keywords: ["dark", "light", "system", "theme"] },
   { id: "composer", group: "Preferences", label: "Composer", description: "Sending, drafts, and prompt suggestions.", keywords: ["enter", "send", "draft"] },
-  { id: "archived", group: "Preferences", label: "Archived chats", description: "Restore archived projects and conversations.", keywords: ["archive", "restore", "projects", "conversations"] },
   { id: "harness", group: "AI & models", label: "Harness", description: "Settings exposed by the verified Prime Harness runtime.", keywords: ["agents", "runtime", "retry", "context"] },
   { id: "usage", group: "Usage", label: "Usage", description: "Account-wide usage and billing projections.", keywords: ["account-wide", "billing", "cost", "tokens"] },
   { id: "models", group: "AI & models", label: "Models", description: "Verified provider and model availability.", keywords: ["provider", "thinking", "catalog"] },

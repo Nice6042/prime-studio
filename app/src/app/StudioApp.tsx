@@ -21,6 +21,7 @@ import { routeSlashCommand } from "../features/conversation/conversationRouting"
 import { HarnessInspector } from "../features/harness/HarnessInspector";
 import { unavailableHarnessInspectorAdapter, type HarnessInspectorAdapter } from "../features/harness/adapter";
 import { SettingsShell } from "../features/settings/SettingsShell";
+import { ArchivedCatalogSettings } from "../features/settings/ArchivedCatalogSettings";
 import { CommandPalette } from "../features/command-palette/CommandPalette";
 import type { PaletteChat, PaletteMessage } from "../features/command-palette/searchIndex";
 import type { StudioCommandId } from "../entities/commands/commandRegistry";
@@ -316,6 +317,13 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   />;
 
   if (navigation.route === "settings") {
+    if (navigation.settingsSection === "archived") {
+      return <main className="studio-settings" aria-label="Archived chats">
+        <section className="studio-settings-content"><div className="studio-settings-page"><header><button type="button" className="studio-settings-back" aria-label="Back to chat" onClick={() => store.dispatch({ type: "route/workspace" })}>Back to chat</button><h1>Archived chats</h1><span>Restore archived projects and conversations.</span></header>
+          <ArchivedCatalogSettings catalog={projectCatalog} operation={catalogOperation} onRestoreProject={(projectId) => { void applyCatalog({ type: "project.restore", projectId }, "Restoring project"); }} onRestoreChat={(projectId, chatId) => { void applyCatalog({ type: "chat.restore", projectId, chatId }, "Restoring chat"); }} />
+        </div></section>
+      </main>;
+    }
     return <><SettingsShell
       section={navigation.settingsSection}
       onSection={(section) => store.dispatch({ type: "route/settings", section })}
@@ -323,10 +331,6 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       compatibility={compatibility}
       settings={settings}
       accounts={accounts}
-      projectCatalog={projectCatalog}
-      catalogOperation={catalogOperation}
-      onRestoreProject={(projectId) => { void applyCatalog({ type: "project.restore", projectId }, "Restoring project"); }}
-      onRestoreChat={(projectId, chatId) => { void applyCatalog({ type: "chat.restore", projectId, chatId }, "Restoring chat"); }}
       onAccountsChanged={(next) => {
         if (next) setAccounts(next);
         else void rpc.listAccounts().then(setAccounts).catch(() => undefined);
