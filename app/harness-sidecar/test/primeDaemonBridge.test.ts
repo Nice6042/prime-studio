@@ -88,7 +88,7 @@ test("bootstrap and prompt use real daemon state with generation and cursor bind
     client: {
       async connect() {},
       async waitForHello() { return { type: "daemon_hello", socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "generation-1", clientId: "client-1", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; },
-      async request(command: { type: string }) { return { type: "response", command: command.type, success: true, data: { sessions: [{ activeSessionId: "active-root", sessionId: "session-root", cwd: "C:\\work\\project", lifecycle: "live", activity: "idle", isSessionActive: true, isStreaming: false, isCompacting: false, attachedClients: 0, messageCount: 1, sessionActions: {} }] } }; },
+      async request(command: { type: string }) { return { type: "response", command: command.type, success: true, data: { sessions: [{ activeSessionId: "active-root", sessionId: "session-root", cwd: "C:\\work\\project", lifecycle: "live", activity: "idle", isSessionActive: true, isStreaming: false, isCompacting: false, attachedClients: 0, messageCount: 1, sessionActions: {}, workerState: "ready" }] } }; },
       close() {},
     },
     attach: async () => connection,
@@ -125,7 +125,7 @@ test("a daemon event dirties the published projection and blocks stale mutation 
   };
   const bridge = new PrimeDaemonBridge({
     identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
-    client: { async connect() {}, async waitForHello() { return { type: "daemon_hello", socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request() { return { type: "response", command: "list", success: true, data: [] }; }, close() {} },
+    client: { async connect() {}, async waitForHello() { return { type: "daemon_hello", socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request() { return { type: "response", command: "list", success: true, data: { sessions: [{ activeSessionId: "root", isSessionActive: true, workerState: "ready" }] } }; }, close() {} },
     attach: async () => connection,
   });
   const first = await bridge.attach("root");
@@ -152,7 +152,7 @@ test("each published snapshot advances exactly one Studio revision even without 
   const connection = { async getInitialSnapshot() { return { state, messages: [], children: [], lastEventCursor: { generation: "generation-1", sequence: 9 } }; }, async getState() { return state; }, async getMessages() { return []; }, async getQueue() { return {}; }, async getResourceSnapshot() { return {}; }, async getSessionStats() { return { tokens: {}, cost: 0 }; }, async getToolDefinition() { return undefined; }, async prompt() {}, async steer() {}, async followUp() {}, async abort() {}, async dispose() {} };
   const bridge = new PrimeDaemonBridge({
     identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
-    client: { async connect() {}, async waitForHello() { return { type: "daemon_hello", socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request() { return { type: "response", command: "list", success: true, data: [] }; }, close() {} },
+    client: { async connect() {}, async waitForHello() { return { type: "daemon_hello", socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request() { return { type: "response", command: "list", success: true, data: { sessions: [{ activeSessionId: "root", isSessionActive: true, workerState: "ready" }] } }; }, close() {} },
     attach: async () => connection,
   });
   const first = await bridge.attach("root");
@@ -174,7 +174,7 @@ test("mutation admission uses a fresh daemon attach barrier rather than the conn
   });
   const bridge = new PrimeDaemonBridge({
     identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
-    client: { async connect() {}, async waitForHello() { return { type: "daemon_hello", socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "supervisor-generation", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request() { return { type: "response", command: "list", success: true, data: [] }; }, close() {} },
+    client: { async connect() {}, async waitForHello() { return { type: "daemon_hello", socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "supervisor-generation", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request() { return { type: "response", command: "list", success: true, data: { sessions: [{ activeSessionId: "root", isSessionActive: true, workerState: "ready" }] } }; }, close() {} },
     attach: async () => { attachCalls += 1; return connection(); },
   });
   const first = await bridge.attach("root");
@@ -194,7 +194,7 @@ test("refresh reports a generation transition and bootstrap publishes the replac
   const connection = () => ({ async getInitialSnapshot() { return { state, messages: [], children: [], lastEventCursor: { generation: eventGeneration, sequence: upstreamSequence } }; }, async getState() { return state; }, async getMessages() { return []; }, async getQueue() { return {}; }, async getResourceSnapshot() { return {}; }, async getSessionStats() { return { tokens: {}, cost: 0 }; }, async getToolDefinition() { return undefined; }, async prompt() {}, async steer() {}, async followUp() {}, async abort() {}, async dispose() {} });
   const bridge = new PrimeDaemonBridge({
     identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
-    client: { async connect() {}, async waitForHello() { return { type: "daemon_hello", socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "supervisor-generation", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request(command: { type: string }) { return { type: "response", command: command.type, success: true, data: { sessions: [{ activeSessionId: "root", isSessionActive: true }] } }; }, close() {} },
+    client: { async connect() {}, async waitForHello() { return { type: "daemon_hello", socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "supervisor-generation", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request(command: { type: string }) { return { type: "response", command: command.type, success: true, data: { sessions: [{ activeSessionId: "root", isSessionActive: true, workerState: "ready" }] } }; }, close() {} },
     attach: async () => connection(),
   });
   const first = await bridge.attach("root");
@@ -217,7 +217,7 @@ test("generation recovery revalidates the live daemon hello before rebootstrap",
   const connection = () => ({ async getInitialSnapshot() { return { state, messages: [], children: [], lastEventCursor: { generation: eventGeneration, sequence: upstreamSequence } }; }, async getState() { return state; }, async getMessages() { return []; }, async getQueue() { return {}; }, async getResourceSnapshot() { return {}; }, async getSessionStats() { return { tokens: {}, cost: 0 }; }, async getToolDefinition() { return undefined; }, async prompt() {}, async steer() {}, async followUp() {}, async abort() {}, async dispose() {} });
   const client = {
     get hello() { return liveHello; }, async connect() {}, async waitForHello() { return liveHello; },
-    async request(command: { type: string }) { return { type: "response", command: command.type, success: true, data: { sessions: [{ activeSessionId: "root", isSessionActive: true }] } }; }, close() {},
+    async request(command: { type: string }) { return { type: "response", command: command.type, success: true, data: { sessions: [{ activeSessionId: "root", isSessionActive: true, workerState: "ready" }] } }; }, close() {},
   };
   const bridge = new PrimeDaemonBridge({
     identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
@@ -231,6 +231,149 @@ test("generation recovery revalidates the live daemon hello before rebootstrap",
   assert.equal(refresh.type === "error" ? refresh.code : "", "generation_changed");
   liveHello = { ...validHello("supervisor-2"), schemaRevision: 99 };
   await assert.rejects(() => bridge.bootstrap(), /schema mismatch/u);
+});
+
+test("worker recovery is armed only by an observed healthy-to-recovering transition", async () => {
+  const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
+  let workerState: "ready" | "recovering" | "failed" = "ready";
+  let workerPid = 4100;
+  let retryCalls = 0;
+  let attachCalls = 0;
+  const state = { activeSessionId: "root", cwd: "C:\\work", thinkingLevel: "high", serviceTier: "auto", availableThinkingLevels: [], isStreaming: false, isCompacting: false, isBashRunning: false, retryAttempt: 0, steeringMode: "all", followUpMode: "all", sessionId: "chat", leafId: null, autoCompactionEnabled: true, messageCount: 0, sessionActions: {}, compactionCount: 0, goal: {}, scopedModels: [], activeToolNames: [] };
+  const connection = () => ({
+    async getInitialSnapshot() {
+      if (workerState !== "ready") throw new Error(`Session worker is ${workerState}`);
+      return { state, messages: [], children: [], lastEventCursor: { generation: "event-generation-1", sequence: 7 } };
+    },
+    async getState() { return state; }, async getMessages() { return []; }, async getQueue() { return {}; },
+    async getResourceSnapshot() { return {}; }, async getSessionStats() { return { tokens: {}, cost: 0 }; }, async getToolDefinition() { return undefined; },
+    async prompt() {}, async steer() {}, async followUp() {}, async abort() {}, async dispose() {},
+  });
+  const bridge = new PrimeDaemonBridge({
+    identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
+    client: {
+      async connect() {},
+      async waitForHello() { return { type: "daemon_hello", socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "supervisor-generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; },
+      async request(command: { type: string }) {
+        if (command.type === "retry_worker") {
+          retryCalls += 1;
+          workerState = "ready";
+          workerPid = 4200;
+          return { type: "response", command: "retry_worker", success: true, data: {} };
+        }
+        return { type: "response", command: command.type, success: true, data: { sessions: [{ activeSessionId: "root", sessionId: "chat", cwd: "C:\\work", lifecycle: "live", activity: "idle", isSessionActive: true, isStreaming: false, isCompacting: false, attachedClients: 0, messageCount: 0, sessionActions: {}, workerState, workerPid }] } };
+      },
+      close() {},
+    },
+    attach: async () => { attachCalls += 1; return connection(); },
+  });
+
+  const healthy = await bridge.attach("root");
+  assert.deepEqual(healthy.workerRecovery, { status: "ready", closureReason: null, observationId: null, automaticRetryCount: 0, detail: null });
+
+  workerState = "recovering";
+  const recovering = await bridge.handle({ type: "refresh_session", sessionId: "root", knownCursor: healthy.cursor });
+  assert.equal(recovering.type, "snapshot_result");
+  const recoveringSnapshot = recovering.type === "snapshot_result" ? recovering.snapshot : healthy;
+  assert.equal(recoveringSnapshot.state, "failed");
+  assert.equal(recoveringSnapshot.workerRecovery.status, "recovering");
+  assert.equal(recoveringSnapshot.workerRecovery.closureReason, "unexpected_worker_disconnect");
+  assert.match(recoveringSnapshot.workerRecovery.observationId ?? "", /^worker-recovery-[a-f0-9]{24}$/u);
+
+  workerState = "failed";
+  const failed = await bridge.handle({ type: "refresh_session", sessionId: "root", knownCursor: recoveringSnapshot.cursor });
+  assert.equal(failed.type, "snapshot_result");
+  const failedSnapshot = failed.type === "snapshot_result" ? failed.snapshot : recoveringSnapshot;
+  assert.equal(failedSnapshot.workerRecovery.status, "retryable_failure");
+  const observationId = failedSnapshot.workerRecovery.observationId!;
+
+  const retried = await bridge.handle({ type: "retry_worker", sessionId: "root", observationId });
+  assert.equal(retried.type, "worker_retry_result");
+  assert.equal(retried.type === "worker_retry_result" ? retried.outcome : "", "recovered");
+  assert.equal(retried.type === "worker_retry_result" ? retried.snapshot.workerRecovery.status : "", "recovered");
+  assert.equal(retried.type === "worker_retry_result" ? retried.snapshot.workerRecovery.automaticRetryCount : 0, 1);
+  assert.equal(retryCalls, 1);
+  assert.equal(attachCalls, 4, "the recovered worker must replace the closed long-lived connection before projection");
+
+  const replay = await bridge.handle({ type: "retry_worker", sessionId: "root", observationId });
+  assert.equal(replay.type, "error");
+  assert.equal(replay.type === "error" ? replay.code : "", "worker_retry_not_admitted");
+  assert.equal(retryCalls, 1);
+});
+
+test("worker recovery fails closed when the sidecar did not observe the closure transition", async () => {
+  const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
+  let retryCalls = 0;
+  const bridge = new PrimeDaemonBridge({
+    identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
+    client: {
+      async connect() {},
+      async waitForHello() { return { type: "daemon_hello", socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "supervisor-generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; },
+      async request(command: { type: string }) {
+        if (command.type === "retry_worker") retryCalls += 1;
+        return { type: "response", command: command.type, success: true, data: { sessions: [{ activeSessionId: "root", isSessionActive: true, workerState: "failed", workerPid: 4100 }] } };
+      },
+      close() {},
+    },
+    attach: async () => { throw new Error("Session worker is failed"); },
+  });
+
+  await assert.rejects(bridge.attach("root"), /worker recovery identity is unavailable/u);
+  const result = await bridge.handle({ type: "retry_worker", sessionId: "root", observationId: "worker-recovery-aaaaaaaaaaaaaaaaaaaaaaaa" });
+  assert.equal(result.type, "error");
+  assert.equal(result.type === "error" ? result.code : "", "worker_retry_not_admitted");
+  assert.equal(retryCalls, 0);
+});
+
+test("worker recovery identity is retired when the verified supervisor generation changes", async () => {
+  const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
+  let supervisorGeneration = "supervisor-generation-1";
+  let workerState: "ready" | "recovering" | "failed" = "ready";
+  let retryCalls = 0;
+  const state = { activeSessionId: "root", cwd: "C:\\work", isStreaming: false, isCompacting: false, isBashRunning: false, sessionId: "chat", activeToolNames: [] };
+  const connection = () => ({
+    async getInitialSnapshot() { return { state, messages: [], children: [], lastEventCursor: { generation: "event-generation", sequence: 1 } }; },
+    async getState() { return state; }, async getMessages() { return []; }, async getQueue() { return {}; },
+    async getResourceSnapshot() { return {}; }, async getSessionStats() { return { tokens: {}, cost: 0 }; }, async getToolDefinition() { return undefined; },
+    async prompt() {}, async steer() {}, async followUp() {}, async abort() {}, async dispose() {},
+  });
+  const bridge = new PrimeDaemonBridge({
+    identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
+    client: {
+      async connect() {},
+      get hello() { return { type: "daemon_hello" as const, socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration, clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; },
+      async waitForHello() { return { type: "daemon_hello" as const, socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration, clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; },
+      async request(command: { type: string }) { if (command.type === "retry_worker") retryCalls += 1; return { type: "response", command: command.type, success: true, data: { sessions: [{ activeSessionId: "root", isSessionActive: true, workerState }] } }; },
+      close() {},
+    },
+    attach: async () => connection(),
+  });
+  const healthy = await bridge.attach("root");
+  workerState = "recovering";
+  const recovering = await bridge.handle({ type: "refresh_session", sessionId: "root", knownCursor: healthy.cursor });
+  const observed = recovering.type === "snapshot_result" ? recovering.snapshot : healthy;
+  workerState = "failed";
+  const failed = await bridge.handle({ type: "refresh_session", sessionId: "root", knownCursor: observed.cursor });
+  const observationId = failed.type === "snapshot_result" ? failed.snapshot.workerRecovery.observationId! : "missing";
+  supervisorGeneration = "supervisor-generation-2";
+  const replay = await bridge.handle({ type: "retry_worker", sessionId: "root", observationId });
+  assert.equal(replay.type, "error");
+  assert.equal(retryCalls, 0);
+});
+
+test("starting workers are projected without retry and absent lifecycle state fails closed", async () => {
+  const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
+  let includeState = true;
+  const state = { activeSessionId: "root", cwd: "C:\\work", isStreaming: false, isCompacting: false, isBashRunning: false, sessionId: "chat", activeToolNames: [] };
+  const bridge = new PrimeDaemonBridge({
+    identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
+    client: { async connect() {}, async waitForHello() { return { type: "daemon_hello", socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "supervisor-generation", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request(command: { type: string }) { return { type: "response", command: command.type, success: true, data: { sessions: [{ activeSessionId: "root", isSessionActive: true, ...(includeState ? { workerState: "starting" } : {}) }] } }; }, close() {} },
+    attach: async () => ({ async getInitialSnapshot() { return { state, messages: [], children: [], lastEventCursor: { generation: "event-generation", sequence: 1 } }; }, async getState() { return state; }, async getMessages() { return []; }, async getQueue() { return {}; }, async getResourceSnapshot() { return {}; }, async getSessionStats() { return { tokens: {}, cost: 0 }; }, async getToolDefinition() { return undefined; }, async prompt() {}, async steer() {}, async followUp() {}, async abort() {}, async dispose() {} }),
+  });
+  const starting = await bridge.attach("root");
+  assert.equal(starting.workerRecovery.status, "starting");
+  includeState = false;
+  await assert.rejects(() => bridge.snapshot("root"), /state is unavailable/u);
 });
 
 test("full operation catalog is closed and unsupported upstream operations are explicit", async () => {
@@ -305,7 +448,7 @@ test("production bridge exposes every verified daemon operation without provider
   } }) as never;
   const bridge = new PrimeDaemonBridge({
     identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
-    client: { async connect() {}, async waitForHello() { return { type: "daemon_hello", socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "g", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request(command: { type: string }) { calls.push(`global:${command.type}`); return { type: "response", command: command.type, success: true, data: [] }; }, close() {} },
+    client: { async connect() {}, async waitForHello() { return { type: "daemon_hello", socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "g", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request(command: { type: string }) { calls.push(`global:${command.type}`); return { type: "response", command: command.type, success: true, data: command.type === "list" ? { sessions: [{ activeSessionId: "root", isSessionActive: true, workerState: "ready" }] } : [] }; }, close() {} },
     attach: async () => connection,
   });
   await bridge.catalog(); await bridge.createResident({ name: "New", cwd: "C:\\work" }); await bridge.rename("root", "Renamed");
@@ -335,7 +478,7 @@ test("production bridge exposes every verified daemon operation without provider
   assert.equal((await bridge.clone("root")).status, "unsupported_upstream");
   await bridge.detach("root");
   assert.deepEqual(calls, [
-    "global:list", "global:create", "global:rename", "detach", "queue", "stats", "deleteSavedSession:C:\\safe\\session.jsonl", "setModel:openai,gpt-test", "setThinkingLevel:high", "compact:undefined", "fork:entry-1,undefined",
+    "global:list", "global:create", "global:rename", "global:list", "detach", "queue", "stats", "deleteSavedSession:C:\\safe\\session.jsonl", "setModel:openai,gpt-test", "setThinkingLevel:high", "compact:undefined", "fork:entry-1,undefined",
     "messages", "stats", "getSessionTree:", "queue", "clearQueue:", "abortAndClearQueue:", "listCronJobs:[object Object]", "addCronJob:in 5m,Continue", "cancelCronJob:job-1",
     "listHeartbeats:", "getHeartbeat:", "setHeartbeat:every 5m,Check,follow_up", "updateHeartbeat:pause", "manageHeartbeat:child,job-2,resume", "tool:ipython", "models", "getCommands:", "getSessionContext:", "stats", "models", "stats", "stats",
     "importFromJsonl:C:\\safe\\input.jsonl,undefined", "exportToJsonl:undefined", "exportToHtml:C:\\safe\\out.html", "detach",
@@ -363,7 +506,7 @@ test("inspector projects only explicit daemon context and output evidence", asyn
   };
   const bridge = new PrimeDaemonBridge({
     identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
-    client: { async connect() {}, async waitForHello() { return { type: "daemon_hello" as const, socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request() { throw new Error("not used"); }, close() {} },
+    client: { async connect() {}, async waitForHello() { return { type: "daemon_hello" as const, socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request() { return { type: "response", command: "list", success: true, data: { sessions: [{ activeSessionId: "root", isSessionActive: true, workerState: "ready" }] } }; }, close() {} },
     attach: async () => connection,
   });
   // Bind the verified connection through the public attach path before inspecting it.
@@ -496,7 +639,7 @@ test("resident creation recovers a lost create response by stable creation ident
         assert.equal(command.lifecycle, "resident");
         assert.deepEqual(command.config, { cwd: "C:\\work\\resident" });
         assert.match(String(command.name), /^prime-studio:[a-f0-9]{24}:[a-f0-9]{24}:/u);
-        resident = { activeSessionId: "resident-active", sessionId: "resident-chat", sessionName: command.name, cwd: "C:\\work\\resident", isSessionActive: true };
+        resident = { activeSessionId: "resident-active", sessionId: "resident-chat", sessionName: command.name, cwd: "C:\\work\\resident", isSessionActive: true, workerState: "ready" };
         if (loseFirstCreateResponse) { loseFirstCreateResponse = false; throw new Error("response lost after commit"); }
         return { type: "response", command: "create", success: true, data: resident };
       },
@@ -599,10 +742,13 @@ test("resident branch clones the source, forks the clone, and recovers only a co
       async connect() {},
       async waitForHello() { return { type: "daemon_hello" as const, socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; },
       async request(command: Readonly<Record<string, unknown>>) {
-        if (command.type === "list") return { type: "response", command: "list", success: true, data: { sessions: branchRow ? [branchRow] : [] } };
+        if (command.type === "list") return { type: "response", command: "list", success: true, data: { sessions: [
+          { activeSessionId: "source-active", sessionId: "source-chat", isSessionActive: true, workerState: "ready" },
+          ...(branchRow ? [branchRow] : []),
+        ] } };
         if (command.type === "create") {
           calls.push("create");
-          branchRow = { activeSessionId: "branch-active", sessionId: "empty-chat", sessionName: command.name, cwd: "C:\\work", isSessionActive: true };
+          branchRow = { activeSessionId: "branch-active", sessionId: "empty-chat", sessionName: command.name, cwd: "C:\\work", isSessionActive: true, workerState: "ready" };
           return { type: "response", command: "create", success: true, data: branchRow };
         }
         if (command.type === "rename") {

@@ -9,6 +9,7 @@ const session: RootSessionProjection = {
   cursor: { runtimeGeneration: "generation-1", sequence: 7 }, state: "idle", freshness: "live",
   parentMessages: [], children: [], queue: [], tools: [], resources: [],
   usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: null },
+  workerRecovery: { status: "ready", closureReason: null, observationId: null, automaticRetryCount: 0, detail: null },
 };
 
 function boundStore() {
@@ -98,14 +99,28 @@ describe("production Harness inspector adapter", () => {
     expect(execute).toHaveBeenCalledOnce();
   });
 
-  it("projects silent-worker recovery as unavailable because the native bridge has no closure identity", () => {
-    const adapter = createProductionHarnessInspectorAdapter(boundStore(), { load: vi.fn(), execute: vi.fn() });
+  it("admits exactly one native retry for the authoritative failed observation", async () => {
+    const store = boundStore();
+    const observationId = "worker-recovery-0123456789abcdef012345";
+    store.dispatch({ type: "harness/session-projected", session: {
+      ...session,
+      state: "failed",
+      workerRecovery: { status: "retryable_failure", closureReason: "supervisor_recovery_exhausted", observationId, automaticRetryCount: 0, detail: "Supervisor recovery exhausted" },
+    } });
+    const recovered: RootSessionProjection = {
+      ...session,
+      cursor: { ...session.cursor, sequence: 8 },
+      workerRecovery: { status: "recovered", closureReason: "supervisor_recovery_exhausted", observationId, automaticRetryCount: 1, detail: null },
+    };
+    const retryWorker = vi.fn(async () => ({ observationId, outcome: "recovered" as const, session: recovered }));
+    const adapter = createProductionHarnessInspectorAdapter(store, { load: vi.fn(), execute: vi.fn(), retryWorker });
+    expect(adapter.workerRecovery?.status).toBe("available");
+    if (adapter.workerRecovery?.status !== "available") throw new Error("fixture recovery unavailable");
 
-    expect(adapter.workerRecovery).toEqual({
-      status: "unavailable",
-      reason: "Prime Studio cannot safely retry a silent worker because the native Harness bridge does not expose a verified closure reason and retry identity.",
-    });
-    expect(adapter.settings?.harnessPolicy).not.toBe(true);
+    await expect(adapter.workerRecovery.retry(session.sessionId, observationId)).resolves.toEqual({ outcome: "recovered", session: recovered });
+    expect(store.getSnapshot().sessions[session.sessionId]?.workerRecovery.status).toBe("recovered");
+    await expect(adapter.workerRecovery.retry(session.sessionId, observationId)).rejects.toThrow("not bound");
+    expect(retryWorker).toHaveBeenCalledOnce();
   });
 
   it.each(["disconnected", "unknown_outcome"] as const)("does not dispatch or retry a %s session", async (freshness) => {

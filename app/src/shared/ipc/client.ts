@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type { BootProjection, HarnessProjectionEvent, RootSessionProjection } from "../../entities/harness/types";
-import type { ChildAgentSummary, ContextSource, CurrentChatUsage, HarnessCapability, HarnessCompatibility, HarnessCursor, HarnessUnavailableReason, MessageBlock, ParentMessage, QueueItem, RuntimeIdentity, ToolDefinition, HarnessStudioAction } from "./harness.generated";
+import type { ChildAgentSummary, ContextSource, CurrentChatUsage, HarnessCapability, HarnessCompatibility, HarnessCursor, HarnessUnavailableReason, MessageBlock, ParentMessage, QueueItem, RuntimeIdentity, ToolDefinition, HarnessStudioAction, WorkerRecoveryProjection } from "./harness.generated";
 import type { StudioOperation, StudioOperationOutcome } from "../../contracts/studioOperations";
 
 const MAX_TRANSPORT_BYTES = 4 * 1024 * 1024;
@@ -318,8 +318,24 @@ function usage(value: unknown): CurrentChatUsage {
   };
 }
 
+function workerRecovery(value: unknown): WorkerRecoveryProjection {
+  const source = record(value, ["status", "closureReason", "observationId", "automaticRetryCount", "detail"]);
+  const status = oneOf(source.status, new Set(["starting", "ready", "recovering", "retryable_failure", "retrying", "recovered", "terminal_failure"] as const));
+  const closureReason = source.closureReason === null ? null : oneOf(source.closureReason, new Set(["unexpected_worker_disconnect", "supervisor_recovery_exhausted"] as const));
+  const observationId = source.observationId === null ? null : id(source.observationId);
+  const automaticRetryCount = safeInteger(source.automaticRetryCount);
+  const detail = source.detail === null ? null : bounded(source.detail, 200);
+  if (automaticRetryCount > 1) fail();
+  if (status === "starting" && (closureReason !== null || observationId !== null || automaticRetryCount !== 0)) fail();
+  if (status === "ready" && (closureReason !== null || observationId !== null || automaticRetryCount !== 0 || detail !== null)) fail();
+  if ((status === "recovering" || status === "retryable_failure") && (closureReason === null || observationId === null || automaticRetryCount !== 0)) fail();
+  if ((status === "retrying" || status === "recovered") && (closureReason === null || observationId === null || automaticRetryCount !== 1)) fail();
+  if (status === "terminal_failure" && closureReason === null) fail();
+  return { status, closureReason, observationId, automaticRetryCount: automaticRetryCount as 0 | 1, detail };
+}
+
 function session(value: unknown): RootSessionProjection {
-  const source = record(value, ["sessionId", "accountId", "projectId", "chatId", "cursor", "state", "freshness", "parentMessages", "children", "queue", "tools", "resources", "usage"]);
+  const source = record(value, ["sessionId", "accountId", "projectId", "chatId", "cursor", "state", "freshness", "parentMessages", "children", "queue", "tools", "resources", "usage", "workerRecovery"]);
   const sessionId = id(source.sessionId);
   const children = array(source.children, 256).map(child);
   const childIds = new Set<string>();
@@ -341,6 +357,7 @@ function session(value: unknown): RootSessionProjection {
     tools: array(source.tools, 512).map(tool),
     resources: array(source.resources, 512).map(resource),
     usage: usage(source.usage),
+    workerRecovery: workerRecovery(source.workerRecovery),
   };
 }
 
@@ -464,6 +481,34 @@ export async function sendHarnessCommand(request: HarnessSessionCommandRequest):
     outcome: oneOf(source.outcome, new Set(["accepted", "queued", "reconciled"] as const)),
     session: admitted,
   });
+}
+
+export interface HarnessWorkerRetryResult {
+  readonly observationId: string;
+  readonly outcome: "recovered" | "terminal_failure";
+  readonly session: RootSessionProjection;
+}
+
+export async function retryHarnessWorker(sessionId: string, observationId: string): Promise<HarnessWorkerRetryResult> {
+  const exactSessionId = id(sessionId);
+  const exactObservationId = id(observationId);
+  const previous = sessionCursors.get(exactSessionId);
+  if (!previous) fail();
+  const source = record(detach(await invoke("harness_retry_worker", {
+    request: { sessionId: exactSessionId, observationId: exactObservationId },
+  })), ["observationId", "outcome", "session"]);
+  const projected = session(source.session);
+  if (
+    id(source.observationId) !== exactObservationId
+    || projected.sessionId !== exactSessionId
+    || projected.workerRecovery.observationId !== exactObservationId
+    || projected.workerRecovery.automaticRetryCount !== 1
+  ) fail();
+  const outcome = oneOf(source.outcome, new Set(["recovered", "terminal_failure"] as const));
+  if ((outcome === "recovered") !== (projected.workerRecovery.status === "recovered")) fail();
+  if (outcome === "terminal_failure" && projected.workerRecovery.status !== "terminal_failure") fail();
+  const admitted = advanceHarnessSessionProjection(projected, previous);
+  return deepFreeze({ observationId: exactObservationId, outcome, session: admitted });
 }
 
 export interface HarnessInspectorDetails {

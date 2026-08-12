@@ -7,7 +7,8 @@ import { RuntimeStatusBar } from "./RuntimeStatusBar";
 const session: RootSessionProjection = {
   sessionId: "session-1", accountId: "openai-codex", projectId: "p", chatId: "c",
   cursor: { runtimeGeneration: "g", sequence: 1 }, state: "working", parentMessages: [], children: [], queue: [], tools: [], resources: [],
-  usage: { input: 1200, output: 340, cacheRead: 20, cacheWrite: 0, totalTokens: 1560, cost: null }, freshness: "live",
+  usage: { input: 1200, output: 340, cacheRead: 20, cacheWrite: 0, totalTokens: 1560, cost: null },
+  workerRecovery: { status: "ready", closureReason: null, observationId: null, automaticRetryCount: 0, detail: null }, freshness: "live",
 };
 
 describe("RuntimeStatusBar", () => {

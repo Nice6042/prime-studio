@@ -6,11 +6,11 @@ use crate::commands::editor::{ArtifactAdmission, ArtifactOpenResult};
 use crate::harness::activation::canonical_workspace_identity;
 use crate::harness::broker::{
     AttachRequest, InspectorRequest, RefreshSessionRequest, ResidentBranchRequest,
-    ResidentCreateRequest, SessionCommandRequest, StudioOperationRequest,
+    ResidentCreateRequest, SessionCommandRequest, StudioOperationRequest, WorkerRetryRequest,
 };
 use crate::harness::generated::{
     CommandOutcome, HarnessCursor, HarnessStudioAction, ParentMessage, SessionCommandKind,
-    StudioOperationStatus,
+    StudioOperationStatus, WorkerRetryOutcome,
 };
 use crate::harness::projections::{BootProjection, RootSessionProjection};
 use crate::project_catalog::{
@@ -46,6 +46,13 @@ pub(crate) struct HarnessSessionCommandInput {
     expected_cursor: HarnessCursor,
     kind: SessionCommandKind,
     text: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub(crate) struct HarnessWorkerRetryInput {
+    session_id: String,
+    observation_id: String,
 }
 
 #[derive(Deserialize)]
@@ -443,6 +450,14 @@ pub(crate) struct HarnessSessionCommandOutput {
     session: RootSessionProjection,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HarnessWorkerRetryOutput {
+    observation_id: String,
+    outcome: WorkerRetryOutcome,
+    session: RootSessionProjection,
+}
+
 #[tauri::command]
 pub(crate) async fn harness_attach_session(
     state: State<'_, crate::AppState>,
@@ -463,6 +478,34 @@ pub(crate) async fn harness_attach_session(
     })
     .await
     .map_err(|_| "Harness attach task failed".to_owned())?
+}
+
+#[tauri::command]
+pub(crate) async fn harness_retry_worker(
+    state: State<'_, crate::AppState>,
+    request: HarnessWorkerRetryInput,
+) -> Result<HarnessWorkerRetryOutput, String> {
+    let broker = state
+        .harness
+        .broker()
+        .ok_or_else(|| "Harness activation is unavailable".to_owned())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut broker = broker
+            .lock()
+            .map_err(|_| "Harness broker is unavailable".to_owned())?;
+        let result = tauri::async_runtime::block_on(broker.retry_worker(WorkerRetryRequest {
+            session_id: request.session_id,
+            observation_id: request.observation_id,
+        }))
+        .map_err(|error| format!("Harness worker retry failed: {}", error.code()))?;
+        Ok(HarnessWorkerRetryOutput {
+            observation_id: result.observation_id,
+            outcome: result.outcome,
+            session: result.session,
+        })
+    })
+    .await
+    .map_err(|_| "Harness worker retry task failed".to_owned())?
 }
 
 #[tauri::command]

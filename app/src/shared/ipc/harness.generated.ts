@@ -1,4 +1,4 @@
-// Generated from harness-v1.schema.json; SHA-256: 6165b39d9df80be306fd462e7336130493bf324bc360846b35ae670c4207208d
+// Generated from harness-v1.schema.json; SHA-256: 10343e1dd40e7a2a229bbf41296f5f3e8f114e6123fd9e11f34817586f1d8e2c
 // Do not edit by hand. Run npm run generate:harness-contract.
 
 export const STUDIO_HARNESS_PROTOCOL = 1 as const;
@@ -91,6 +91,14 @@ export interface CurrentChatUsage {
   cost: number | null;
 }
 
+export interface WorkerRecoveryProjection {
+  status: "starting" | "ready" | "recovering" | "retryable_failure" | "retrying" | "recovered" | "terminal_failure";
+  closureReason: "unexpected_worker_disconnect" | "supervisor_recovery_exhausted" | null;
+  observationId: string | null;
+  automaticRetryCount: 0 | 1;
+  detail: string | null;
+}
+
 export interface RootSessionSnapshot {
   sessionId: string;
   accountId: string | null;
@@ -104,6 +112,7 @@ export interface RootSessionSnapshot {
   tools: readonly ToolDefinition[];
   resources: readonly ContextSource[];
   usage: CurrentChatUsage;
+  workerRecovery: WorkerRecoveryProjection;
 }
 
 export type HarnessStudioAction =
@@ -119,6 +128,7 @@ export type StudioRequest =
   | { type: "create_resident"; creationId: string; name: string; cwd: string }
   | { type: "branch_resident"; creationId: string; sourceSessionId: string; entryId: string; name: string }
   | { type: "attach_session"; sessionId: string }
+  | { type: "retry_worker"; sessionId: string; observationId: string }
   | { type: "session_command"; sessionId: string; commandId: string; expectedCursor: HarnessCursor; kind: "prompt" | "steer" | "follow_up" | "abort"; text: string }
   | { type: "inspector"; sessionId: string }
   | { type: "refresh_session"; sessionId: string; knownCursor: HarnessCursor }
@@ -129,6 +139,7 @@ export type StudioResponse =
   | { type: "bootstrap_result"; compatibility: HarnessCompatibility; sessions: readonly RootSessionSnapshot[] }
   | { type: "snapshot_result"; snapshot: RootSessionSnapshot }
   | { type: "command_result"; commandId: string; outcome: "accepted" | "queued" | "reconciled"; snapshot: RootSessionSnapshot }
+  | { type: "worker_retry_result"; observationId: string; outcome: "recovered" | "terminal_failure"; snapshot: RootSessionSnapshot }
   | { type: "resident_created"; creationId: string; snapshot: RootSessionSnapshot }
   | { type: "resident_branched"; creationId: string; sourceSessionId: string; entryId: string; snapshot: RootSessionSnapshot }
   | { type: "inspector_result"; detailsJson: string }

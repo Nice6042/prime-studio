@@ -258,7 +258,7 @@
     "RootSessionSnapshot": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["sessionId", "accountId", "projectId", "chatId", "cursor", "state", "parentMessages", "children", "queue", "tools", "resources", "usage"],
+      "required": ["sessionId", "accountId", "projectId", "chatId", "cursor", "state", "parentMessages", "children", "queue", "tools", "resources", "usage", "workerRecovery"],
       "properties": {
         "sessionId": { "$ref": "#/$defs/Id" },
         "accountId": { "oneOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] },
@@ -270,7 +270,19 @@
         "queue": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/QueueItem" } },
         "tools": { "type": "array", "maxItems": 512, "items": { "$ref": "#/$defs/ToolDefinition" } },
         "resources": { "type": "array", "maxItems": 512, "items": { "$ref": "#/$defs/ContextSource" } },
-        "usage": { "$ref": "#/$defs/CurrentChatUsage" }
+        "usage": { "$ref": "#/$defs/CurrentChatUsage" },
+        "workerRecovery": { "$ref": "#/$defs/WorkerRecoveryProjection" }
+      }
+    },
+    "WorkerRecoveryProjection": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "closureReason", "observationId", "automaticRetryCount", "detail"],
+      "properties": {
+        "status": { "type": "string", "enum": ["starting", "ready", "recovering", "retryable_failure", "retrying", "recovered", "terminal_failure"] },
+        "closureReason": { "oneOf": [{ "type": "string", "enum": ["unexpected_worker_disconnect", "supervisor_recovery_exhausted"] }, { "type": "null" }] },
+        "observationId": { "oneOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] },
+        "automaticRetryCount": { "type": "integer", "minimum": 0, "maximum": 1 },
+        "detail": { "oneOf": [{ "$ref": "#/$defs/Label" }, { "type": "null" }] }
       }
     },
     "DiscoverRuntimeRequest": {
@@ -284,6 +296,10 @@
     "AttachSessionRequest": {
       "type": "object", "additionalProperties": false, "required": ["type", "sessionId"],
       "properties": { "type": { "const": "attach_session" }, "sessionId": { "$ref": "#/$defs/Id" } }
+    },
+    "RetryWorkerRequest": {
+      "type": "object", "additionalProperties": false, "required": ["type", "sessionId", "observationId"],
+      "properties": { "type": { "const": "retry_worker" }, "sessionId": { "$ref": "#/$defs/Id" }, "observationId": { "$ref": "#/$defs/Id" } }
     },
     "SessionCommandKind": {
       "type": "string", "enum": ["prompt", "steer", "follow_up", "abort"]
@@ -355,6 +371,7 @@
         { "$ref": "#/$defs/CreateResidentRequest" },
         { "$ref": "#/$defs/BranchResidentRequest" },
         { "$ref": "#/$defs/AttachSessionRequest" },
+        { "$ref": "#/$defs/RetryWorkerRequest" },
         { "$ref": "#/$defs/SessionCommandRequest" },
         { "$ref": "#/$defs/InspectorRequest" },
         { "$ref": "#/$defs/RefreshSessionRequest" },
@@ -387,6 +404,15 @@
         "type": { "const": "command_result" },
         "commandId": { "$ref": "#/$defs/Id" },
         "outcome": { "type": "string", "enum": ["accepted", "queued", "reconciled"] },
+        "snapshot": { "$ref": "#/$defs/RootSessionSnapshot" }
+      }
+    },
+    "WorkerRetryResponse": {
+      "type": "object", "additionalProperties": false, "required": ["type", "observationId", "outcome", "snapshot"],
+      "properties": {
+        "type": { "const": "worker_retry_result" },
+        "observationId": { "$ref": "#/$defs/Id" },
+        "outcome": { "type": "string", "enum": ["recovered", "terminal_failure"] },
         "snapshot": { "$ref": "#/$defs/RootSessionSnapshot" }
       }
     },
@@ -440,6 +466,7 @@
         { "$ref": "#/$defs/BootstrapResponse" },
         { "$ref": "#/$defs/SnapshotResponse" },
         { "$ref": "#/$defs/CommandResponse" },
+        { "$ref": "#/$defs/WorkerRetryResponse" },
         { "$ref": "#/$defs/ResidentCreatedResponse" },
         { "$ref": "#/$defs/ResidentBranchedResponse" },
         { "$ref": "#/$defs/InspectorResponse" },

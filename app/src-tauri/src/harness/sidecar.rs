@@ -14,7 +14,8 @@ use uuid::Uuid;
 use crate::harness::generated::{
     reject_duplicate_json_keys, ChildAgentSummary, CurrentChatUsage, HarnessCompatibility,
     MessageBlock, ParentMessage, RootSessionSnapshot, RuntimeIdentity, StudioEnvelope,
-    StudioRequest, StudioResponse, HARNESS_FRAME_MAX_BYTES, STUDIO_HARNESS_PROTOCOL,
+    StudioRequest, StudioResponse, WorkerRecoveryStatus, HARNESS_FRAME_MAX_BYTES,
+    STUDIO_HARNESS_PROTOCOL,
 };
 use crate::session_process::{
     contain_child, prepare_process_containment, suppress_console_window, ProcessContainment,
@@ -509,6 +510,11 @@ fn validate_studio_response(response: &StudioResponse) -> bool {
             snapshot,
             ..
         } => valid_id(command_id) && validate_root_snapshot(snapshot),
+        StudioResponse::WorkerRetryResult {
+            observation_id,
+            snapshot,
+            ..
+        } => valid_id(observation_id) && validate_root_snapshot(snapshot),
         StudioResponse::ResidentCreated {
             creation_id,
             snapshot,
@@ -604,6 +610,42 @@ pub(crate) fn validate_root_snapshot(snapshot: &RootSessionSnapshot) -> bool {
             valid_id(&resource.id) && valid_label(&resource.label) && valid_id(&resource.kind)
         })
         && valid_usage(&snapshot.usage)
+        && snapshot.worker_recovery.automatic_retry_count <= 1
+        && snapshot
+            .worker_recovery
+            .observation_id
+            .as_ref()
+            .is_none_or(|value| valid_id(value))
+        && snapshot
+            .worker_recovery
+            .detail
+            .as_ref()
+            .is_none_or(|value| valid_label(value))
+        && match snapshot.worker_recovery.status {
+            WorkerRecoveryStatus::Starting => {
+                snapshot.worker_recovery.closure_reason.is_none()
+                    && snapshot.worker_recovery.observation_id.is_none()
+                    && snapshot.worker_recovery.automatic_retry_count == 0
+            }
+            WorkerRecoveryStatus::Ready => {
+                snapshot.worker_recovery.closure_reason.is_none()
+                    && snapshot.worker_recovery.observation_id.is_none()
+                    && snapshot.worker_recovery.automatic_retry_count == 0
+            }
+            WorkerRecoveryStatus::Recovering | WorkerRecoveryStatus::RetryableFailure => {
+                snapshot.worker_recovery.closure_reason.is_some()
+                    && snapshot.worker_recovery.observation_id.is_some()
+                    && snapshot.worker_recovery.automatic_retry_count == 0
+            }
+            WorkerRecoveryStatus::Retrying | WorkerRecoveryStatus::Recovered => {
+                snapshot.worker_recovery.closure_reason.is_some()
+                    && snapshot.worker_recovery.observation_id.is_some()
+                    && snapshot.worker_recovery.automatic_retry_count == 1
+            }
+            WorkerRecoveryStatus::TerminalFailure => {
+                snapshot.worker_recovery.closure_reason.is_some()
+            }
+        }
 }
 
 fn valid_parent_message(message: &ParentMessage) -> bool {

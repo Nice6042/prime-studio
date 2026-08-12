@@ -3,6 +3,7 @@ use serde::Serialize;
 use super::generated::{
     ChildAgentSummary, ContextSource, CurrentChatUsage, HarnessCompatibility, HarnessCursor,
     ParentMessage, QueueItem, RootSessionSnapshot, RootSessionState, ToolDefinition,
+    WorkerRecoveryProjection,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -30,6 +31,7 @@ pub struct RootSessionProjection {
     pub tools: Vec<ToolDefinition>,
     pub resources: Vec<ContextSource>,
     pub usage: CurrentChatUsage,
+    pub worker_recovery: WorkerRecoveryProjection,
 }
 
 impl RootSessionProjection {
@@ -51,6 +53,7 @@ impl RootSessionProjection {
             tools: snapshot.tools.clone(),
             resources: snapshot.resources.clone(),
             usage: snapshot.usage.clone(),
+            worker_recovery: snapshot.worker_recovery.clone(),
         }
     }
 }

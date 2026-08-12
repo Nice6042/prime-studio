@@ -60,7 +60,7 @@ const PRODUCTION_RESOURCE_PINS: &[(&str, &str)] = &[
     ),
     (
         "fakeDaemonScenario.js",
-        "sha256:55b7229da07dbe941f6f52f7642a7aa8a5340427f5ca1f2a0d23d64b510e2600",
+        "sha256:a17b88ed879f3a0931da27c5dd19c1acea8639b3f7384f2279ae27fa694fe36a",
     ),
     (
         "framing.js",
@@ -68,11 +68,11 @@ const PRODUCTION_RESOURCE_PINS: &[(&str, &str)] = &[
     ),
     (
         "index.js",
-        "sha256:aa3f7019873c57688ee5439bdedb739f4609e352f8e0afb6540912dd497b69b1",
+        "sha256:1f3866fd550033b19d4fa78db9194f2651760a8ab4c6759fdddfdbdb580f95e6",
     ),
     (
         "primeDaemonBridge.js",
-        "sha256:babbc414c6ef3112db5471055d18c11aeb395b7b8a77172df5da895dff165633",
+        "sha256:d6fe3c2d3cc0c7a3e537606bb8b70e465e53a8da4187df0900588bcd43dbbb34",
     ),
     (
         "redaction.js",

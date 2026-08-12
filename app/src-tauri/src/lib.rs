@@ -45,7 +45,8 @@ use commands::editor::{
 use commands::harness::{
     harness_artifact_open, harness_attach_session, harness_bootstrap, harness_branch_resident_chat,
     harness_composer_projection, harness_create_resident_chat, harness_inspector,
-    harness_projection, harness_refresh_session, harness_session_command, harness_studio_operation,
+    harness_projection, harness_refresh_session, harness_retry_worker, harness_session_command,
+    harness_studio_operation,
 };
 use commands::settings::{get_layout_preferences, set_layout_preferences};
 use commands::usage::export_account_usage_csv;
@@ -4116,6 +4117,7 @@ pub fn run() {
             harness_bootstrap,
             harness_projection,
             harness_attach_session,
+            harness_retry_worker,
             harness_session_command,
             harness_inspector,
             harness_composer_projection,
@@ -4167,7 +4169,7 @@ mod tests {
     use crate::harness::broker::{HarnessBroker, SessionOwnership};
     use crate::harness::generated::{
         CurrentChatUsage, HarnessCursor, MessageBlock, ParentChannel, ParentMessage,
-        RootSessionSnapshot, RootSessionState,
+        RootSessionSnapshot, RootSessionState, WorkerRecoveryProjection, WorkerRecoveryStatus,
     };
     use crate::project_catalog::{
         PrimeChatBinding, PrimeChatBindingKind, Project, ProjectChat, ProjectKind, ProjectRoot,
@@ -4212,6 +4214,13 @@ mod tests {
                 cache_write: 0,
                 total_tokens: 0,
                 cost: None,
+            },
+            worker_recovery: WorkerRecoveryProjection {
+                status: WorkerRecoveryStatus::Ready,
+                closure_reason: None,
+                observation_id: None,
+                automatic_retry_count: 0,
+                detail: None,
             },
         }
     }

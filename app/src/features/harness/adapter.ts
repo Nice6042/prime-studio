@@ -2,6 +2,7 @@ import type { StudioOperation, StudioOperationOutcome } from "../../contracts/st
 import type { ComposerRuntimeChoice, ThinkingLevel } from "../conversation/workspacePresentation";
 import type { ArtifactOpenResult } from "../../entities/editor/types";
 import type { AttentionEvidence } from "../../attention/attentionLedger";
+import type { RootSessionProjection } from "../../entities/harness/types";
 
 export type HarnessActivityKind = "agent" | "tool" | "file" | "system";
 
@@ -140,7 +141,14 @@ export interface HarnessInspectorAdapter {
   execute(operation: StudioOperation): Promise<StudioOperationOutcome>;
   /** Available only when native authority supplies closure and retry identities. */
   readonly workerRecovery?:
-    | Readonly<{ status: "available"; maximumAutomaticRetries: 1 }>
+    | Readonly<{
+        status: "available";
+        maximumAutomaticRetries: 1;
+        retry(sessionId: string, observationId: string): Promise<Readonly<{
+          outcome: "recovered" | "terminal_failure";
+          session: RootSessionProjection;
+        }>>;
+      }>
     | Readonly<{ status: "unavailable"; reason: string }>;
   openArtifact?(sessionId: string, candidateId: string): Promise<ArtifactOpenResult>;
   /** Explicit settings-operation authority; inspector availability alone is insufficient. */

@@ -3,6 +3,7 @@ import type { RootSessionProjection } from "../../entities/harness/types";
 import {
   executeHarnessStudioOperation,
   loadHarnessInspector,
+  retryHarnessWorker,
   type HarnessStudioOperation,
   type HarnessStudioOperationRequest,
 } from "../../shared/ipc/client";
@@ -19,6 +20,7 @@ interface ProductionHarnessPorts {
   execute(request: HarnessStudioOperationRequest): Promise<Readonly<{ outcome: StudioOperationOutcome; session: RootSessionProjection | null }>>;
   openArtifact?(sessionId: string, candidateId: string): Promise<ArtifactOpenResult>;
   loadActivityEvidence?(sessionId: string): ReturnType<typeof loadActivityAttentionEvidence>;
+  retryWorker?(sessionId: string, observationId: string): ReturnType<typeof retryHarnessWorker>;
 }
 
 const TERMINAL_RUNTIME_STATES = new Set<RootSessionProjection["state"]>(["disconnected", "failed", "stopped"]);
@@ -33,6 +35,7 @@ const realPorts: ProductionHarnessPorts = {
   },
   openArtifact: openHarnessArtifactCandidate,
   loadActivityEvidence: loadActivityAttentionEvidence,
+  retryWorker: retryHarnessWorker,
 };
 
 function reject(reason: string): StudioOperationOutcome {
@@ -87,8 +90,28 @@ export function createProductionHarnessInspectorAdapter(
       return details.composer;
     },
     workerRecovery: Object.freeze({
-      status: "unavailable" as const,
-      reason: "Prime Studio cannot safely retry a silent worker because the native Harness bridge does not expose a verified closure reason and retry identity.",
+      status: "available" as const,
+      maximumAutomaticRetries: 1 as const,
+      async retry(sessionId: string, observationId: string) {
+        const session = store.getSnapshot().sessions[sessionId];
+        if (
+          !session
+          || session.freshness !== "live"
+          || session.state !== "failed"
+          || session.workerRecovery.status !== "retryable_failure"
+          || session.workerRecovery.observationId !== observationId
+          || session.workerRecovery.automaticRetryCount !== 0
+          || !ports.retryWorker
+        ) {
+          throw new Error("The worker retry is not bound to one authoritative failed observation.");
+        }
+        const result = await ports.retryWorker(sessionId, observationId);
+        if (result.session.workerRecovery.observationId !== observationId) {
+          throw new Error("The worker retry response identity changed.");
+        }
+        store.dispatch({ type: "harness/session-projected", session: result.session });
+        return { outcome: result.outcome, session: result.session };
+      },
     }),
     openArtifact(sessionId: string, candidateId: string) {
       const session = store.getSnapshot().sessions[sessionId];

@@ -9,7 +9,7 @@ use super::compatibility::decide_compatibility;
 use super::generated::{
     CommandOutcome, HarnessCapability, HarnessCompatibility, HarnessCursor, HarnessEvent,
     HarnessStudioAction, ParentMessage, RootSessionSnapshot, SessionCommandKind,
-    StudioOperationStatus, StudioRequest, StudioResponse,
+    StudioOperationStatus, StudioRequest, StudioResponse, WorkerRecoveryStatus, WorkerRetryOutcome,
 };
 pub use super::projections::{BootProjection, ProjectionFreshness, RootSessionProjection};
 use super::recovery::{RecoveredSession, RecoveryRecord};
@@ -126,6 +126,19 @@ pub struct SessionCommandResult {
     pub session: RootSessionProjection,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorkerRetryRequest {
+    pub session_id: String,
+    pub observation_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct WorkerRetryResult {
+    pub observation_id: String,
+    pub outcome: WorkerRetryOutcome,
+    pub session: RootSessionProjection,
+}
+
 pub struct InspectorRequest {
     pub session_id: String,
 }
@@ -202,6 +215,7 @@ pub struct HarnessBroker {
     resident_branches: BTreeMap<String, ResidentBranch>,
     artifact_candidates: BTreeMap<String, ArtifactCandidate>,
     activity_attention: BTreeMap<String, AttentionEvidence>,
+    worker_retry_observations: BTreeSet<String>,
     runtime_digest: String,
     profile: String,
 }
@@ -274,6 +288,7 @@ impl HarnessBroker {
             resident_branches: BTreeMap::new(),
             artifact_candidates: BTreeMap::new(),
             activity_attention: BTreeMap::new(),
+            worker_retry_observations: BTreeSet::new(),
             runtime_digest,
             profile,
         })
@@ -812,6 +827,83 @@ impl HarnessBroker {
             .project(&request.session_id)
             .ok_or(HarnessError::OwnershipViolation)?;
         Ok(SessionCommandResult { outcome, session })
+    }
+
+    pub async fn retry_worker(
+        &mut self,
+        request: WorkerRetryRequest,
+    ) -> Result<WorkerRetryResult, HarnessError> {
+        if self.state != BrokerState::Live
+            || !valid_id(&request.session_id)
+            || !valid_id(&request.observation_id)
+        {
+            return Err(HarnessError::OwnershipViolation);
+        }
+        let current = self
+            .committed
+            .get(&request.session_id)
+            .ok_or(HarnessError::OwnershipViolation)?;
+        let recovery = &current.worker_recovery;
+        if recovery.status != WorkerRecoveryStatus::RetryableFailure
+            || recovery.observation_id.as_deref() != Some(request.observation_id.as_str())
+            || recovery.automatic_retry_count != 0
+            || self
+                .worker_retry_observations
+                .contains(&request.observation_id)
+        {
+            return Err(HarnessError::OwnershipViolation);
+        }
+
+        // The latch is deliberately committed before IPC. A timeout or closed
+        // sidecar is an uncertain outcome and must never be replayed.
+        self.worker_retry_observations
+            .insert(request.observation_id.clone());
+        let sidecar = self.sidecar.clone().ok_or(HarnessError::StateViolation)?;
+        let response = sidecar
+            .request(
+                StudioRequest::RetryWorker {
+                    session_id: request.session_id.clone(),
+                    observation_id: request.observation_id.clone(),
+                },
+                Instant::now() + Duration::from_secs(65),
+            )
+            .await?;
+        let StudioResponse::WorkerRetryResult {
+            observation_id,
+            outcome,
+            snapshot,
+        } = response
+        else {
+            return Err(HarnessError::ProtocolViolation);
+        };
+        if observation_id != request.observation_id
+            || snapshot.session_id != request.session_id
+            || snapshot.worker_recovery.observation_id.as_deref()
+                != Some(request.observation_id.as_str())
+            || snapshot.worker_recovery.automatic_retry_count != 1
+            || !matches!(
+                (&outcome, &snapshot.worker_recovery.status),
+                (
+                    WorkerRetryOutcome::Recovered,
+                    WorkerRecoveryStatus::Recovered
+                ) | (
+                    WorkerRetryOutcome::TerminalFailure,
+                    WorkerRecoveryStatus::TerminalFailure
+                )
+            )
+        {
+            return Err(HarnessError::ProtocolViolation);
+        }
+        let admission = self.admit_event(HarnessEvent::Snapshot { snapshot })?;
+        self.apply_event(admission)?;
+        let session = self
+            .project(&request.session_id)
+            .ok_or(HarnessError::OwnershipViolation)?;
+        Ok(WorkerRetryResult {
+            observation_id,
+            outcome,
+            session,
+        })
     }
 
     pub async fn inspector(&mut self, request: InspectorRequest) -> Result<String, HarnessError> {
@@ -1751,7 +1843,9 @@ fn compatibility_uses_profile(compatibility: &HarnessCompatibility, expected: &s
 #[cfg(test)]
 mod artifact_candidate_tests {
     use super::*;
-    use crate::harness::generated::{CurrentChatUsage, RootSessionState};
+    use crate::harness::generated::{
+        CurrentChatUsage, RootSessionState, WorkerRecoveryProjection, WorkerRecoveryStatus,
+    };
 
     fn snapshot(session_id: &str, project_id: &str, sequence: u64) -> RootSessionSnapshot {
         RootSessionSnapshot {
@@ -1776,6 +1870,13 @@ mod artifact_candidate_tests {
                 cache_write: 0,
                 total_tokens: 0,
                 cost: None,
+            },
+            worker_recovery: WorkerRecoveryProjection {
+                status: WorkerRecoveryStatus::Ready,
+                closure_reason: None,
+                observation_id: None,
+                automatic_retry_count: 0,
+                detail: None,
             },
         }
     }

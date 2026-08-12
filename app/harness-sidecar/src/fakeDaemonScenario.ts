@@ -12,6 +12,14 @@ export type ParentMessage =
   | { readonly channel: "parent"; readonly kind: "user" | "notice"; readonly id: string; readonly text: string; readonly emittedAtMs: number }
   | { readonly channel: "parent"; readonly kind: "assistant"; readonly id: string; readonly blocks: readonly Record<string, unknown>[]; readonly streaming: boolean; readonly emittedAtMs: number };
 
+export interface WorkerRecoveryProjection {
+  readonly status: "starting" | "ready" | "recovering" | "retryable_failure" | "retrying" | "recovered" | "terminal_failure";
+  readonly closureReason: "unexpected_worker_disconnect" | "supervisor_recovery_exhausted" | null;
+  readonly observationId: string | null;
+  readonly automaticRetryCount: 0 | 1;
+  readonly detail: string | null;
+}
+
 export interface FakeRootSessionSnapshot {
   readonly sessionId: string;
   readonly accountId: string | null;
@@ -25,6 +33,7 @@ export interface FakeRootSessionSnapshot {
   readonly tools: readonly Readonly<Record<string, unknown>>[];
   readonly resources: readonly Readonly<Record<string, unknown>>[];
   readonly usage: Readonly<{ input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; cost: number | null }>;
+  readonly workerRecovery: WorkerRecoveryProjection;
 }
 
 export interface FakeDaemonScenario {
@@ -40,6 +49,7 @@ export type ScenarioRequest =
   | Readonly<{ type: "create_resident"; creationId: string; name: string; cwd: string }>
   | Readonly<{ type: "branch_resident"; creationId: string; sourceSessionId: string; entryId: string; name: string }>
   | Readonly<{ type: "attach_session"; sessionId: string }>
+  | Readonly<{ type: "retry_worker"; sessionId: string; observationId: string }>
   | Readonly<{ type: "refresh_session"; sessionId: string; knownCursor: Readonly<{ runtimeGeneration: string; sequence: number }> }>
   | Readonly<{
       type: "session_command";
@@ -62,6 +72,7 @@ export type ScenarioResponse =
   | Readonly<{ type: "command_result"; commandId: string; outcome: "accepted" | "queued" | "reconciled"; snapshot: FakeRootSessionSnapshot }>
   | Readonly<{ type: "resident_created"; creationId: string; snapshot: FakeRootSessionSnapshot }>
   | Readonly<{ type: "resident_branched"; creationId: string; sourceSessionId: string; entryId: string; snapshot: FakeRootSessionSnapshot }>
+  | Readonly<{ type: "worker_retry_result"; observationId: string; outcome: "recovered" | "terminal_failure"; snapshot: FakeRootSessionSnapshot }>
   | Readonly<{ type: "inspector_result"; detailsJson: string }>
   | Readonly<{
       type: "studio_operation_result"; operationId: string;
@@ -213,6 +224,7 @@ function snapshot(value: unknown): FakeRootSessionSnapshot {
     state: oneOf(source.state, ["idle", "working", "blocked", "failed", "disconnected", "stopped"] as const),
     parentMessages: array(source.parentMessages, 300).map(message), children, queue, tools, resources,
     usage: { input, output, cacheRead, cacheWrite, totalTokens, cost: cost as number | null },
+    workerRecovery: { status: "ready", closureReason: null, observationId: null, automaticRetryCount: 0, detail: null },
   };
 }
 
@@ -272,6 +284,9 @@ export class FakeDaemonController {
     }
     if (request.type === "branch_resident") {
       return deepFreeze({ type: "error", code: "unsupported_command", message: "Fake daemon resident branching is not implemented" });
+    }
+    if (request.type === "retry_worker") {
+      return deepFreeze({ type: "error", code: "worker_retry_not_admitted", message: "Fake daemon worker recovery is unavailable" });
     }
     const current = this.#sessions.get(request.sessionId);
     if (!current) return deepFreeze({ type: "error", code: "unknown_session", message: "Session is not owned by this scenario" });

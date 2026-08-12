@@ -11,7 +11,7 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: mocks.listen,
 }));
 
-import { attachHarnessSession, bootstrapHarness, decodeBootProjection, decodeHarnessProjectionEvent, executeHarnessStudioOperation, loadHarnessInspector, refreshHarnessSession, refreshHarnessSubscriptionsNow, registerHarnessSessionProjection, sendHarnessCommand, subscribeHarnessEvents } from "./client";
+import { attachHarnessSession, bootstrapHarness, decodeBootProjection, decodeHarnessProjectionEvent, executeHarnessStudioOperation, loadHarnessInspector, refreshHarnessSession, refreshHarnessSubscriptionsNow, registerHarnessSessionProjection, retryHarnessWorker, sendHarnessCommand, subscribeHarnessEvents } from "./client";
 
 const unavailable = {
   compatibility: {
@@ -43,6 +43,7 @@ const session = {
     totalTokens: 0,
     cost: null,
   },
+  workerRecovery: { status: "ready", closureReason: null, observationId: null, automaticRetryCount: 0, detail: null },
 };
 
 describe("Harness IPC client", () => {
@@ -273,6 +274,25 @@ describe("Harness IPC client", () => {
         text: "Hello Harness",
       },
     });
+  });
+
+  it("binds worker retry responses to the exact observation and next cursor", async () => {
+    const observationId = "worker-recovery-0123456789abcdef012345";
+    const failed = {
+      ...session,
+      state: "failed",
+      workerRecovery: { status: "retryable_failure", closureReason: "supervisor_recovery_exhausted", observationId, automaticRetryCount: 0, detail: "Supervisor recovery exhausted" },
+    };
+    mocks.invoke.mockResolvedValueOnce({ compatibility: { status: "ready", profile: "profile", capabilities: readyCapabilities }, sessions: [failed] });
+    await bootstrapHarness();
+    const recovered = {
+      ...session,
+      cursor: { ...session.cursor, sequence: 2 },
+      workerRecovery: { status: "recovered", closureReason: "supervisor_recovery_exhausted", observationId, automaticRetryCount: 1, detail: null },
+    };
+    mocks.invoke.mockResolvedValueOnce({ observationId, outcome: "recovered", session: recovered });
+    await expect(retryHarnessWorker(session.sessionId, observationId)).resolves.toEqual({ observationId, outcome: "recovered", session: recovered });
+    expect(mocks.invoke).toHaveBeenLastCalledWith("harness_retry_worker", { request: { sessionId: session.sessionId, observationId } });
   });
 
   it("binds live refresh snapshots to the exact next Studio cursor", async () => {

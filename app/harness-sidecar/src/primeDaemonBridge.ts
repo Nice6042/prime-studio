@@ -3,10 +3,11 @@ import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
 import { decideCompatibility } from "./compatibility.js";
-import type { FakeRootSessionSnapshot, ParentMessage, ScenarioRequest, ScenarioResponse } from "./fakeDaemonScenario.js";
+import type { FakeRootSessionSnapshot, ParentMessage, ScenarioRequest, ScenarioResponse, WorkerRecoveryProjection } from "./fakeDaemonScenario.js";
 import { discoverRuntime, type RuntimeIdentity } from "./runtimeDiscovery.js";
 import { loadReviewedPrimeAdapter } from "./reviewedPrimeAdapter.js";
 import { parseStudioHarnessOperation, StudioHarnessOperationDispatcher, type StudioHarnessOperationOutcome } from "./studioHarnessOperations.js";
+import { sanitizeDiagnostic } from "./redaction.js";
 import type { RuntimeClosureLock } from "./runtimeClosure.js";
 import { lockVerifiedRuntimeClosure } from "./runtimeClosure.js";
 
@@ -104,7 +105,12 @@ interface BoundConnection {
   studioGeneration: string | null;
   eventRevision: bigint;
   dirty: boolean;
+  lastSnapshot: FakeRootSessionSnapshot | null;
   unsubscribe?: () => void;
+}
+
+interface WorkerRecoveryObservation {
+  readonly projection: WorkerRecoveryProjection;
 }
 
 interface DaemonSnapshotBarrier {
@@ -336,6 +342,8 @@ export class PrimeDaemonBridge {
   readonly #commands = new Map<string, Readonly<{ fingerprint: string; response: Extract<ScenarioResponse, { type: "command_result" }> }>>();
   readonly #creations = new Map<string, Readonly<{ fingerprint: string; response: Extract<ScenarioResponse, { type: "resident_created" }> }>>();
   readonly #operationDispatchers = new Map<string, StudioHarnessOperationDispatcher>();
+  readonly #workerRecovery = new Map<string, WorkerRecoveryObservation>();
+  #workerRecoverySequence = 0;
   #hello: DaemonHelloLike | null = null;
 
   constructor(ports: PrimeDaemonBridgePorts) {
@@ -689,6 +697,10 @@ export class PrimeDaemonBridge {
       const hello = this.#client.hello ?? await this.#client.waitForHello(5_000);
       this.#validateHello(hello);
       if (this.#hello && this.#hello.supervisorGeneration !== hello.supervisorGeneration) {
+        // Recovery observations are scoped to one verified supervisor
+        // generation. Never let a predecessor authorize a mutation on its
+        // replacement.
+        this.#workerRecovery.clear();
         await Promise.all([...this.#connections.entries()].map(async ([activeSessionId, bound]) => {
           bound.unsubscribe?.();
           await bound.connection.dispose();
@@ -752,6 +764,7 @@ export class PrimeDaemonBridge {
     if (request.type === "branch_resident") {
       return this.branchResident(request);
     }
+    if (request.type === "retry_worker") return this.#retryWorker(request.sessionId, request.observationId);
     if (request.type === "attach_session") return { type: "snapshot_result", snapshot: await this.snapshot(request.sessionId) };
     if (request.type === "refresh_session") {
       let snapshot: FakeRootSessionSnapshot;
@@ -796,6 +809,12 @@ export class PrimeDaemonBridge {
 
   async snapshot(activeSessionId: string, minimumSequence = 0, allowGenerationChange = true): Promise<FakeRootSessionSnapshot> {
     const hello = await this.negotiate();
+    const recovery = await this.#observeWorkerRecovery(activeSessionId, hello);
+    if (recovery.status !== "starting" && recovery.status !== "ready" && recovery.status !== "recovered") {
+      const bound = this.#connections.get(activeSessionId);
+      if (!bound?.lastSnapshot) throw new Error("worker recovery identity is unavailable");
+      return this.#publishWorkerRecoverySnapshot(bound, recovery, minimumSequence);
+    }
     const bound = await this.#bound(activeSessionId);
     const barrier = await this.#openBarrier(activeSessionId, bound);
     const publicationEventRevision = barrier.eventRevision;
@@ -868,6 +887,7 @@ export class PrimeDaemonBridge {
       cursor: { runtimeGeneration: observedCursor.generation, sequence: nextSequence }, state: rootState(state),
       parentMessages: messages, children, queue, tools, resources: resources.slice(0, 512),
       usage: { input, output, cacheRead, cacheWrite, totalTokens, cost: typeof stats.cost === "number" && Number.isFinite(stats.cost) && stats.cost >= 0 ? stats.cost : null },
+      workerRecovery: recovery,
     });
     bound.sequence = nextSequence;
     bound.initialized = true;
@@ -875,7 +895,118 @@ export class PrimeDaemonBridge {
     bound.publishedUpstreamGeneration = observedCursor.generation;
     bound.studioGeneration = observedCursor.generation;
     bound.dirty = bound.eventRevision !== publicationEventRevision;
+    bound.lastSnapshot = snapshot;
     return snapshot;
+  }
+
+  async #observeWorkerRecovery(activeSessionId: string, negotiated?: DaemonHelloLike): Promise<WorkerRecoveryProjection> {
+    const hello = negotiated ?? await this.negotiate();
+    const rows = sessionCatalogRows(responseData(
+      await this.#client.request({ type: "list", includeClientOwned: true }, 10_000),
+      "list",
+    ));
+    const matches = rows.filter((row) => plain(row) && row.activeSessionId === activeSessionId && row.isSessionActive === true);
+    if (matches.length !== 1) throw new Error("daemon worker recovery session identity is ambiguous");
+    const row = matches[0]! as Record<string, unknown>;
+    if (row.workerState === undefined) throw new Error("daemon worker recovery state is unavailable");
+    const state = boundedString(row.workerState, 32);
+    if (state !== "starting" && state !== "ready" && state !== "recovering" && state !== "failed") throw new Error("daemon worker recovery state is invalid");
+    const prior = this.#workerRecovery.get(activeSessionId)?.projection;
+    let projection: WorkerRecoveryProjection;
+    if (state === "starting") {
+      projection = { status: "starting", closureReason: null, observationId: null, automaticRetryCount: 0, detail: "The verified supervisor is starting this worker." };
+    } else if (state === "ready") {
+      projection = prior?.status === "retrying"
+        ? { status: "recovered", closureReason: prior.closureReason, observationId: prior.observationId, automaticRetryCount: 1, detail: null }
+        : { status: "ready", closureReason: null, observationId: null, automaticRetryCount: 0, detail: null };
+    } else if (state === "recovering") {
+      if (prior?.observationId) {
+        projection = { ...prior, status: prior.automaticRetryCount === 1 ? "retrying" : "recovering", detail: null };
+      } else if (prior?.status === "ready" || prior?.status === "recovered") {
+        const observationId = stableId("worker-recovery", `${hello.supervisorGeneration}:${activeSessionId}:${++this.#workerRecoverySequence}`);
+        projection = { status: "recovering", closureReason: "unexpected_worker_disconnect", observationId, automaticRetryCount: 0, detail: null };
+      } else {
+        projection = { status: "terminal_failure", closureReason: "supervisor_recovery_exhausted", observationId: null, automaticRetryCount: 0, detail: "The worker failure was not observed from a healthy session; automatic retry is unsafe." };
+      }
+    } else if (prior?.observationId) {
+      projection = prior.automaticRetryCount === 0
+        ? { ...prior, status: "retryable_failure", closureReason: "supervisor_recovery_exhausted", detail: "The verified supervisor exhausted its worker recovery attempts." }
+        : { ...prior, status: "terminal_failure", closureReason: "supervisor_recovery_exhausted", detail: prior.detail ?? "The one automatic worker retry did not recover the session." };
+    } else {
+      projection = { status: "terminal_failure", closureReason: "supervisor_recovery_exhausted", observationId: null, automaticRetryCount: 0, detail: "The worker failure was not observed from a healthy session; automatic retry is unsafe." };
+    }
+    this.#workerRecovery.set(activeSessionId, { projection: Object.freeze(projection) });
+    return projection;
+  }
+
+  #publishWorkerRecoverySnapshot(bound: BoundConnection, recovery: WorkerRecoveryProjection, minimumSequence: number): FakeRootSessionSnapshot {
+    const prior = bound.lastSnapshot;
+    if (!prior || !bound.initialized || !bound.studioGeneration) throw new Error("worker recovery identity is unavailable");
+    const sequence = bound.sequence + 1;
+    if (!Number.isSafeInteger(sequence) || sequence > Number.MAX_SAFE_INTEGER || minimumSequence > sequence) {
+      throw new Error("Studio projection cursor cannot advance exactly one revision");
+    }
+    const snapshot = Object.freeze({
+      ...prior,
+      cursor: { runtimeGeneration: bound.studioGeneration, sequence },
+      state: "failed" as const,
+      workerRecovery: Object.freeze({ ...recovery }),
+    });
+    bound.sequence = sequence;
+    bound.lastSnapshot = snapshot;
+    return snapshot;
+  }
+
+  async #retryWorker(activeSessionId: string, observationId: string): Promise<ScenarioResponse> {
+    if (!/^[!-~]{1,128}$/u.test(activeSessionId) || !/^[!-~]{1,128}$/u.test(observationId)) {
+      return { type: "error", code: "worker_retry_not_admitted", message: "Worker retry identity is invalid" };
+    }
+    const recovery = await this.#observeWorkerRecovery(activeSessionId);
+    const bound = this.#connections.get(activeSessionId);
+    if (!bound?.lastSnapshot || recovery.status !== "retryable_failure" || recovery.observationId !== observationId || recovery.automaticRetryCount !== 0) {
+      return { type: "error", code: "worker_retry_not_admitted", message: "Worker retry is not admitted for this observation" };
+    }
+    const retrying: WorkerRecoveryProjection = Object.freeze({ ...recovery, status: "retrying", automaticRetryCount: 1, detail: null });
+    this.#workerRecovery.set(activeSessionId, { projection: retrying });
+    try {
+      responseData(await this.#client.request({ type: "retry_worker", activeSessionId }, 60_000), "retry_worker");
+      await this.#replaceRecoveredConnection(activeSessionId, bound);
+    } catch (error) {
+      const terminal: WorkerRecoveryProjection = Object.freeze({
+        ...retrying,
+        status: "terminal_failure",
+        closureReason: "supervisor_recovery_exhausted",
+        detail: sanitizeDiagnostic(error).slice(0, 200) || "The verified supervisor rejected the worker retry.",
+      });
+      this.#workerRecovery.set(activeSessionId, { projection: terminal });
+      return { type: "worker_retry_result", observationId, outcome: "terminal_failure", snapshot: this.#publishWorkerRecoverySnapshot(bound, terminal, bound.sequence + 1) };
+    }
+    const snapshot = await this.snapshot(activeSessionId, bound.sequence + 1);
+    const outcome = snapshot.workerRecovery.status === "recovered" ? "recovered" : "terminal_failure";
+    return { type: "worker_retry_result", observationId, outcome, snapshot };
+  }
+
+  async #replaceRecoveredConnection(activeSessionId: string, bound: BoundConnection): Promise<void> {
+    const replacement = await this.#attachPort(this.#client, activeSessionId);
+    let replacementUnsubscribe: (() => void) | undefined;
+    try {
+      if (replacement.subscribe) {
+        replacementUnsubscribe = replacement.subscribe(() => {
+          bound.eventRevision += 1n;
+          bound.dirty = true;
+        });
+      }
+    } catch (error) {
+      await replacement.dispose().catch(() => undefined);
+      throw error;
+    }
+    const prior = bound.connection;
+    bound.unsubscribe?.();
+    bound.connection = replacement;
+    if (replacementUnsubscribe) bound.unsubscribe = replacementUnsubscribe;
+    else delete bound.unsubscribe;
+    bound.dirty = false;
+    await prior.dispose().catch(() => undefined);
   }
 
   async close(): Promise<void> {
@@ -895,7 +1026,7 @@ export class PrimeDaemonBridge {
     const bound: BoundConnection = {
       connection, sequence: 0, initialized: false, publishedUpstreamSequence: null,
       publishedUpstreamGeneration: null, studioGeneration: null,
-      eventRevision: 0n, dirty: false,
+      eventRevision: 0n, dirty: false, lastSnapshot: null,
     };
     if (connection.subscribe) {
       bound.unsubscribe = connection.subscribe(() => {

@@ -74,6 +74,9 @@ function closedPayload(value: unknown): ScenarioRequest {
   if (payload.type === "attach_session" && exactKeys(payload, ["type", "sessionId"]) && validId(payload.sessionId)) {
     return { type: "attach_session", sessionId: payload.sessionId };
   }
+  if (payload.type === "retry_worker" && exactKeys(payload, ["type", "sessionId", "observationId"]) && validId(payload.sessionId) && validId(payload.observationId)) {
+    return { type: "retry_worker", sessionId: payload.sessionId, observationId: payload.observationId };
+  }
   if (payload.type === "refresh_session" && exactKeys(payload, ["type", "sessionId", "knownCursor"]) && validId(payload.sessionId)) {
     const knownCursor = closedCursor(payload.knownCursor);
     if (!knownCursor) throw new Error("request payload is invalid");

@@ -52,7 +52,8 @@ fn quarantine_snapshot(session_id: &str, sequence: u64) -> Value {
         "projectId":format!("project-{suffix}"),"chatId":format!("chat-{suffix}"),
         "cursor":{"runtimeGeneration":"generation","sequence":sequence},"state":"idle",
         "parentMessages":[],"children":[],"queue":[],"tools":[],"resources":[],
-        "usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null}
+        "usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null},
+        "workerRecovery":{"status":"ready","closureReason":null,"observationId":null,"automaticRetryCount":0,"detail":null}
     })
 }
 
@@ -133,7 +134,8 @@ fn main() {
                         "sessionId":"session","accountId":null,"projectId":"project","chatId":"chat",
                         "cursor":{"runtimeGeneration":"generation","sequence":0},"state":"idle",
                         "parentMessages":[],"children":[],"queue":[],"tools":[],"resources":[],
-                        "usage":{"input":9007199254740992_u64,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null}
+                        "usage":{"input":9007199254740992_u64,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null},
+                        "workerRecovery":{"status":"ready","closureReason":null,"observationId":null,"automaticRetryCount":0,"detail":null}
                     }]
                 }
             }));
@@ -177,7 +179,8 @@ fn main() {
                         "sessionId":"root","accountId":"account","projectId":"project","chatId":"chat",
                         "cursor":{"runtimeGeneration":"generation","sequence":1},"state":"idle",
                         "parentMessages":[],"children":[],"queue":[],"tools":[],"resources":[],
-                        "usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null}
+                        "usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null},
+                        "workerRecovery":{"status":"ready","closureReason":null,"observationId":null,"automaticRetryCount":0,"detail":null}
                     }]
                 }
             }));
@@ -209,7 +212,8 @@ fn main() {
                             "sessionId":"root","accountId":"account","projectId":"project","chatId":"chat",
                             "cursor":{"runtimeGeneration":"generation-b","sequence":1},"state":"idle",
                             "parentMessages":[],"children":[],"queue":[],"tools":[],"resources":[],
-                            "usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null}
+                            "usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null},
+                            "workerRecovery":{"status":"ready","closureReason":null,"observationId":null,"automaticRetryCount":0,"detail":null}
                         }]
                     }
                 }));
@@ -254,7 +258,8 @@ fn main() {
                         "sessionId":"resident-root", "accountId":null, "projectId":project_id, "chatId":"resident-chat",
                         "cursor":{"runtimeGeneration":"generation","sequence":1}, "state":"idle",
                         "parentMessages":[], "children":children, "queue":[], "tools":[], "resources":[],
-                        "usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null}
+                        "usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null},
+                        "workerRecovery":{"status":"ready","closureReason":null,"observationId":null,"automaticRetryCount":0,"detail":null}
                     }
                 }
             }));
@@ -273,7 +278,8 @@ fn main() {
                     "cursor":{"runtimeGeneration":"generation-source","sequence":1},"state":"idle",
                     "parentMessages":[{"channel":"parent","kind":"user","id":"message-1","text":"Branch here","emittedAtMs":1}],
                     "children":[],"queue":[],"tools":[],"resources":[],
-                    "usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null}
+                    "usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null},
+                    "workerRecovery":{"status":"ready","closureReason":null,"observationId":null,"automaticRetryCount":0,"detail":null}
                 }] }
             }));
             let branch = read_frame();
@@ -290,7 +296,8 @@ fn main() {
                         "cursor":{"runtimeGeneration":"generation-branch","sequence":1},"state":"idle",
                         "parentMessages":[{"channel":"parent","kind":"user","id":"message-1","text":"Branch here","emittedAtMs":1}],
                         "children":[],"queue":[],"tools":[],"resources":[],
-                        "usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null}
+                        "usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null},
+                        "workerRecovery":{"status":"ready","closureReason":null,"observationId":null,"automaticRetryCount":0,"detail":null}
                     }
                 }
             }));
@@ -305,7 +312,38 @@ fn main() {
             assert_eq!(attach["payload"]["type"], "attach_session");
             assert_eq!(attach["payload"]["sessionId"], "root");
             write_frame(
-                &json!({"studioProtocol":1,"requestId":attach["requestId"],"payload":{"type":"snapshot_result","snapshot":{"sessionId":"root","accountId":"account","projectId":"project","chatId":"chat","cursor":{"runtimeGeneration":"generation","sequence":1},"state":"idle","parentMessages":[],"children":[],"queue":[],"tools":[],"resources":[],"usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null}}}}),
+                &json!({"studioProtocol":1,"requestId":attach["requestId"],"payload":{"type":"snapshot_result","snapshot":{"sessionId":"root","accountId":"account","projectId":"project","chatId":"chat","cursor":{"runtimeGeneration":"generation","sequence":1},"state":"idle","parentMessages":[],"children":[],"queue":[],"tools":[],"resources":[],"usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null},"workerRecovery":{"status":"ready","closureReason":null,"observationId":null,"automaticRetryCount":0,"detail":null}}}}),
+            );
+        }
+        "broker-worker-recovery" => {
+            let discovery = read_frame();
+            write_frame(
+                &json!({"studioProtocol":1,"requestId":discovery["requestId"],"payload":{"type":"discover_runtime_result","runtime":broker_runtime(),"compatibility":broker_compatibility("prime-agent-daemon-v7-schema13-816309b1cd50")}}),
+            );
+            let attach = read_frame();
+            assert_eq!(attach["payload"]["type"], "attach_session");
+            let observation_id = "worker-recovery-0123456789abcdef012345";
+            write_frame(
+                &json!({"studioProtocol":1,"requestId":attach["requestId"],"payload":{"type":"snapshot_result","snapshot":{
+                    "sessionId":"root","accountId":"account","projectId":"project","chatId":"chat",
+                    "cursor":{"runtimeGeneration":"generation","sequence":1},"state":"failed",
+                    "parentMessages":[],"children":[],"queue":[],"tools":[],"resources":[],
+                    "usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null},
+                    "workerRecovery":{"status":"retryable_failure","closureReason":"supervisor_recovery_exhausted","observationId":observation_id,"automaticRetryCount":0,"detail":"Verified supervisor recovery exhausted"}
+                }}}),
+            );
+            let retry = read_frame();
+            assert_eq!(retry["payload"]["type"], "retry_worker");
+            assert_eq!(retry["payload"]["sessionId"], "root");
+            assert_eq!(retry["payload"]["observationId"], observation_id);
+            write_frame(
+                &json!({"studioProtocol":1,"requestId":retry["requestId"],"payload":{"type":"worker_retry_result","observationId":observation_id,"outcome":"recovered","snapshot":{
+                    "sessionId":"root","accountId":"account","projectId":"project","chatId":"chat",
+                    "cursor":{"runtimeGeneration":"generation","sequence":2},"state":"idle",
+                    "parentMessages":[],"children":[],"queue":[],"tools":[],"resources":[],
+                    "usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null},
+                    "workerRecovery":{"status":"recovered","closureReason":"supervisor_recovery_exhausted","observationId":observation_id,"automaticRetryCount":1,"detail":null}
+                }}}),
             );
         }
         "broker-quarantine" => {

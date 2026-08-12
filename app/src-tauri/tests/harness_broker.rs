@@ -1,12 +1,12 @@
 use prime_studio_lib::harness::broker::{
     AttachRequest, BrokerState, HarnessBroker, ProjectionFreshness, RefreshSessionRequest,
     ResidentBranchRequest, ResidentCreateRequest, SessionCommandRequest, SessionOwnership,
-    StudioOperationRequest,
+    StudioOperationRequest, WorkerRetryRequest,
 };
 use prime_studio_lib::harness::generated::{
     ChildAgentStatus, ChildAgentSummary, CurrentChatUsage, HarnessCursor, HarnessEvent,
     HarnessStudioAction, RootSessionSnapshot, RootSessionState, SessionCommandKind,
-    StudioOperationStatus,
+    StudioOperationStatus, WorkerRecoveryProjection, WorkerRecoveryStatus,
 };
 use prime_studio_lib::harness::recovery::{RecoveredSession, RecoveryRecord};
 use prime_studio_lib::harness::sidecar::{HarnessError, SidecarSupervisor, VerifiedSidecarSpec};
@@ -73,6 +73,13 @@ fn snapshot(
             total_tokens: 0,
             cost: None,
         },
+        worker_recovery: WorkerRecoveryProjection {
+            status: WorkerRecoveryStatus::Ready,
+            closure_reason: None,
+            observation_id: None,
+            automatic_retry_count: 0,
+            detail: None,
+        },
     }
 }
 
@@ -118,6 +125,47 @@ fn production_bootstrap_attaches_only_catalog_owned_sessions() {
     assert_eq!(broker.state(), BrokerState::Live);
     assert_eq!(boot.sessions.len(), 1);
     assert_eq!(boot.sessions[0].session_id, "root");
+}
+
+#[test]
+fn worker_retry_is_bound_to_one_observed_failure_and_cannot_replay() {
+    let mut broker = HarnessBroker::new(
+        sidecar("broker-worker-recovery"),
+        "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900".to_owned(),
+        "prime-agent-daemon-v7-schema13-816309b1cd50".to_owned(),
+        vec![ownership("root", "project", "chat")],
+        None,
+    )
+    .unwrap();
+    tauri::async_runtime::block_on(broker.bootstrap_owned()).unwrap();
+    let observation_id = "worker-recovery-0123456789abcdef012345".to_owned();
+
+    let wrong = tauri::async_runtime::block_on(broker.retry_worker(WorkerRetryRequest {
+        session_id: "root".to_owned(),
+        observation_id: "worker-recovery-ffffffffffffffffffffff".to_owned(),
+    }));
+    assert_eq!(wrong.unwrap_err(), HarnessError::OwnershipViolation);
+
+    let result = tauri::async_runtime::block_on(broker.retry_worker(WorkerRetryRequest {
+        session_id: "root".to_owned(),
+        observation_id: observation_id.clone(),
+    }))
+    .unwrap();
+    assert_eq!(
+        result.outcome,
+        prime_studio_lib::harness::generated::WorkerRetryOutcome::Recovered
+    );
+    assert_eq!(
+        result.session.worker_recovery.status,
+        WorkerRecoveryStatus::Recovered
+    );
+    assert_eq!(result.session.worker_recovery.automatic_retry_count, 1);
+
+    let replay = tauri::async_runtime::block_on(broker.retry_worker(WorkerRetryRequest {
+        session_id: "root".to_owned(),
+        observation_id,
+    }));
+    assert_eq!(replay.unwrap_err(), HarnessError::OwnershipViolation);
 }
 
 #[test]

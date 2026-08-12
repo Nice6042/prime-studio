@@ -31,6 +31,7 @@ const session: RootSessionProjection = {
   tools: [{ id: "workspace.inspect", label: "Workspace inspect", enabled: true, configurable: true }],
   resources: [{ id: "r1", label: "AGENTS.md", kind: "context file", availability: "available" }],
   usage: { input: 100, output: 40, cacheRead: 20, cacheWrite: 5, totalTokens: 165, cost: null },
+  workerRecovery: { status: "ready", closureReason: null, observationId: null, automaticRetryCount: 0, detail: null },
 };
 
 const details: HarnessPanelDetails = {
@@ -441,6 +442,27 @@ describe("HarnessInspector", () => {
 
     expect(await screen.findByRole("status", { name: "Silent worker recovery unavailable" }))
       .toHaveTextContent("does not expose a verified closure reason and retry identity");
+    expect(screen.queryByRole("button", { name: /retry silent worker/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps recovered and terminal worker outcomes in the right inspector", async () => {
+    const observationId = "worker-recovery-0123456789abcdef012345";
+    const source: HarnessInspectorAdapter = { ...adapter(), workerRecovery: {
+      status: "available", maximumAutomaticRetries: 1,
+      retry: vi.fn(),
+    } };
+    const view = render(<HarnessInspector chatId="chat-a" session={{
+      ...session,
+      workerRecovery: { status: "recovered", closureReason: "supervisor_recovery_exhausted", observationId, automaticRetryCount: 1, detail: null },
+    }} compatibility={compatibility} adapter={source} />);
+    expect(await screen.findByText("Worker recovered.")).toBeVisible();
+
+    view.rerender(<HarnessInspector chatId="chat-a" session={{
+      ...session,
+      state: "failed",
+      workerRecovery: { status: "terminal_failure", closureReason: "supervisor_recovery_exhausted", observationId, automaticRetryCount: 1, detail: "The one automatic worker retry did not recover the session." },
+    }} compatibility={compatibility} adapter={source} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("one automatic worker retry did not recover");
     expect(screen.queryByRole("button", { name: /retry silent worker/i })).not.toBeInTheDocument();
   });
 

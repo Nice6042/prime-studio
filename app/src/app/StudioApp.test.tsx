@@ -28,6 +28,7 @@ const rootSession: RootSessionProjection = {
   ],
   children: [], queue: [], tools: [], resources: [],
   usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: null },
+  workerRecovery: { status: "ready", closureReason: null, observationId: null, automaticRetryCount: 0, detail: null },
 };
 
 function conversationAdapter(operations: StudioOperation[]): HarnessInspectorAdapter {
@@ -337,6 +338,33 @@ describe("Studio application state", () => {
       action: "settings.harness-policy.set",
       payload: { key: "maxConcurrentAgents", value: "8" },
     }));
+  });
+
+  it("automatically retries one observed silent-worker failure exactly once", async () => {
+    const observationId = "worker-recovery-0123456789abcdef012345";
+    const failed: RootSessionProjection = {
+      ...rootSession,
+      state: "failed",
+      workerRecovery: { status: "retryable_failure", closureReason: "supervisor_recovery_exhausted", observationId, automaticRetryCount: 0, detail: "Supervisor recovery exhausted" },
+    };
+    const retry = vi.fn(async () => ({ outcome: "recovered" as const, session: {
+      ...rootSession,
+      cursor: { ...rootSession.cursor, sequence: 3 },
+      workerRecovery: { status: "recovered" as const, closureReason: "supervisor_recovery_exhausted" as const, observationId, automaticRetryCount: 1 as const, detail: null },
+    } }));
+    const settingsSpy = vi.spyOn(rpc, "getAppSettings").mockResolvedValue({ retrySilentWorkers: "enabled" });
+    const adapter: HarnessInspectorAdapter = {
+      ...conversationAdapter([]),
+      workerRecovery: { status: "available", maximumAutomaticRetries: 1, retry },
+    };
+    const store = createStudioStore(initialStudioState({ projectCatalog: catalogBoundToRootSession(), sessions: [failed] }));
+    render(<AppProviders store={store}><StudioApp harnessAdapter={adapter} /></AppProviders>);
+
+    await waitFor(() => expect(retry).toHaveBeenCalledWith(rootSession.sessionId, observationId));
+    store.dispatch({ type: "harness/session-projected", session: { ...failed, cursor: { ...failed.cursor, sequence: 3 } } });
+    await act(async () => { await Promise.resolve(); });
+    expect(retry).toHaveBeenCalledOnce();
+    settingsSpy.mockRestore();
   });
 
   it("does not treat general inspector availability as verified settings authority", () => {

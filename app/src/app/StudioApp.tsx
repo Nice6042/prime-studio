@@ -106,6 +106,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   });
   const [query, setQuery] = useState("");
   const [settings, setSettings] = useState<AppSettings>({});
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [accounts, setAccounts] = useState<readonly Account[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
@@ -135,6 +136,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const [loadedComposer, setLoadedComposer] = useState<Readonly<{ sessionId: string; projection: HarnessComposerProjection }> | null>(null);
   const [composerUnavailableReason, setComposerUnavailableReason] = useState<string | null>(null);
   const [residentBindingFailure, setResidentBindingFailure] = useState<Readonly<{ projectId: string; chatId: string; reason: string }> | null>(null);
+  const workerRecoveryAttempts = useRef<Set<string>>(new Set());
 
   const adapterConnected = harnessAdapter.availability.status === "available";
   const hasCapability = (capability: string) => compatibility.status !== "unavailable" && compatibility.status !== "read_only" && compatibility.capabilities.includes(capability as typeof compatibility.capabilities[number]);
@@ -183,7 +185,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
 
   useEffect(() => {
     let active = true;
-    void rpc.getAppSettings().then((next) => { if (active) setSettings(next); });
+    void rpc.getAppSettings().then((next) => { if (active) { setSettings(next); setSettingsLoaded(true); } }).catch(() => undefined);
     void rpc.listAccounts().then((next) => { if (active) setAccounts(next); });
     return () => { active = false; };
   }, []);
@@ -208,6 +210,27 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       unsubscribe?.();
     };
   }, [store]);
+
+  useEffect(() => {
+    const recovery = harnessAdapter.workerRecovery;
+    if (!settingsLoaded || settings.retrySilentWorkers === "disabled" || recovery?.status !== "available") return;
+    for (const session of Object.values(sessions)) {
+      const observationId = session.workerRecovery.observationId;
+      if (
+        session.freshness !== "live"
+        || session.state !== "failed"
+        || session.workerRecovery.status !== "retryable_failure"
+        || session.workerRecovery.automaticRetryCount !== 0
+        || !observationId
+        || workerRecoveryAttempts.current.has(observationId)
+      ) continue;
+      workerRecoveryAttempts.current.add(observationId);
+      void recovery.retry(session.sessionId, observationId).catch(() => {
+        // The observation remains latched. An IPC failure is an uncertain
+        // outcome and must never be converted into another mutation attempt.
+      });
+    }
+  }, [harnessAdapter, sessions, settings.retrySilentWorkers, settingsLoaded]);
 
   useEffect(() => {
     let active = true;

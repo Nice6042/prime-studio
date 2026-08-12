@@ -167,6 +167,14 @@ export interface CurrentChatUsage {
   cost: number | null;
 }
 
+export interface WorkerRecoveryProjection {
+  status: "starting" | "ready" | "recovering" | "retryable_failure" | "retrying" | "recovered" | "terminal_failure";
+  closureReason: "unexpected_worker_disconnect" | "supervisor_recovery_exhausted" | null;
+  observationId: string | null;
+  automaticRetryCount: 0 | 1;
+  detail: string | null;
+}
+
 export interface RootSessionSnapshot {
   sessionId: string;
   accountId: string | null;
@@ -180,6 +188,7 @@ export interface RootSessionSnapshot {
   tools: readonly ToolDefinition[];
   resources: readonly ContextSource[];
   usage: CurrentChatUsage;
+  workerRecovery: WorkerRecoveryProjection;
 }
 
 export type HarnessStudioAction =
@@ -195,6 +204,7 @@ export type StudioRequest =
   | { type: "create_resident"; creationId: string; name: string; cwd: string }
   | { type: "branch_resident"; creationId: string; sourceSessionId: string; entryId: string; name: string }
   | { type: "attach_session"; sessionId: string }
+  | { type: "retry_worker"; sessionId: string; observationId: string }
   | { type: "session_command"; sessionId: string; commandId: string; expectedCursor: HarnessCursor; kind: "prompt" | "steer" | "follow_up" | "abort"; text: string }
   | { type: "inspector"; sessionId: string }
   | { type: "refresh_session"; sessionId: string; knownCursor: HarnessCursor }
@@ -205,6 +215,7 @@ export type StudioResponse =
   | { type: "bootstrap_result"; compatibility: HarnessCompatibility; sessions: readonly RootSessionSnapshot[] }
   | { type: "snapshot_result"; snapshot: RootSessionSnapshot }
   | { type: "command_result"; commandId: string; outcome: "accepted" | "queued" | "reconciled"; snapshot: RootSessionSnapshot }
+  | { type: "worker_retry_result"; observationId: string; outcome: "recovered" | "terminal_failure"; snapshot: RootSessionSnapshot }
   | { type: "resident_created"; creationId: string; snapshot: RootSessionSnapshot }
   | { type: "resident_branched"; creationId: string; sourceSessionId: string; entryId: string; snapshot: RootSessionSnapshot }
   | { type: "inspector_result"; detailsJson: string }
@@ -351,6 +362,24 @@ pub struct CurrentChatUsage {
     pub total_tokens: u64, pub cost: Option<f64>,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkerRecoveryStatus { Starting, Ready, Recovering, RetryableFailure, Retrying, Recovered, TerminalFailure }
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkerClosureReason { UnexpectedWorkerDisconnect, SupervisorRecoveryExhausted }
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct WorkerRecoveryProjection {
+    pub status: WorkerRecoveryStatus,
+    pub closure_reason: Option<WorkerClosureReason>,
+    pub observation_id: Option<String>,
+    pub automatic_retry_count: u8,
+    pub detail: Option<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct RootSessionSnapshot {
@@ -358,6 +387,7 @@ pub struct RootSessionSnapshot {
     pub cursor: HarnessCursor, pub state: RootSessionState, pub parent_messages: Vec<ParentMessage>,
     pub children: Vec<ChildAgentSummary>, pub queue: Vec<QueueItem>, pub tools: Vec<ToolDefinition>,
     pub resources: Vec<ContextSource>, pub usage: CurrentChatUsage,
+    pub worker_recovery: WorkerRecoveryProjection,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -377,6 +407,7 @@ pub enum StudioRequest {
         name: String,
     },
     AttachSession { #[serde(rename = "sessionId")] session_id: String },
+    RetryWorker { #[serde(rename = "sessionId")] session_id: String, #[serde(rename = "observationId")] observation_id: String },
     SessionCommand {
         #[serde(rename = "sessionId")] session_id: String,
         #[serde(rename = "commandId")] command_id: String,
@@ -438,6 +469,10 @@ pub enum CommandOutcome { Accepted, Queued, Reconciled }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
+pub enum WorkerRetryOutcome { Recovered, TerminalFailure }
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum StudioOperationStatus { Accepted, Queued, Updated, Cancelled, Unavailable, Rejected, UnknownOutcome }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -447,6 +482,11 @@ pub enum StudioResponse {
     BootstrapResult { compatibility: HarnessCompatibility, sessions: Vec<RootSessionSnapshot> },
     SnapshotResult { snapshot: Box<RootSessionSnapshot> },
     CommandResult { #[serde(rename = "commandId")] command_id: String, outcome: CommandOutcome, snapshot: Box<RootSessionSnapshot> },
+    WorkerRetryResult {
+        #[serde(rename = "observationId")] observation_id: String,
+        outcome: WorkerRetryOutcome,
+        snapshot: Box<RootSessionSnapshot>,
+    },
     ResidentCreated { #[serde(rename = "creationId")] creation_id: String, snapshot: Box<RootSessionSnapshot> },
     ResidentBranched {
         #[serde(rename = "creationId")] creation_id: String,

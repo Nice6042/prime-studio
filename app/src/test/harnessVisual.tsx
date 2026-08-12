@@ -25,6 +25,7 @@ const session: RootSessionProjection = {
     { id: "repo", label: "Repository", kind: "prime-studio (local)", availability: "available" },
   ],
   usage: { input: 28_900, output: 6_200, cacheRead: 5_900, cacheWrite: 1_800, totalTokens: 42_800, cost: null },
+  workerRecovery: { status: "ready", closureReason: null, observationId: null, automaticRetryCount: 0, detail: null },
 };
 
 const details: HarnessPanelDetails = {
