@@ -10,6 +10,7 @@ import {
   type HarnessPanelDetails,
 } from "./adapter";
 import { HarnessInspector } from "./HarnessInspector";
+import { ChildDetail } from "./ChildDetail";
 import { createInspectorState, reduceInspector } from "./inspectorStore";
 
 const session: RootSessionProjection = {
@@ -203,8 +204,8 @@ describe("HarnessInspector", () => {
 
   it("loads every child tab independently and pages older authoritative rows", async () => {
     const source = adapter();
-    source.loadChildPage = vi.fn(async (_sessionId, _childId, tab, cursor) => {
-      if (tab === "chat") return { status: "available" as const, tab, items: [{ id: cursor ? "older" : "newer", actor: "Agent", occurredAtMs: 2, text: cursor ? "Older private row" : "Newest private row" }], previousCursor: cursor ? null : "opaque-previous", omittedItems: cursor ? 0 : 1 };
+    source.loadChildPage = vi.fn(async (_sessionId, _childId, tab, _displayedCursor, pageCursor) => {
+      if (tab === "chat") return { status: "available" as const, tab, items: [{ id: pageCursor ? "older" : "newer", actor: "Agent", occurredAtMs: 2, text: pageCursor ? "Older private row" : "Newest private row" }], previousCursor: pageCursor ? null : "opaque-previous", omittedItems: pageCursor ? 0 : 1 };
       if (tab === "activity") return { status: "available" as const, tab, items: [{ id: "activity-page", occurredAtMs: 3, label: "Paged activity" }], previousCursor: null, omittedItems: 0 };
       return { status: "available" as const, tab, items: [{ id: "file-page", label: "paged.txt", candidateId: "candidate-paged", change: "read" as const }], previousCursor: null, omittedItems: 0 };
     });
@@ -219,8 +220,8 @@ describe("HarnessInspector", () => {
     expect(await screen.findByText("Paged activity")).toBeVisible();
     await user.click(screen.getByRole("tab", { name: "Files" }));
     expect(await screen.findByRole("button", { name: "Open paged.txt" })).toBeVisible();
-    expect(source.loadChildPage).toHaveBeenNthCalledWith(1, "root-a", "child-1", "chat", null);
-    expect(source.loadChildPage).toHaveBeenNthCalledWith(2, "root-a", "child-1", "chat", "opaque-previous");
+    expect(source.loadChildPage).toHaveBeenNthCalledWith(1, "root-a", "child-1", "chat", session.cursor, null);
+    expect(source.loadChildPage).toHaveBeenNthCalledWith(2, "root-a", "child-1", "chat", session.cursor, "opaque-previous");
   });
 
   it("renders explicit child evidence unavailable instead of an empty-data claim", async () => {
@@ -236,8 +237,8 @@ describe("HarnessInspector", () => {
     let releaseOlder!: () => void;
     const older = new Promise<void>((resolve) => { releaseOlder = resolve; });
     const source = adapter();
-    source.loadChildPage = vi.fn(async (_sessionId, _childId, _tab, cursor) => {
-      if (cursor) { await older; return { status: "available" as const, tab: "chat" as const, items: [], previousCursor: null, omittedItems: 0 }; }
+    source.loadChildPage = vi.fn(async (_sessionId, _childId, _tab, _displayedCursor, pageCursor) => {
+      if (pageCursor) { await older; return { status: "available" as const, tab: "chat" as const, items: [], previousCursor: null, omittedItems: 0 }; }
       return { status: "available" as const, tab: "chat" as const, items: [], previousCursor: "opaque-previous", omittedItems: 1 };
     });
     const user = userEvent.setup();
@@ -265,6 +266,48 @@ describe("HarnessInspector", () => {
     expect(await screen.findByText("Fresh activity")).toBeVisible();
     releaseChat();
     await waitFor(() => expect(screen.queryByText("Stale chat")).not.toBeInTheDocument());
+  });
+
+  it("discards old rows and cursor when the displayed session cursor advances", async () => {
+    const source = adapter();
+    source.loadChildPage = vi.fn(async (_sessionId, _childId, _tab, cursor, pageCursor) => ({
+      status: "available" as const, tab: "chat" as const,
+      items: [{ id: `row-${cursor.sequence}`, actor: "Agent", occurredAtMs: cursor.sequence, text: `Cursor ${cursor.sequence}` }],
+      previousCursor: pageCursor === null && cursor.sequence === 10 ? "old-page-cursor" : null,
+      omittedItems: cursor.sequence === 10 ? 1 : 0,
+    }));
+    const view = render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={source} />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Review protocol/ }));
+    expect(await screen.findByText("Cursor 10")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Load older child chat" })).toBeVisible();
+
+    view.rerender(<HarnessInspector chatId="chat-a" session={{ ...session, cursor: { ...session.cursor, sequence: 11 } }} compatibility={compatibility} adapter={source} />);
+
+    expect(await screen.findByText("Cursor 11")).toBeVisible();
+    expect(screen.queryByText("Cursor 10")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Load older child chat" })).not.toBeInTheDocument();
+    expect(source.loadChildPage).toHaveBeenLastCalledWith("root-a", "child-1", "chat", { runtimeGeneration: "g1", sequence: 11 }, null);
+  });
+
+  it("keeps opaque scope tuples distinct when their colon concatenations collide", async () => {
+    let releaseFirst!: () => void;
+    const firstPending = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const loadPage = vi.fn(async (sessionId: string) => {
+      if (sessionId === "a:x") await firstPending;
+      return { status: "available" as const, tab: "chat" as const, items: [{ id: sessionId, actor: "Agent", occurredAtMs: 1, text: `Private ${sessionId}` }], previousCursor: null, omittedItems: 0 };
+    });
+    const child = { id: "x", status: "running" as const, task: "Private", provider: null, model: null, progress: null };
+    const common = { child, details: null, observedAtMs: 1, tab: "chat" as const, pendingKey: null, onBack: vi.fn(), onTab: vi.fn(), onAction: vi.fn(), onLoadPage: loadPage };
+    const view = render(<ChildDetail {...common} sessionId="a:x" displayedCursor={{ runtimeGeneration: "g", sequence: 1 }} />);
+    await waitFor(() => expect(loadPage).toHaveBeenCalledWith("a:x", "x", "chat", { runtimeGeneration: "g", sequence: 1 }, null));
+
+    view.rerender(<ChildDetail {...common} sessionId="a" displayedCursor={{ runtimeGeneration: "x:g", sequence: 1 }} />);
+
+    await waitFor(() => expect(loadPage).toHaveBeenCalledWith("a", "x", "chat", { runtimeGeneration: "x:g", sequence: 1 }, null));
+    expect(await screen.findByText("Private a")).toBeVisible();
+    expect(screen.queryByText("Private a:x")).not.toBeInTheDocument();
+    releaseFirst();
   });
 
   it("shows truthful child failure and exposes typed retry", async () => {

@@ -697,6 +697,7 @@ export class PrimeDaemonBridge {
     const children = Array.isArray(initialRaw.children) ? initialRaw.children : [];
     const matches = children.filter((value) => plain(value) && value.id === boundedChildId);
     if (matches.length !== 1 || !plain(matches[0])) throw new Error("child is not bound to this root session");
+    if (tab === "files") return Object.freeze({ status: "unavailable", tab, reason: "The installed Harness does not expose finalized child filesystem evidence." });
     const childSessionId = typeof matches[0].activeSessionId === "string" ? boundedString(matches[0].activeSessionId, 128) : null;
     const watchSession = bound.connection.watchSession;
     if (!childSessionId || typeof watchSession !== "function") return Object.freeze({ status: "unavailable", tab, reason: "The installed Harness does not expose child session paging." });
@@ -713,16 +714,7 @@ export class PrimeDaemonBridge {
       const label = message.role === "toolResult" && typeof message.toolName === "string" ? `Tool: ${boundedString(message.toolName, 200)}` : `${typeof message.role === "string" ? boundedString(message.role, 64) : "system"} message`;
       return [{ id: messageId(message, index), occurredAtMs: safeInteger(message.timestamp), label }];
     });
-    const files: Array<{ id: string; path: string; change: "read" }> = [];
-    for (const [messageIndex, message] of messages.entries()) {
-      if (!plain(message) || !Array.isArray(message.content)) continue;
-      for (const [blockIndex, block] of message.content.entries()) {
-        if (!plain(block) || block.type !== "toolCall") continue;
-        const input = plain(block.arguments) ? block.arguments : plain(block.input) ? block.input : {};
-        for (const candidate of [input.path, input.filePath, input.filename]) if (typeof candidate === "string") files.push({ id: stableId("child-file", `${messageIndex}:${blockIndex}:${candidate}`), path: boundedString(candidate, 4096), change: "read" });
-      }
-    }
-    const items = tab === "chat" ? chat : tab === "activity" ? activity : files;
+    const items = tab === "chat" ? chat : activity;
     const snapshotDigest = createHash("sha256").update(JSON.stringify(items)).digest("hex");
     let windowEnd = items.length;
     if (pageCursor !== null) {

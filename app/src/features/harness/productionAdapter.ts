@@ -81,10 +81,10 @@ export function createProductionHarnessInspectorAdapter(
     load: (sessionId: string) => store.getSnapshot().sessions[sessionId]
       ? ports.load(sessionId)
       : Promise.reject(new Error("The requested Harness session is not admitted by the native broker.")),
-    loadChildPage(sessionId: string, childId: string, tab: "chat" | "activity" | "files", pageCursor: string | null) {
+    loadChildPage(sessionId: string, childId: string, tab: "chat" | "activity" | "files", displayedCursor: RootSessionProjection["cursor"], pageCursor: string | null) {
       const session = store.getSnapshot().sessions[sessionId];
       if (!session || !session.children.some((child) => child.id === childId) || !ports.loadChildPage) return Promise.reject(new Error("The requested Harness child is not admitted by the native broker."));
-      return ports.loadChildPage(sessionId, childId, tab, session.cursor, pageCursor);
+      return ports.loadChildPage(sessionId, childId, tab, displayedCursor, pageCursor);
     },
     loadActivityEvidence: (sessionId: string) => store.getSnapshot().sessions[sessionId] && ports.loadActivityEvidence
       ? ports.loadActivityEvidence(sessionId)

@@ -66,10 +66,22 @@ describe("production Harness inspector adapter", () => {
     store.dispatch({ type: "harness/session-projected", session: childSession });
     const loadChildPage = vi.fn(async () => ({ status: "unavailable" as const, tab: "chat" as const, reason: "fixture" }));
     const adapter = createProductionHarnessInspectorAdapter(store, { load: vi.fn(), loadChildPage, execute: vi.fn() });
-    await expect(adapter.loadChildPage!(session.sessionId, "child-a", "chat", null)).resolves.toMatchObject({ status: "unavailable" });
+    await expect(adapter.loadChildPage!(session.sessionId, "child-a", "chat", childSession.cursor, null)).resolves.toMatchObject({ status: "unavailable" });
     expect(loadChildPage).toHaveBeenCalledWith(session.sessionId, "child-a", "chat", childSession.cursor, null);
-    await expect(adapter.loadChildPage!(session.sessionId, "child-b", "chat", null)).rejects.toThrow("not admitted");
+    await expect(adapter.loadChildPage!(session.sessionId, "child-b", "chat", childSession.cursor, null)).rejects.toThrow("not admitted");
     expect(loadChildPage).toHaveBeenCalledOnce();
+  });
+
+  it("uses the displayed cursor explicitly even after the store advances", async () => {
+    const store = boundStore();
+    const displayed = { ...session, children: [{ id: "child-a", status: "running" as const, task: "Private", provider: null, model: null, progress: null }] };
+    store.dispatch({ type: "harness/session-projected", session: { ...displayed, cursor: { ...displayed.cursor, sequence: 8 } } });
+    const loadChildPage = vi.fn(async () => ({ status: "unavailable" as const, tab: "chat" as const, reason: "fixture" }));
+    const adapter = createProductionHarnessInspectorAdapter(store, { load: vi.fn(), loadChildPage, execute: vi.fn() });
+
+    await adapter.loadChildPage!(displayed.sessionId, "child-a", "chat", displayed.cursor, null);
+
+    expect(loadChildPage).toHaveBeenCalledWith(displayed.sessionId, "child-a", "chat", displayed.cursor, null);
   });
 
   it("rejects unbound, substituted, and ambiguous catalog identities without IPC", async () => {

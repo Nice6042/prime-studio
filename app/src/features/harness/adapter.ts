@@ -135,7 +135,7 @@ export interface HarnessInspectorAdapter {
     | Readonly<{ status: "available" }>
     | Readonly<{ status: "unavailable"; reason: string }>;
   load(sessionId: string): Promise<HarnessPanelDetails>;
-  loadChildPage?(sessionId: string, childId: string, tab: "chat" | "activity" | "files", pageCursor: string | null): Promise<HarnessChildDataPage>;
+  loadChildPage?(sessionId: string, childId: string, tab: "chat" | "activity" | "files", displayedCursor: RootSessionProjection["cursor"], pageCursor: string | null): Promise<HarnessChildDataPage>;
   /** Native broker evidence minted from the last hydrated Activity payload. */
   readonly loadActivityEvidence?: (sessionId: string) => Promise<AttentionEvidence | null>;
   /** Loads choices from one admitted session's verified daemon projection. */

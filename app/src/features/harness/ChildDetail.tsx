@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import { createControlBinding, type StudioOperation } from "../../contracts/studioOperations";
-import type { ChildAgentSummary } from "../../shared/ipc/harness.generated";
+import type { ChildAgentSummary, HarnessCursor } from "../../shared/ipc/harness.generated";
 import { compactTokenCount, contextPercent, type HarnessChildDetails } from "./adapter";
 import type { HarnessChildDataPage } from "../../shared/ipc/client";
 import { HarnessIcon } from "./HarnessIcon";
@@ -16,8 +16,9 @@ function elapsed(startedAtMs: number | null, observedAtMs: number): string {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
-export function ChildDetail({ sessionId, child, details, observedAtMs, tab, pendingKey, onBack, onTab, onAction, onLoadPage }: {
+export function ChildDetail({ sessionId, displayedCursor, child, details, observedAtMs, tab, pendingKey, onBack, onTab, onAction, onLoadPage }: {
   readonly sessionId: string;
+  readonly displayedCursor: HarnessCursor;
   readonly child: ChildAgentSummary;
   readonly details: HarnessChildDetails | null;
   readonly observedAtMs: number;
@@ -26,35 +27,38 @@ export function ChildDetail({ sessionId, child, details, observedAtMs, tab, pend
   readonly onBack: () => void;
   readonly onTab: (tab: "chat" | "activity" | "files") => void;
   readonly onAction: (operation: StudioOperation, key: string) => void;
-  readonly onLoadPage?: (sessionId: string, childId: string, tab: "chat" | "activity" | "files", pageCursor: string | null) => Promise<HarnessChildDataPage>;
+  readonly onLoadPage?: (sessionId: string, childId: string, tab: "chat" | "activity" | "files", displayedCursor: HarnessCursor, pageCursor: string | null) => Promise<HarnessChildDataPage>;
 }) {
   const tabs = ["chat", "activity", "files"] as const;
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const percent = contextPercent(details?.context ?? null);
-  const [pages, setPages] = useState<Partial<Record<typeof tab, HarnessChildDataPage>>>({});
+  const pageScope = JSON.stringify([sessionId, child.id, displayedCursor.runtimeGeneration, displayedCursor.sequence]);
+  const [pageState, setPageState] = useState<Readonly<{ scope: string; pages: Partial<Record<typeof tab, HarnessChildDataPage>> }>>({ scope: pageScope, pages: {} });
+  const pages = pageState.scope === pageScope ? pageState.pages : {};
   const [pagePhase, setPagePhase] = useState<"loading" | "paging" | "ready" | "error">("loading");
   const requestEpoch = useRef(0);
   const pageRequestInFlight = useRef<string | null>(null);
   const loadPage = async (pageCursor: string | null) => {
-    const requestKey = `${sessionId}:${child.id}:${tab}:${pageCursor ?? "latest"}`;
+    const requestKey = `${pageScope}:${tab}:${pageCursor ?? "latest"}`;
     if (pageRequestInFlight.current === requestKey) return;
     pageRequestInFlight.current = requestKey;
     const epoch = ++requestEpoch.current;
-    if (!onLoadPage) { setPages((current) => ({ ...current, [tab]: { status: "unavailable", tab, reason: "The installed Harness does not expose child paging." } })); setPagePhase("ready"); pageRequestInFlight.current = null; return; }
+    if (!onLoadPage) { setPageState({ scope: pageScope, pages: { [tab]: { status: "unavailable", tab, reason: "The installed Harness does not expose child paging." } } }); setPagePhase("ready"); pageRequestInFlight.current = null; return; }
     setPagePhase(pageCursor === null ? "loading" : "paging");
     try {
-      const next = await onLoadPage(sessionId, child.id, tab, pageCursor);
+      const next = await onLoadPage(sessionId, child.id, tab, displayedCursor, pageCursor);
       if (requestEpoch.current !== epoch) return;
-      setPages((current) => {
-        const prior = current[tab];
-        if (pageCursor !== null && prior?.status === "available" && next.status === "available" && prior.tab === next.tab) return { ...current, [tab]: { ...next, items: [...next.items, ...prior.items] } } as typeof current;
-        return { ...current, [tab]: next };
+      setPageState((current) => {
+        const scopedPages = current.scope === pageScope ? current.pages : {};
+        const prior = scopedPages[tab];
+        if (pageCursor !== null && prior?.status === "available" && next.status === "available" && prior.tab === next.tab) return { scope: pageScope, pages: { ...scopedPages, [tab]: { ...next, items: [...next.items, ...prior.items] } } };
+        return { scope: pageScope, pages: { ...scopedPages, [tab]: next } };
       });
       setPagePhase("ready");
     } catch { if (requestEpoch.current === epoch) setPagePhase("error"); }
     finally { if (pageRequestInFlight.current === requestKey) pageRequestInFlight.current = null; }
   };
-  useEffect(() => { setPages({}); void loadPage(null); return () => { requestEpoch.current += 1; }; }, [sessionId, child.id, tab, onLoadPage]);
+  useEffect(() => { setPageState({ scope: pageScope, pages: {} }); void loadPage(null); return () => { requestEpoch.current += 1; }; }, [sessionId, child.id, displayedCursor.runtimeGeneration, displayedCursor.sequence, tab, onLoadPage]);
   const page = pages[tab];
   const back = createControlBinding(`harness.child.back:${child.id}`, "harness.child.back");
   const crumb = createControlBinding(`harness.child.back:${child.id}:crumb`, "harness.child.back");
