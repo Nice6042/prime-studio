@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 import { decideCompatibility } from "./compatibility.js";
 import type { FakeRootSessionSnapshot, ParentMessage, ScenarioRequest, ScenarioResponse } from "./fakeDaemonScenario.js";
 import { discoverRuntime, type RuntimeIdentity } from "./runtimeDiscovery.js";
-import { StudioHarnessOperationDispatcher, type StudioHarnessOperationOutcome } from "./studioHarnessOperations.js";
+import { parseStudioHarnessOperation, StudioHarnessOperationDispatcher, type StudioHarnessOperationOutcome } from "./studioHarnessOperations.js";
 import { lockVerifiedRuntimeClosure, type RuntimeClosureLock } from "./runtimeClosure.js";
 
 interface DaemonHelloLike {
@@ -79,6 +79,9 @@ interface BoundConnection {
   readonly connection: DaemonConnectionPort;
   sequence: number;
   initialized: boolean;
+  publishedUpstreamSequence: number | null;
+  eventRevision: number;
+  dirty: boolean;
   unsubscribe?: () => void;
 }
 
@@ -403,6 +406,10 @@ export class PrimeDaemonBridge {
     if (plain(operation) && plain(operation.payload) && typeof operation.payload.sessionId === "string" && operation.payload.sessionId !== activeSessionId) {
       return { status: "rejected", reason: "Operation session does not match the attached session.", retryable: false };
     }
+    const parsed = parseStudioHarnessOperation(operation);
+    if (parsed?.expectedCursor && !(await this.#mutationCursorIsCurrent(bound))) {
+      return { status: "rejected", reason: "Session changed; refresh before retrying the operation.", retryable: true };
+    }
     const dispatcher = this.#operationDispatchers.get(activeSessionId) ?? new StudioHarnessOperationDispatcher();
     this.#operationDispatchers.set(activeSessionId, dispatcher);
     return dispatcher.dispatch({
@@ -472,6 +479,9 @@ export class PrimeDaemonBridge {
     if (request.expectedCursor.runtimeGeneration !== this.#hello!.supervisorGeneration || request.expectedCursor.sequence !== bound.sequence) {
       return { type: "error", code: "stale_cursor", message: "Session cursor does not match" };
     }
+    if (!(await this.#mutationCursorIsCurrent(bound))) {
+      return { type: "error", code: "stale_cursor", message: "Daemon session advanced; refresh before retrying" };
+    }
     if ((request.kind === "abort") !== (request.text.length === 0)) return { type: "error", code: "invalid_command", message: "Session command is invalid" };
     if (request.kind === "prompt") await bound.connection.prompt(request.text);
     else if (request.kind === "steer") await bound.connection.steer(request.text);
@@ -486,17 +496,18 @@ export class PrimeDaemonBridge {
   async snapshot(activeSessionId: string, minimumSequence = 0): Promise<FakeRootSessionSnapshot> {
     const hello = await this.negotiate();
     const bound = await this.#bound(activeSessionId);
+    const publicationEventRevision = bound.eventRevision;
     const initial = await bound.connection.getInitialSnapshot();
     const source = plain(initial) ? initial : {};
     const fallbackState = plain(source.state) ? source.state : await bound.connection.getState();
     const state = plain(fallbackState) ? fallbackState : {};
     const rawMessages = Array.isArray(source.messages) ? source.messages : await bound.connection.getMessages();
     const streaming = plain(source.streamingMessage) ? source.streamingMessage : null;
-    const observedCursor = plain(source.lastEventCursor) && source.lastEventCursor.generation === hello.supervisorGeneration ? safeInteger(source.lastEventCursor.sequence) : safeInteger(source.lastEventSequence);
-    if (bound.initialized && observedCursor > bound.sequence) bound.sequence += 1;
-    else if (!bound.initialized) bound.sequence = Math.max(observedCursor, minimumSequence);
-    else bound.sequence = Math.max(bound.sequence, minimumSequence);
-    bound.initialized = true;
+    const observedCursor = this.#upstreamSequence(source, hello);
+    const nextSequence = bound.initialized ? bound.sequence + 1 : Math.max(observedCursor, minimumSequence);
+    if (!Number.isSafeInteger(nextSequence) || nextSequence > Number.MAX_SAFE_INTEGER || (bound.initialized && minimumSequence > nextSequence)) {
+      throw new Error("Studio projection cursor cannot advance exactly one revision");
+    }
     const completedToolCalls = new Set(rawMessages.flatMap((raw) => plain(raw) && raw.role === "toolResult" && typeof raw.toolCallId === "string" ? [raw.toolCallId] : []));
     const upstreamMessageIds = sessionTreeMessageIds(source.sessionTree);
     const messages: ParentMessage[] = [];
@@ -545,12 +556,17 @@ export class PrimeDaemonBridge {
     if (!Number.isSafeInteger(totalTokens)) throw new TypeError("daemon token usage is invalid");
     const cwd = boundedString(state.cwd, 4096);
     const chatId = typeof state.sessionId === "string" ? boundedString(state.sessionId, 128) : activeSessionId;
-    return Object.freeze({
+    const snapshot = Object.freeze({
       sessionId: activeSessionId, accountId: null, projectId: projectId(cwd), chatId,
-      cursor: { runtimeGeneration: hello.supervisorGeneration!, sequence: bound.sequence }, state: rootState(state),
+      cursor: { runtimeGeneration: hello.supervisorGeneration!, sequence: nextSequence }, state: rootState(state),
       parentMessages: messages, children, queue, tools, resources: resources.slice(0, 512),
       usage: { input, output, cacheRead, cacheWrite, totalTokens, cost: typeof stats.cost === "number" && Number.isFinite(stats.cost) && stats.cost >= 0 ? stats.cost : null },
     });
+    bound.sequence = nextSequence;
+    bound.initialized = true;
+    bound.publishedUpstreamSequence = observedCursor;
+    bound.dirty = bound.eventRevision !== publicationEventRevision;
+    return snapshot;
   }
 
   async close(): Promise<void> {
@@ -567,12 +583,15 @@ export class PrimeDaemonBridge {
     if (prior) return prior;
     if (!/^[!-~]{1,128}$/u.test(activeSessionId)) throw new TypeError("active session ID is invalid");
     const connection = await this.#attachPort(this.#client, activeSessionId);
-    const bound: BoundConnection = { connection, sequence: 0, initialized: false };
+    const bound: BoundConnection = {
+      connection, sequence: 0, initialized: false, publishedUpstreamSequence: null,
+      eventRevision: 0, dirty: false,
+    };
     if (connection.subscribe) {
-      // The daemon event cursor can advance more than once for a single
-      // command. Studio publishes one authoritative snapshot per accepted
-      // operation, so its cursor advances only when that snapshot is emitted.
-      bound.unsubscribe = connection.subscribe(() => undefined);
+      bound.unsubscribe = connection.subscribe(() => {
+        bound.eventRevision = bound.eventRevision === Number.MAX_SAFE_INTEGER ? Number.MAX_SAFE_INTEGER : bound.eventRevision + 1;
+        bound.dirty = true;
+      });
     }
     this.#connections.set(activeSessionId, bound);
     return bound;
@@ -583,6 +602,25 @@ export class PrimeDaemonBridge {
     const candidate = bound.connection[method];
     if (typeof candidate !== "function") throw new Error(`daemon method ${method} is unavailable`);
     return (candidate as (...values: unknown[]) => Promise<unknown>).apply(bound.connection, arguments_);
+  }
+
+  #upstreamSequence(source: Record<string, unknown>, hello: DaemonHelloLike): number {
+    if (plain(source.lastEventCursor)) {
+      if (source.lastEventCursor.generation !== hello.supervisorGeneration) throw new Error("daemon event generation changed");
+      return safeInteger(source.lastEventCursor.sequence);
+    }
+    return safeInteger(source.lastEventSequence);
+  }
+
+  async #mutationCursorIsCurrent(bound: BoundConnection): Promise<boolean> {
+    if (!bound.initialized || bound.dirty || bound.publishedUpstreamSequence === null) return false;
+    const observedRevision = bound.eventRevision;
+    const initial = await bound.connection.getInitialSnapshot();
+    const source = plain(initial) ? initial : {};
+    const upstreamSequence = this.#upstreamSequence(source, await this.negotiate());
+    return !bound.dirty
+      && bound.eventRevision === observedRevision
+      && upstreamSequence === bound.publishedUpstreamSequence;
   }
 }
 

@@ -105,6 +105,62 @@ test("bootstrap and prompt use real daemon state with generation and cursor bind
   assert.equal(replay.type === "command_result" ? replay.outcome : "", "reconciled");
 });
 
+test("a daemon event dirties the published projection and blocks stale mutation admission", async () => {
+  const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
+  let upstreamSequence = 4;
+  let eventListener: ((event: unknown) => void) | undefined;
+  let prompts = 0;
+  const state = {
+    activeSessionId: "root", cwd: "C:\\work", thinkingLevel: "high", serviceTier: "auto",
+    availableThinkingLevels: [], isStreaming: false, isCompacting: false, isBashRunning: false,
+    retryAttempt: 0, steeringMode: "all", followUpMode: "all", sessionId: "chat", leafId: null,
+    autoCompactionEnabled: true, messageCount: 0, sessionActions: {}, compactionCount: 0, goal: {}, scopedModels: [], activeToolNames: [],
+  };
+  const connection = {
+    async getInitialSnapshot() { return { state, messages: [], children: [], lastEventCursor: { generation: "generation-1", sequence: upstreamSequence } }; },
+    async getState() { return state; }, async getMessages() { return []; }, async getQueue() { return { steering: [], followUp: [] }; },
+    async getResourceSnapshot() { return {}; }, async getSessionStats() { return { tokens: {}, cost: 0 }; }, async getToolDefinition() { return undefined; },
+    async prompt() { prompts += 1; }, async steer() {}, async followUp() {}, async abort() {}, async dispose() {},
+    subscribe(listener: (event: unknown) => void) { eventListener = listener; return () => { eventListener = undefined; }; },
+  };
+  const bridge = new PrimeDaemonBridge({
+    identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
+    client: { async connect() {}, async waitForHello() { return { type: "daemon_hello", socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request() { return { type: "response", command: "list", success: true, data: [] }; }, close() {} },
+    attach: async () => connection,
+  });
+  const first = await bridge.attach("root");
+  assert.equal(first.cursor.sequence, 4);
+  upstreamSequence = 5;
+  eventListener?.({ type: "message_update" });
+  const operation = await bridge.executeOperation("root", {
+    operationId: "operation-stale", action: "harness.session.prompt",
+    payload: { sessionId: "root", text: "must not run" }, expectedCursor: first.cursor,
+    idempotencyKey: "operation-stale-key",
+  });
+  assert.equal(operation.status, "rejected");
+  const result = await bridge.handle({ type: "session_command", sessionId: "root", commandId: "command-stale", expectedCursor: first.cursor, kind: "prompt", text: "must not run" });
+  assert.equal(result.type, "error");
+  assert.equal(result.type === "error" ? result.code : "", "stale_cursor");
+  assert.equal(prompts, 0);
+  const refreshed = await bridge.snapshot("root");
+  assert.equal(refreshed.cursor.sequence, 5);
+});
+
+test("each published snapshot advances exactly one Studio revision even without an upstream event", async () => {
+  const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
+  const state = { activeSessionId: "root", cwd: "C:\\work", thinkingLevel: "high", serviceTier: "auto", availableThinkingLevels: [], isStreaming: false, isCompacting: false, isBashRunning: false, retryAttempt: 0, steeringMode: "all", followUpMode: "all", sessionId: "chat", leafId: null, autoCompactionEnabled: true, messageCount: 0, sessionActions: {}, compactionCount: 0, goal: {}, scopedModels: [], activeToolNames: [] };
+  const connection = { async getInitialSnapshot() { return { state, messages: [], children: [], lastEventCursor: { generation: "generation-1", sequence: 9 } }; }, async getState() { return state; }, async getMessages() { return []; }, async getQueue() { return {}; }, async getResourceSnapshot() { return {}; }, async getSessionStats() { return { tokens: {}, cost: 0 }; }, async getToolDefinition() { return undefined; }, async prompt() {}, async steer() {}, async followUp() {}, async abort() {}, async dispose() {} };
+  const bridge = new PrimeDaemonBridge({
+    identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
+    client: { async connect() {}, async waitForHello() { return { type: "daemon_hello", socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request() { return { type: "response", command: "list", success: true, data: [] }; }, close() {} },
+    attach: async () => connection,
+  });
+  const first = await bridge.attach("root");
+  const second = await bridge.snapshot("root");
+  const third = await bridge.snapshot("root");
+  assert.deepEqual([first.cursor.sequence, second.cursor.sequence, third.cursor.sequence], [9, 10, 11]);
+});
+
 test("full operation catalog is closed and unsupported upstream operations are explicit", async () => {
   const { STUDIO_HARNESS_ACTIONS, StudioHarnessOperationDispatcher, dispatchStudioHarnessOperation } = await import("../src/studioHarnessOperations.js");
   assert.ok(STUDIO_HARNESS_ACTIONS.includes("harness.session.prompt"));
