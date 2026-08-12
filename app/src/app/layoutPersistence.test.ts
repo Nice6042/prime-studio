@@ -24,14 +24,17 @@ describe("LayoutPersistenceCoordinator", () => {
       await new Promise<void>((resolve) => releases.push(resolve));
       return value;
     }, (value) => applied.push(value));
+    coordinator.adoptInitial(initial);
 
     const collapse = coordinator.update((current) => ({ ...current, expandedProjectIds: [] }));
     const resize = coordinator.update((current) => ({ ...current, inspectorWidth: 520 }));
 
     await Promise.resolve();
+    await Promise.resolve();
     expect(writes).toEqual([{ ...initial, expandedProjectIds: [] }]);
     releases.shift()?.();
     await collapse;
+    await Promise.resolve();
     await Promise.resolve();
     expect(writes).toEqual([
       { ...initial, expandedProjectIds: [] },
@@ -57,25 +60,31 @@ describe("LayoutPersistenceCoordinator", () => {
       if (calls === 1) await new Promise<void>((resolve) => { releaseFirst = resolve; });
       return value;
     }, (value) => applied.push(value));
+    coordinator.adoptInitial(initial);
 
     const first = coordinator.update((current) => ({ ...current, sidebarWidth: 300 }));
     const second = coordinator.update((current) => ({ ...current, sidebarWidth: 340 }));
     await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
     releaseFirst();
     await Promise.all([first, second]);
 
-    expect(applied.map((value) => value.sidebarWidth)).toEqual([300, 340]);
+    expect(applied.map((value) => value.sidebarWidth)).toEqual([264, 300, 340]);
     expect(coordinator.snapshot().sidebarWidth).toBe(340);
   });
 
-  it("does not let late initial hydration erase a local change", () => {
+  it("merges an early local change onto the late durable snapshot before persisting", async () => {
     const applied: LayoutPreferencesV1[] = [];
-    const coordinator = new LayoutPersistenceCoordinator(initial, async (value) => value, (value) => applied.push(value));
+    const writes: LayoutPreferencesV1[] = [];
+    const coordinator = new LayoutPersistenceCoordinator(initial, async (value) => { writes.push(value); return value; }, (value) => applied.push(value));
 
-    void coordinator.update((current) => ({ ...current, sidebarOpen: false }));
+    const update = coordinator.update((current) => ({ ...current, sidebarOpen: false }));
     const adopted = coordinator.adoptInitial({ ...initial, inspectorWidth: 600 });
+    await update;
 
-    expect(adopted).toBe(false);
-    expect(coordinator.snapshot()).toEqual({ ...initial, sidebarOpen: false });
+    expect(adopted).toBe(true);
+    expect(coordinator.snapshot()).toEqual({ ...initial, sidebarOpen: false, inspectorWidth: 600 });
+    expect(writes).toEqual([{ ...initial, sidebarOpen: false, inspectorWidth: 600 }]);
   });
 });
