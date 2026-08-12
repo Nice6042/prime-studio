@@ -69,11 +69,10 @@ test("rejects a runtime package root reached through a reparse point", async (co
     error instanceof RuntimeDiscoveryError && error.code === "runtime_path_untrusted");
 });
 
-test("rejects wrong package identity, callable protocol exports, and oversized metadata", async (context) => {
+test("rejects wrong package identity and oversized metadata", async (context) => {
   const wrongName = await fixture("runtime-ready");
-  const callable = await fixture("runtime-unknown");
   const huge = await fixture("runtime-ready");
-  context.after(async () => Promise.all([wrongName.dispose(), callable.dispose(), huge.dispose()]));
+  context.after(async () => Promise.all([wrongName.dispose(), huge.dispose()]));
 
   const manifest = JSON.parse(await readFile(join(wrongName.root, "package.json"), "utf8"));
   manifest.name = "lookalike-agent";
@@ -81,12 +80,21 @@ test("rejects wrong package identity, callable protocol exports, and oversized m
   await assert.rejects(discoverRuntime(wrongName.root), (error: unknown) =>
     error instanceof RuntimeDiscoveryError && error.code === "runtime_identity_mismatch");
 
-  await assert.rejects(discoverRuntime(callable.root, await fixtureProfile(callable.root)), (error: unknown) =>
-    error instanceof RuntimeDiscoveryError && error.code === "unsupported_runtime");
-
   await writeFile(join(huge.root, "package.json"), " ".repeat(256 * 1024 + 1));
   await assert.rejects(discoverRuntime(huge.root), (error: unknown) =>
     error instanceof RuntimeDiscoveryError && error.code === "runtime_metadata_too_large");
+});
+
+test("discovery never evaluates the mutable installed package entrypoint", async (context) => {
+  const ready = await fixture("runtime-ready");
+  context.after(ready.dispose);
+  const marker = join(dirname(ready.root), "imported.txt");
+  await writeFile(join(ready.root, "dist", "index.js"), `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "executed");`);
+
+  const identity = await discoverRuntime(ready.root, await fixtureProfile(ready.root));
+
+  assert.equal(identity.protocolVersion, 7);
+  await assert.rejects(stat(marker), /ENOENT/);
 });
 
 test("rejects tampered runtime bytes before importing executable exports", async (context) => {

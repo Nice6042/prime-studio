@@ -282,6 +282,9 @@ describe("Harness IPC client", () => {
     expect(mocks.invoke).toHaveBeenLastCalledWith("harness_refresh_session", { request: { sessionId: "root", knownCursor: session.cursor } });
     mocks.invoke.mockResolvedValueOnce({ ...refreshed, cursor: { ...refreshed.cursor, sequence: 4 } });
     await expect(refreshHarnessSession("root", session.cursor)).rejects.toThrow("Harness projection unavailable");
+    const replacement = { ...session, cursor: { runtimeGeneration: "generation-b", sequence: 1 } };
+    mocks.invoke.mockResolvedValueOnce(replacement);
+    await expect(refreshHarnessSession("root", session.cursor)).resolves.toEqual(replacement);
   });
 
   it("strictly decodes bounded inspector details from the verified broker", async () => {

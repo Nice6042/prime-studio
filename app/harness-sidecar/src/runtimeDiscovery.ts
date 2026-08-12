@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { pathToFileURL } from "node:url";
 
 import { parseClosedJson } from "./framing.js";
 import { DAEMON_V7_SCHEMA13_PROFILE } from "./profiles/daemon-v7-schema13.js";
@@ -89,24 +88,11 @@ function rootImportExport(value: unknown): string {
   return boundedString(dataProperty(descriptor, "import"), "package import export", 512);
 }
 
-function requiredConstructor(namespace: object, key: string): void {
-  if (typeof dataProperty(namespace, key) !== "function") {
-    throw new RuntimeDiscoveryError("unsupported_runtime", `${key} export is unavailable`);
-  }
-}
-
 function boundedString(value: unknown, label: string, maximum: number): string {
   if (typeof value !== "string" || value.length < 1 || value.length > maximum) {
     throw new RuntimeDiscoveryError("unsupported_runtime", `${label} is invalid`);
   }
   return value;
-}
-
-function boundedInteger(value: unknown, label: string): number {
-  if (!Number.isSafeInteger(value) || (value as number) < 0 || (value as number) > 65535) {
-    throw new RuntimeDiscoveryError("unsupported_runtime", `${label} is invalid`);
-  }
-  return value as number;
 }
 
 function within(root: string, child: string): boolean {
@@ -148,11 +134,6 @@ export async function discoverRuntime(
     || entrypointDigest !== expected.entrypointDigest
   ) throw new RuntimeDiscoveryError("runtime_identity_mismatch", "runtime bytes do not match the reviewed profile");
 
-  const namespace = await import(`${pathToFileURL(canonicalEntrypoint).href}?identity=${entrypointDigest.slice(7)}`);
-  const protocol = record(dataProperty(namespace, "DAEMON_PROTOCOL_INFO"), "daemon protocol export");
-  for (const key of ["DaemonClient", "DaemonAgentConnection", "AuthStorage", "ModelRegistry", "defaultDaemonSocketPath"]) {
-    requiredConstructor(namespace, key);
-  }
   const capabilities = [...expected.supportedCapabilities].sort();
   if (capabilities.some((capability) => !KNOWN_CAPABILITIES.has(capability))) {
     throw new RuntimeDiscoveryError("unsupported_runtime", "runtime reports an unknown capability");
@@ -163,8 +144,8 @@ export async function discoverRuntime(
     packageVersion,
     packageDigest,
     entrypointDigest,
-    protocolName: boundedString(dataProperty(protocol, "name"), "protocol name", 64),
-    protocolVersion: boundedInteger(dataProperty(protocol, "version"), "protocol version"),
+    protocolName: expected.protocolName,
+    protocolVersion: expected.protocolVersion,
     schemaRevision: expected.schemaRevision,
     schemaId: expected.schemaId,
     capabilities,

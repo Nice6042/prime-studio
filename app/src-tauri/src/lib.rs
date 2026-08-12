@@ -3707,7 +3707,7 @@ fn install_explicit_debug_harness_fixture(app: &AppHandle) -> std::io::Result<()
     const RUNTIME_DIGEST: &str =
         "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900";
     const PROFILE: &str = "prime-agent-daemon-v7-schema13-816309b1cd50";
-    const RESOURCE_NAMES: [&str; 10] = [
+    const RESOURCE_NAMES: [&str; 13] = [
         "compatibility.js",
         "fakeDaemonScenario.js",
         "framing.js",
@@ -3715,9 +3715,12 @@ fn install_explicit_debug_harness_fixture(app: &AppHandle) -> std::io::Result<()
         "redaction.js",
         "runtimeDiscovery.js",
         "runtimeClosure.js",
+        "reviewedPrimeAdapter.js",
         "primeDaemonBridge.js",
         "studioHarnessOperations.js",
         "profiles/daemon-v7-schema13.js",
+        "vendor/package.json",
+        "vendor/prime-daemon-adapter-v0.7.1.mjs",
     ];
 
     let configured = [

@@ -103,6 +103,40 @@ fn live_quarantine_broker() -> HarnessBroker {
     broker
 }
 
+#[test]
+fn refresh_generation_change_rebootstraps_and_retires_the_old_generation() {
+    let mut broker = HarnessBroker::new(
+        sidecar("broker-generation-transition"),
+        "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900".to_owned(),
+        "prime-agent-daemon-v7-schema13-816309b1cd50".to_owned(),
+        vec![ownership("root", "project", "chat")],
+        None,
+    )
+    .unwrap();
+    let initial = tauri::async_runtime::block_on(broker.bootstrap()).unwrap();
+    let prior = initial.sessions[0].cursor.clone();
+    assert_eq!(prior.runtime_generation, "generation");
+
+    let refreshed = tauri::async_runtime::block_on(broker.refresh_session(RefreshSessionRequest {
+        session_id: "root".to_owned(),
+        known_cursor: prior.clone(),
+    }))
+    .unwrap();
+    assert_eq!(refreshed.cursor.runtime_generation, "generation-b");
+    assert_eq!(refreshed.cursor.sequence, 1);
+    assert_eq!(broker.state(), BrokerState::Live);
+
+    let replay = broker.admit_event(HarnessEvent::SessionState {
+        session_id: "root".to_owned(),
+        cursor: HarnessCursor {
+            runtime_generation: prior.runtime_generation,
+            sequence: prior.sequence + 1,
+        },
+        state: RootSessionState::Idle,
+    });
+    assert!(matches!(replay, Err(HarnessError::ChronologyViolation)));
+}
+
 fn unknown_operation(session_id: &str, operation_id: &str) -> StudioOperationRequest {
     StudioOperationRequest {
         session_id: session_id.to_owned(),

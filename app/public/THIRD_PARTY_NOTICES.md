@@ -113,13 +113,14 @@ the copyright notice and license text that belongs to that component.
 | `ISC` | 1 |
 | `Zlib` | 3 |
 
-## Prime Agent is not distributed
+## Reviewed Prime Agent adapter
 
-Prime Agent is a separately installed runtime and is intentionally absent from this shipped
-dependency SBOM. The audited interoperability reference is commit `a18809e00ea30638584d87b3afea7285a9d7296c`
+The complete Prime Agent runtime remains separately installed. Prime Studio distributes a
+generated adapter containing the reviewed public daemon exports from Prime Agent 0.7.1.
+Its source reference is commit `a18809e00ea30638584d87b3afea7285a9d7296c`
 at [PrimeIntellect-ai/prime-agent](https://github.com/PrimeIntellect-ai/prime-agent/tree/a18809e00ea30638584d87b3afea7285a9d7296c), declared `MIT`. No Prime Agent source or
-binary is vendored by this repository. If that boundary changes, regenerate the SBOM and
-perform a path-level pi-mono and nested-notice audit first. The audited upstream notices are:
+binary outside that owned adapter is vendored by this repository. Adapter dependency notices
+are shipped beside it in `harness-sidecar/vendor`. The audited upstream notices are:
 
 - Copyright (c) 2025 Mario Zechner
 - Copyright (c) 2026 Prime Intellect

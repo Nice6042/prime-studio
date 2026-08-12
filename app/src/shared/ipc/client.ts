@@ -431,7 +431,11 @@ export async function refreshHarnessSession(sessionId: string, knownCursor: Harn
   const exactSessionId = id(sessionId);
   const exactCursor = cursor(knownCursor);
   const projection = session(detach(await invoke("harness_refresh_session", { request: { sessionId: exactSessionId, knownCursor: exactCursor } })));
-  if (projection.sessionId !== exactSessionId || projection.cursor.runtimeGeneration !== exactCursor.runtimeGeneration || projection.cursor.sequence !== exactCursor.sequence + 1) fail();
+  if (
+    projection.sessionId !== exactSessionId
+    || (projection.cursor.runtimeGeneration === exactCursor.runtimeGeneration
+      && projection.cursor.sequence !== exactCursor.sequence + 1)
+  ) fail();
   return deepFreeze(projection);
 }
 

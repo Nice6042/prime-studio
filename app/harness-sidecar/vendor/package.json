@@ -1,0 +1,9 @@
+{
+  "name": "prime-agent",
+  "version": "0.7.1",
+  "type": "module",
+  "piConfig": {
+    "name": "prime-agent",
+    "configDir": ".prime/agent"
+  }
+}

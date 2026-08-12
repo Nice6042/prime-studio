@@ -150,8 +150,8 @@ fn main() {
                 }
             }));
         }
-        "broker-bootstrap" | "broker-wrong-profile" => {
-            let profile = if mode == "broker-bootstrap" {
+        "broker-bootstrap" | "broker-wrong-profile" | "broker-generation-transition" => {
+            let profile = if mode != "broker-wrong-profile" {
                 "prime-agent-daemon-v7-schema13-816309b1cd50"
             } else {
                 "wrong-profile"
@@ -181,6 +181,39 @@ fn main() {
                     }]
                 }
             }));
+            if mode == "broker-generation-transition" {
+                let refresh = read_frame();
+                write_frame(&json!({
+                    "studioProtocol": 1,
+                    "requestId": refresh["requestId"],
+                    "payload": {"type":"error","code":"generation_changed","message":"rebootstrap required"}
+                }));
+                let rediscovery = read_frame();
+                write_frame(&json!({
+                    "studioProtocol": 1,
+                    "requestId": rediscovery["requestId"],
+                    "payload": {
+                        "type":"discover_runtime_result",
+                        "runtime":broker_runtime(),
+                        "compatibility":broker_compatibility("prime-agent-daemon-v7-schema13-816309b1cd50")
+                    }
+                }));
+                let rebootstrap = read_frame();
+                write_frame(&json!({
+                    "studioProtocol": 1,
+                    "requestId": rebootstrap["requestId"],
+                    "payload": {
+                        "type":"bootstrap_result",
+                        "compatibility":broker_compatibility("prime-agent-daemon-v7-schema13-816309b1cd50"),
+                        "sessions":[{
+                            "sessionId":"root","accountId":"account","projectId":"project","chatId":"chat",
+                            "cursor":{"runtimeGeneration":"generation-b","sequence":1},"state":"idle",
+                            "parentMessages":[],"children":[],"queue":[],"tools":[],"resources":[],
+                            "usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null}
+                        }]
+                    }
+                }));
+            }
         }
         "broker-quarantine" => {
             let discovery = read_frame();

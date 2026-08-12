@@ -426,6 +426,23 @@ impl HarnessBroker {
                 Instant::now() + Duration::from_secs(10),
             )
             .await?;
+        if let StudioResponse::Error { code, .. } = &response {
+            if code != "generation_changed" {
+                return Err(HarnessError::ProtocolViolation);
+            }
+            self.begin_reconnect()?;
+            let reboot = self.bootstrap_inner().await;
+            if reboot.is_err() {
+                self.staged.clear();
+                self.expected_snapshots = None;
+                self.state = BrokerState::Failed;
+            }
+            return reboot?
+                .sessions
+                .into_iter()
+                .find(|session| session.session_id == request.session_id)
+                .ok_or(HarnessError::OwnershipViolation);
+        }
         let StudioResponse::SnapshotResult { snapshot } = response else {
             return Err(HarnessError::ProtocolViolation);
         };

@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { pathToFileURL } from "node:url";
 
 import { decideCompatibility } from "./compatibility.js";
 import type { FakeRootSessionSnapshot, ParentMessage, ScenarioRequest, ScenarioResponse } from "./fakeDaemonScenario.js";
 import { discoverRuntime, type RuntimeIdentity } from "./runtimeDiscovery.js";
+import { loadReviewedPrimeAdapter } from "./reviewedPrimeAdapter.js";
 import { parseStudioHarnessOperation, StudioHarnessOperationDispatcher, type StudioHarnessOperationOutcome } from "./studioHarnessOperations.js";
-import { lockVerifiedRuntimeClosure, type RuntimeClosureLock } from "./runtimeClosure.js";
+import type { RuntimeClosureLock } from "./runtimeClosure.js";
 
 interface DaemonHelloLike {
   readonly type: "daemon_hello";
@@ -80,10 +80,21 @@ interface BoundConnection {
   sequence: number;
   initialized: boolean;
   publishedUpstreamSequence: number | null;
+  publishedUpstreamGeneration: string | null;
+  studioGeneration: string | null;
   eventRevision: bigint;
   dirty: boolean;
   unsubscribe?: () => void;
 }
+
+interface DaemonSnapshotBarrier {
+  readonly connection: DaemonConnectionPort;
+  readonly source: Record<string, unknown>;
+  readonly eventRevision: bigint;
+  close(): Promise<void>;
+}
+
+class DaemonGenerationChangedError extends Error {}
 
 const REQUIRED_SERVER_CAPABILITIES = Object.freeze([
   "attach_snapshot", "event_sequence", "session_input_admission", "model_catalog",
@@ -407,15 +418,16 @@ export class PrimeDaemonBridge {
       return { status: "rejected", reason: "Operation session does not match the attached session.", retryable: false };
     }
     const parsed = parseStudioHarnessOperation(operation);
-    if (parsed?.expectedCursor && !(await this.#mutationCursorIsCurrent(bound))) {
-      return { status: "rejected", reason: "Session changed; refresh before retrying the operation.", retryable: true };
-    }
+    const barrier = parsed?.expectedCursor ? await this.#mutationBarrier(activeSessionId, bound) : null;
+    if (parsed?.expectedCursor && !barrier) return { status: "rejected", reason: "Session changed; refresh before retrying the operation.", retryable: true };
     const dispatcher = this.#operationDispatchers.get(activeSessionId) ?? new StudioHarnessOperationDispatcher();
     this.#operationDispatchers.set(activeSessionId, dispatcher);
-    return dispatcher.dispatch({
-      connection: bound.connection as unknown as Readonly<Record<string, ((...arguments_: any[]) => Promise<unknown>) | undefined>>,
-      currentCursor: { runtimeGeneration: this.#hello!.supervisorGeneration!, sequence: bound.sequence },
-    }, operation);
+    try {
+      return await dispatcher.dispatch({
+        connection: (barrier?.connection ?? bound.connection) as unknown as Readonly<Record<string, ((...arguments_: any[]) => Promise<unknown>) | undefined>>,
+        currentCursor: { runtimeGeneration: bound.studioGeneration!, sequence: bound.sequence },
+      }, operation);
+    } finally { await barrier?.close(); }
   }
 
   async negotiate(): Promise<DaemonHelloLike> {
@@ -461,7 +473,12 @@ export class PrimeDaemonBridge {
     if (request.type === "bootstrap") return this.bootstrap();
     if (request.type === "attach_session") return { type: "snapshot_result", snapshot: await this.snapshot(request.sessionId) };
     if (request.type === "refresh_session") {
-      const snapshot = await this.snapshot(request.sessionId, request.knownCursor.sequence + 1);
+      let snapshot: FakeRootSessionSnapshot;
+      try { snapshot = await this.snapshot(request.sessionId, request.knownCursor.sequence + 1, false); }
+      catch (error) {
+        if (error instanceof DaemonGenerationChangedError) return { type: "error", code: "generation_changed", message: "Daemon session generation changed; rebootstrap is required" };
+        throw error;
+      }
       if (snapshot.cursor.runtimeGeneration !== request.knownCursor.runtimeGeneration || snapshot.cursor.sequence !== request.knownCursor.sequence + 1) {
         return { type: "error", code: "cursor_gap", message: "Daemon session chronology requires a full rebootstrap" };
       }
@@ -476,35 +493,44 @@ export class PrimeDaemonBridge {
       return { ...prior.response, outcome: "reconciled" };
     }
     const bound = await this.#bound(request.sessionId);
-    if (request.expectedCursor.runtimeGeneration !== this.#hello!.supervisorGeneration || request.expectedCursor.sequence !== bound.sequence) {
+    if (request.expectedCursor.runtimeGeneration !== bound.studioGeneration || request.expectedCursor.sequence !== bound.sequence) {
       return { type: "error", code: "stale_cursor", message: "Session cursor does not match" };
     }
-    if (!(await this.#mutationCursorIsCurrent(bound))) {
+    const barrier = await this.#mutationBarrier(request.sessionId, bound);
+    if (!barrier) {
       return { type: "error", code: "stale_cursor", message: "Daemon session advanced; refresh before retrying" };
     }
     if ((request.kind === "abort") !== (request.text.length === 0)) return { type: "error", code: "invalid_command", message: "Session command is invalid" };
-    if (request.kind === "prompt") await bound.connection.prompt(request.text);
-    else if (request.kind === "steer") await bound.connection.steer(request.text);
-    else if (request.kind === "follow_up") await bound.connection.followUp(request.text);
-    else await bound.connection.abort();
+    try {
+      if (request.kind === "prompt") await barrier.connection.prompt(request.text);
+      else if (request.kind === "steer") await barrier.connection.steer(request.text);
+      else if (request.kind === "follow_up") await barrier.connection.followUp(request.text);
+      else await barrier.connection.abort();
+    } finally { await barrier.close(); }
     const snapshot = await this.snapshot(request.sessionId, bound.sequence + 1);
     const response = Object.freeze({ type: "command_result" as const, commandId: request.commandId, outcome: request.kind === "follow_up" ? "queued" as const : "accepted" as const, snapshot });
     this.#commands.set(request.commandId, { fingerprint, response });
     return response;
   }
 
-  async snapshot(activeSessionId: string, minimumSequence = 0): Promise<FakeRootSessionSnapshot> {
+  async snapshot(activeSessionId: string, minimumSequence = 0, allowGenerationChange = true): Promise<FakeRootSessionSnapshot> {
     const hello = await this.negotiate();
     const bound = await this.#bound(activeSessionId);
-    const publicationEventRevision = bound.eventRevision;
-    const initial = await bound.connection.getInitialSnapshot();
+    const barrier = await this.#openBarrier(activeSessionId, bound);
+    const publicationEventRevision = barrier.eventRevision;
+    const initial = barrier.source;
+    await barrier.close();
     const source = plain(initial) ? initial : {};
     const fallbackState = plain(source.state) ? source.state : await bound.connection.getState();
     const state = plain(fallbackState) ? fallbackState : {};
     const rawMessages = Array.isArray(source.messages) ? source.messages : await bound.connection.getMessages();
     const streaming = plain(source.streamingMessage) ? source.streamingMessage : null;
-    const observedCursor = this.#upstreamSequence(source, hello);
-    const nextSequence = bound.initialized ? bound.sequence + 1 : Math.max(observedCursor, minimumSequence);
+    const observedCursor = this.#upstreamCursor(source, hello);
+    const generationChanged = bound.initialized && bound.publishedUpstreamGeneration !== observedCursor.generation;
+    if (generationChanged && !allowGenerationChange) throw new DaemonGenerationChangedError();
+    const nextSequence = generationChanged
+      ? observedCursor.sequence
+      : bound.initialized ? bound.sequence + 1 : Math.max(observedCursor.sequence, minimumSequence);
     if (!Number.isSafeInteger(nextSequence) || nextSequence > Number.MAX_SAFE_INTEGER || (bound.initialized && minimumSequence > nextSequence)) {
       throw new Error("Studio projection cursor cannot advance exactly one revision");
     }
@@ -558,13 +584,15 @@ export class PrimeDaemonBridge {
     const chatId = typeof state.sessionId === "string" ? boundedString(state.sessionId, 128) : activeSessionId;
     const snapshot = Object.freeze({
       sessionId: activeSessionId, accountId: null, projectId: projectId(cwd), chatId,
-      cursor: { runtimeGeneration: hello.supervisorGeneration!, sequence: nextSequence }, state: rootState(state),
+      cursor: { runtimeGeneration: observedCursor.generation, sequence: nextSequence }, state: rootState(state),
       parentMessages: messages, children, queue, tools, resources: resources.slice(0, 512),
       usage: { input, output, cacheRead, cacheWrite, totalTokens, cost: typeof stats.cost === "number" && Number.isFinite(stats.cost) && stats.cost >= 0 ? stats.cost : null },
     });
     bound.sequence = nextSequence;
     bound.initialized = true;
-    bound.publishedUpstreamSequence = observedCursor;
+    bound.publishedUpstreamSequence = observedCursor.sequence;
+    bound.publishedUpstreamGeneration = observedCursor.generation;
+    bound.studioGeneration = observedCursor.generation;
     bound.dirty = bound.eventRevision !== publicationEventRevision;
     return snapshot;
   }
@@ -585,6 +613,7 @@ export class PrimeDaemonBridge {
     const connection = await this.#attachPort(this.#client, activeSessionId);
     const bound: BoundConnection = {
       connection, sequence: 0, initialized: false, publishedUpstreamSequence: null,
+      publishedUpstreamGeneration: null, studioGeneration: null,
       eventRevision: 0n, dirty: false,
     };
     if (connection.subscribe) {
@@ -604,23 +633,55 @@ export class PrimeDaemonBridge {
     return (candidate as (...values: unknown[]) => Promise<unknown>).apply(bound.connection, arguments_);
   }
 
-  #upstreamSequence(source: Record<string, unknown>, hello: DaemonHelloLike): number {
+  #upstreamCursor(source: Record<string, unknown>, hello: DaemonHelloLike): Readonly<{ generation: string; sequence: number }> {
     if (plain(source.lastEventCursor)) {
-      if (source.lastEventCursor.generation !== hello.supervisorGeneration) throw new Error("daemon event generation changed");
-      return safeInteger(source.lastEventCursor.sequence);
+      return {
+        generation: boundedString(source.lastEventCursor.generation, 128),
+        sequence: safeInteger(source.lastEventCursor.sequence),
+      };
     }
-    return safeInteger(source.lastEventSequence);
+    return { generation: hello.supervisorGeneration!, sequence: safeInteger(source.lastEventSequence) };
   }
 
-  async #mutationCursorIsCurrent(bound: BoundConnection): Promise<boolean> {
-    if (!bound.initialized || bound.dirty || bound.publishedUpstreamSequence === null) return false;
-    const observedRevision = bound.eventRevision;
-    const initial = await bound.connection.getInitialSnapshot();
-    const source = plain(initial) ? initial : {};
-    const upstreamSequence = this.#upstreamSequence(source, await this.negotiate());
-    return !bound.dirty
-      && bound.eventRevision === observedRevision
-      && upstreamSequence === bound.publishedUpstreamSequence;
+  async #openBarrier(activeSessionId: string, bound: BoundConnection): Promise<Readonly<DaemonSnapshotBarrier>> {
+    const connection = await this.#attachPort(this.#client, activeSessionId);
+    let unsubscribe: (() => void) | undefined;
+    if (connection.subscribe) unsubscribe = connection.subscribe(() => {
+      bound.eventRevision += 1n;
+      bound.dirty = true;
+    });
+    try {
+      const initial = await connection.getInitialSnapshot();
+      const source = plain(initial) ? initial : {};
+      const eventRevision = bound.eventRevision;
+      let closed = false;
+      return Object.freeze({
+        connection, source, eventRevision,
+        async close() {
+          if (closed) return;
+          closed = true;
+          unsubscribe?.();
+          await connection.dispose();
+        },
+      });
+    } catch (error) {
+      unsubscribe?.();
+      await connection.dispose().catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async #mutationBarrier(activeSessionId: string, bound: BoundConnection): Promise<Readonly<DaemonSnapshotBarrier> | null> {
+    if (!bound.initialized || bound.dirty || bound.publishedUpstreamSequence === null || bound.publishedUpstreamGeneration === null) return null;
+    const barrier = await this.#openBarrier(activeSessionId, bound);
+    const upstream = this.#upstreamCursor(barrier.source, await this.negotiate());
+    if (bound.dirty || bound.eventRevision !== barrier.eventRevision
+      || upstream.generation !== bound.publishedUpstreamGeneration
+      || upstream.sequence !== bound.publishedUpstreamSequence) {
+      await barrier.close();
+      return null;
+    }
+    return barrier;
   }
 }
 
@@ -634,9 +695,7 @@ export async function loadVerifiedPrimeDaemonBridge(packageRoot: string): Promis
   const compatibility = decideCompatibility(identity);
   if (compatibility.status !== "ready" && compatibility.status !== "degraded") throw new Error("runtime identity is incompatible");
   const root = await realpath(packageRoot);
-  const entry = await realpath(resolve(root, "dist", "index.js"));
   const daemonEntrypoint = await realpath(resolve(root, "dist", "bundle", "cli.js"));
-  if (!within(root, entry)) throw new Error("runtime entrypoint escaped package root");
   if (!within(root, daemonEntrypoint)) throw new Error("daemon entrypoint escaped package root");
   const { lstat, readFile } = await import("node:fs/promises");
   const daemonMetadata = await lstat(daemonEntrypoint);
@@ -645,36 +704,24 @@ export async function loadVerifiedPrimeDaemonBridge(packageRoot: string): Promis
   const daemonDigest = `sha256:${createHash("sha256").update(daemonBytes).digest("hex")}`;
   const { DAEMON_V7_SCHEMA13_PROFILE } = await import("./profiles/daemon-v7-schema13.js");
   if (daemonDigest !== DAEMON_V7_SCHEMA13_PROFILE.daemonEntrypointDigest) throw new Error("daemon entrypoint identity mismatch");
-  const runtimeClosure = await lockVerifiedRuntimeClosure(root);
-  let namespace: Record<string, unknown>;
-  try {
-    namespace = await import(`${pathToFileURL(entry).href}?bridge=${identity.entrypointDigest.slice(7)}`) as Record<string, unknown>;
-    await runtimeClosure.verify();
-  } catch (error) {
-    await runtimeClosure.close();
-    throw error;
-  }
+  const namespace = await loadReviewedPrimeAdapter();
   const Client = namespace.DaemonClient;
   const Connection = namespace.DaemonAgentConnection;
   const socket = namespace.defaultDaemonSocketPath;
   if (typeof Client !== "function" || typeof Connection !== "function" || typeof socket !== "function") {
-    await runtimeClosure.close();
     throw new Error("runtime bridge exports are unavailable");
   }
   const socketPath = (socket as () => string)();
   if (typeof socketPath !== "string" || socketPath.length < 1 || socketPath.length > 4096) {
-    await runtimeClosure.close();
     throw new Error("daemon socket path is invalid");
   }
   let client: DaemonClientPort;
-  try { client = new (Client as new (path: string) => DaemonClientPort)(socketPath); }
-  catch (error) { await runtimeClosure.close(); throw error; }
+  client = new (Client as new (path: string) => DaemonClientPort)(socketPath);
   return new PrimeDaemonBridge({
     identity,
     client,
     expectedSocketPath: socketPath,
     expectedDaemonEntrypoint: daemonEntrypoint,
-    runtimeClosure,
     attach: async (daemonClient, activeSessionId) => (Connection as unknown as { attach(client: DaemonClientPort, session: string, options: object): Promise<DaemonConnectionPort> }).attach(daemonClient, activeSessionId, { supportsExtensionUi: true }),
   });
 }

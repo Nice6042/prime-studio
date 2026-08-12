@@ -92,9 +92,12 @@ fn tauri_broker_bootstraps_through_the_real_sidecar_against_a_fake_daemon() {
         "redaction.js",
         "runtimeDiscovery.js",
         "runtimeClosure.js",
+        "reviewedPrimeAdapter.js",
         "primeDaemonBridge.js",
         "studioHarnessOperations.js",
         "profiles/daemon-v7-schema13.js",
+        "vendor/package.json",
+        "vendor/prime-daemon-adapter-v0.7.1.mjs",
     ]
     .into_iter()
     .map(|relative| app.join("harness-sidecar/dist/src").join(relative))

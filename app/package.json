@@ -12,7 +12,8 @@
   "scripts": {
     "dev": "vite",
     "build": "npm run build:harness-sidecar && tsc && vite build",
-    "build:harness-sidecar": "tsc -p harness-sidecar/tsconfig.json",
+    "build:harness-sidecar": "tsc -p harness-sidecar/tsconfig.json && node scripts/copy-harness-owned-resources.mjs",
+    "build:reviewed-prime-adapter": "node scripts/build-reviewed-prime-adapter.mjs",
     "check:harness-boundaries": "node scripts/check-harness-boundaries.mjs",
     "test:harness-sidecar": "npm run build:harness-sidecar && node --test harness-sidecar/dist/test/*.test.js",
     "branding:icons": "tauri icon ../assets/branding/prime-studio-mark.svg && node scripts/canonicalize-icns.mjs src-tauri/icons/icon.icns && node scripts/normalize-branding-icons.mjs src-tauri/icons",
@@ -44,6 +45,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "4.12.1",
+    "@opentelemetry/api": "1.9.0",
     "@playwright/test": "1.62.0",
     "@tauri-apps/cli": "^2",
     "@testing-library/jest-dom": "^7.0.0",
@@ -53,6 +55,7 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
+    "esbuild": "0.28.1",
     "jsdom": "28.1.0",
     "typescript": "~5.8.3",
     "vite": "^7.0.4",
