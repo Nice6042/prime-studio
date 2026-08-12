@@ -84,7 +84,7 @@ const PRODUCTION_RESOURCE_PINS: &[(&str, &str)] = &[
     ),
     (
         "runtimeClosure.js",
-        "sha256:c29c4e19f0cb7456a13152daa76c5afea027579ba81af292a4c2220b76698e31",
+        "sha256:7db96e1f9a8d38dad9e4bfc063951ce4dc2a4e4688fbe335ba92e9bb9e8f7502",
     ),
     (
         "runtimeDiscovery.js",
