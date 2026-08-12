@@ -1,5 +1,6 @@
 import { activateWithKeyboard, expectMinimumTarget, expectNoDocumentOverflow, expectWithinViewport, settingsDestinations } from "./support/acceptance-matrix";
 import { expect, expectNoSeriousOrCriticalAxeViolations, test } from "./support/browser-shell";
+import { STUDIO_ACTIONS } from "../src/contracts/studioOperations";
 
 test("all thirteen Settings destinations are keyboard reachable and expose their real page", async ({ shellPage }) => {
   await shellPage.keyboard.press("Control+,");
@@ -191,4 +192,50 @@ test("identity-bound Harness artifact opens Diff/Edit and reconciles save confli
   await content.fill("external conflict");
   await activateWithKeyboard(editor.getByRole("button", { name: "Save" }));
   await expect(editor.getByRole("alert")).toContainText("changed on disk");
+});
+
+test("every rendered product control has a stable identity and declared actions stay closed", async ({ shellPage }) => {
+  const assertBoundControls = async (surface: string) => {
+    const missing = await shellPage.locator('button, input, select, textarea, summary, a[href]').evaluateAll((elements) =>
+      elements
+        .filter((element) => {
+          const style = getComputedStyle(element);
+          const rect = element.getBoundingClientRect();
+          return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+        })
+        .filter((element) => !element.hasAttribute("data-control-id"))
+        .map((element) => ({
+          tag: element.tagName.toLocaleLowerCase(),
+          label: element.getAttribute("aria-label") ?? element.textContent?.trim().slice(0, 80) ?? "",
+          id: element.getAttribute("data-control-id"),
+          action: element.getAttribute("data-action"),
+        })),
+    );
+    expect(missing, `${surface} contains rendered controls without a stable control identity`).toEqual([]);
+    const duplicates = await shellPage.locator('[data-control-id]').evaluateAll((elements) => {
+      const counts = new Map<string, number>();
+      for (const element of elements) {
+        const id = element.getAttribute("data-control-id");
+        if (id) counts.set(id, (counts.get(id) ?? 0) + 1);
+      }
+      return [...counts].filter(([, count]) => count > 1);
+    });
+    expect(duplicates, `${surface} contains duplicate rendered control identities`).toEqual([]);
+    const renderedActions = await shellPage.locator('[data-studio-action]').evaluateAll((elements) =>
+      elements.map((element) => element.getAttribute("data-studio-action")),
+    );
+    expect(
+      renderedActions.filter((action) => !action || !(action in STUDIO_ACTIONS)),
+      `${surface} advertises actions outside the closed operation contract`,
+    ).toEqual([]);
+  };
+
+  await assertBoundControls("workspace");
+  await shellPage.keyboard.press("Control+,");
+  const settings = shellPage.getByRole("main", { name: "Settings" });
+  const navigation = settings.getByRole("navigation", { name: "Settings sections" });
+  for (const destination of settingsDestinations) {
+    await navigation.getByRole("button", { name: new RegExp(`^${destination.label.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}\\b`, "u") }).click();
+    await assertBoundControls(`settings.${destination.id}`);
+  }
 });

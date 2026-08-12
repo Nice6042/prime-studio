@@ -27,7 +27,9 @@ or copied into the product. The package artifacts inspected for this contract we
   Studio store, renderer presentation state, a native boundary, or an explicit unsupported rule.
 - Their Vitest suites prove feature-range completeness, action existence, action-owner routing,
   current-chat/account-usage separation, required unavailable explanations, and rejection of
-  undefined executor outcomes.
+  undefined executor outcomes. They do not, by themselves, prove that rendered controls are wired.
+  Browser traversal separately requires a unique stable ID for every visible control, rejects any
+  advertised action outside the closed map, and exercises the critical behaviors end to end.
 
 An interactive component is complete only when it is registered with a stable control ID and one
 closed action. `undefined`, an omitted callback, an empty function, or a generic “demo” toast is a

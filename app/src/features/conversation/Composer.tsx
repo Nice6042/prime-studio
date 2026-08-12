@@ -141,7 +141,7 @@ export function Composer({
       <div className="composer-controls">
         {onAttachmentsChange && <label className="composer-attach" {...controlBinding("composer-attachment-pick", "composer.attachment.pick")} title="Attach files">
           <span aria-hidden="true">+</span><span className="sr-only">Attach files</span>
-          <input type="file" multiple onChange={(event) => {
+          <input type="file" {...controlBinding("composer-attachment-file-input", "composer.attachment.pick")} multiple onChange={(event) => {
             droppedFiles(event.currentTarget.files ?? []);
             event.currentTarget.value = "";
           }} />

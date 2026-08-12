@@ -380,16 +380,18 @@ export function Accounts({
 
                 <div className="acct-actions">
                       <button
+                        data-control-id={`account-login-${a.id}`}
                         className={`btn ${state === "expired" || state === "signedOut" ? "btn-send" : ""}`}
                         onClick={() => void login(a.id)}
                         title="Opens a console window — run /login there and finish in the browser"
                       >
                         {!unavailable && state === "signedOut" ? "Log in" : "Re-login"}
                       </button>
-                      <button className="btn" onClick={() => onUse(a.id)} disabled={Boolean(newSessionDisabledReason)} title={newSessionDisabledReason ?? "New session on this account"}>
+                      <button data-control-id={`account-use-${a.id}`} data-studio-action="account.use" className="btn" onClick={() => onUse(a.id)} disabled={Boolean(newSessionDisabledReason)} title={newSessionDisabledReason ?? "New session on this account"}>
                         New session
                       </button>
                       <button
+                        data-control-id={`account-rename-${a.id}`}
                         className="btn"
                         onClick={() => {
                           setEditing(a.id);
@@ -399,6 +401,8 @@ export function Accounts({
                         Rename
                       </button>
                       <button
+                        data-control-id={`account-default-${a.id}`}
+                        data-studio-action="account.set-default"
                         className="btn"
                         disabled={defaultAccount === a.id}
                         title="New tabs open on this account"
@@ -407,6 +411,8 @@ export function Accounts({
                         Set as default
                       </button>
                       <button
+                        data-control-id={`account-remove-${a.id}`}
+                        data-studio-action="account.remove"
                         className="btn"
                         onClick={(event) => setRemoving({ account: a, opener: event.currentTarget })}
                       >
@@ -455,6 +461,8 @@ export function Accounts({
         <h3 ref={fallbackFocusRef} tabIndex={-1}>Add account</h3>
         <div className="acct-actions">
           <input
+            data-control-id="account-add-name"
+            data-studio-action="account.add"
             className="search acct-edit"
             aria-label="Account name"
             placeholder="Name it, e.g. Claude work"
@@ -463,6 +471,8 @@ export function Accounts({
             onKeyDown={(e) => e.key === "Enter" && void add()}
           />
           <select
+            data-control-id="account-add-provider"
+            data-studio-action="account.add"
             aria-label="Account provider"
             className="picker"
             value={newProvider}
@@ -474,7 +484,7 @@ export function Accounts({
               </option>
             ))}
           </select>
-          <button className="btn btn-send" onClick={() => void add()} disabled={!newLabel.trim()}>
+          <button data-control-id="account-add-submit" data-studio-action="account.add" className="btn btn-send" onClick={() => void add()} disabled={!newLabel.trim()}>
             Add &amp; log in
           </button>
         </div>

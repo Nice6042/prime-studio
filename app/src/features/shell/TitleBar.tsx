@@ -48,15 +48,15 @@ export function TitleBar({ title, actions, onOperation }: { readonly title: stri
   return <div className="studio-titlebar" ref={root}>
     <span className="studio-title-mark" aria-hidden="true"><i /></span><strong>Prime Studio</strong>
     <nav className="studio-title-menus" aria-label="Application menu">{menus.map((menu) => <span className="studio-title-menu-root" key={menu.label}>
-      <button type="button" aria-label={menu.label} aria-haspopup="menu" aria-expanded={open === menu.label} onClick={() => setOpen((value) => value === menu.label ? null : menu.label)} onPointerEnter={() => { if (open) setOpen(menu.label); }}>{menu.label}</button>
+      <button type="button" {...controlBinding(`title-menu-${menu.label.toLocaleLowerCase()}`, "surface.popover.toggle")} aria-label={menu.label} aria-haspopup="menu" aria-expanded={open === menu.label} onClick={() => setOpen((value) => value === menu.label ? null : menu.label)} onPointerEnter={() => { if (open) setOpen(menu.label); }}>{menu.label}</button>
       {open === menu.label && <span ref={openMenu} data-studio-overlay="menu" className="studio-title-menu" role="menu" aria-label={`${menu.label} menu`}>{menu.items.map((item) => <button key={item.label} type="button" role="menuitem" aria-label={item.label} {...controlBinding(`title-${item.operation.action}`, item.operation.action)} disabled={!onOperation} onClick={() => { setOpen(null); onOperation?.(item.operation); }}><span>{item.label}</span>{item.hint && <kbd>{item.hint}</kbd>}</button>)}</span>}
     </span>)}</nav>
     <span className="studio-title-current" title={title}>{title}</span>
     <span className="studio-titlebar-actions">{actions}</span>
     <span className="studio-window-controls" aria-label="Window controls">
-      <button type="button" aria-label="Minimize window" onClick={() => onOperation?.({ action: "window.minimize", payload: {} })}><WindowControlIcon kind="minimize" /></button>
-      <button type="button" aria-label="Maximize or restore window" onClick={() => onOperation?.({ action: "window.maximize-toggle", payload: {} })}><WindowControlIcon kind="maximize" /></button>
-      <button type="button" aria-label="Close window" onClick={() => onOperation?.({ action: "window.close", payload: {} })}><WindowControlIcon kind="close" /></button>
+      <button type="button" {...controlBinding("window-minimize", "window.minimize")} aria-label="Minimize window" onClick={() => onOperation?.({ action: "window.minimize", payload: {} })}><WindowControlIcon kind="minimize" /></button>
+      <button type="button" {...controlBinding("window-maximize-toggle", "window.maximize-toggle")} aria-label="Maximize or restore window" onClick={() => onOperation?.({ action: "window.maximize-toggle", payload: {} })}><WindowControlIcon kind="maximize" /></button>
+      <button type="button" {...controlBinding("window-close", "window.close")} aria-label="Close window" onClick={() => onOperation?.({ action: "window.close", payload: {} })}><WindowControlIcon kind="close" /></button>
     </span>
   </div>;
 }

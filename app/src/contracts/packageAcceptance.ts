@@ -188,10 +188,11 @@ export interface PackageControlAcceptance {
 }
 
 /**
- * Stable control IDs are derived from the immutable package feature/action pair.
- * Components use these IDs when registering their visible controls; two controls
- * that perform the same action in different package locations therefore remain
- * distinct without creating a second action vocabulary.
+ * Stable acceptance IDs are derived from each package feature/action pair. This
+ * catalog proves the required vocabulary only; it does not claim that a rendered
+ * control is wired. Browser traversal separately requires visible controls to
+ * carry unique IDs and rejects advertised actions outside STUDIO_ACTIONS, while
+ * behavior scenarios exercise the corresponding product paths.
  */
 export const PACKAGE_CONTROLS: readonly PackageControlAcceptance[] = Object.freeze(
   FEATURE_ACCEPTANCE.flatMap((feature) => feature.actions.map((action) => Object.freeze({

@@ -16,7 +16,7 @@ export function QueueSection({ sessionId, queue, enabled, pendingKey, onAction }
   readonly pendingKey: string | null;
   readonly onAction: (operation: StudioOperation, key: string) => void;
 }) {
-  return <details className="harness-disclosure"><summary><span className="disclosure-icon"><HarnessIcon kind="queue" /></span><span>Queue</span><small>{queue.length ? `${queue.length} pending` : "Empty"}</small></summary>
+  return <details className="harness-disclosure"><summary data-control-id="harness-queue-disclosure" data-studio-action="surface.accordion.toggle"><span className="disclosure-icon"><HarnessIcon kind="queue" /></span><span>Queue</span><small>{queue.length ? `${queue.length} pending` : "Empty"}</small></summary>
     <div className="harness-disclosure-body">
       {queue.length ? queue.map((item) => {
         const run = createControlBinding(`harness.queue.run-now:${item.id}`, "harness.queue.run-now");

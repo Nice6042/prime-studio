@@ -90,7 +90,7 @@ export function WorkspaceHeader({
       <span className="conversation-breadcrumb-project">{projectName}</span>
       <span className="conversation-breadcrumb-chevron"><HeaderIcon kind="chevron" /></span>
       <div className="conversation-header-popover-root">
-        <button type="button" className="conversation-chat-switcher" aria-haspopup="menu" aria-expanded={menu === "switcher"} aria-label="Switch chat" onClick={() => setMenu((value) => value === "switcher" ? null : "switcher")}>
+        <button type="button" {...controlBinding("chat-switcher", "surface.popover.toggle")} className="conversation-chat-switcher" aria-haspopup="menu" aria-expanded={menu === "switcher"} aria-label="Switch chat" onClick={() => setMenu((value) => value === "switcher" ? null : "switcher")}>
           <span>{chat.title}</span><HeaderIcon kind="down" />
         </button>
         {menu === "switcher" && <div ref={menuSurface} data-studio-overlay="menu" className="conversation-popover conversation-switcher-menu" role="menu" aria-label="Chats">
@@ -103,7 +103,7 @@ export function WorkspaceHeader({
       <span className="conversation-header-spacer" />
       <button type="button" className="conversation-header-action conversation-pin-action" {...controlBinding("chat-pin-toggle", "catalog.chat.pin-toggle")} aria-label={chat.pinned ? "Unpin chat" : "Pin chat"} aria-pressed={chat.pinned} disabled={busy} onClick={() => onSetPinned(!chat.pinned)}><HeaderIcon kind="pin" /></button>
       <div className="conversation-header-popover-root">
-        <button ref={optionsButton} type="button" className="conversation-header-action" aria-label="Chat options" aria-haspopup="menu" aria-expanded={menu === "actions"} disabled={busy} onClick={() => setMenu((value) => value === "actions" ? null : "actions")}><HeaderIcon kind="more" /></button>
+        <button ref={optionsButton} type="button" {...controlBinding("chat-options", "surface.popover.toggle")} className="conversation-header-action" aria-label="Chat options" aria-haspopup="menu" aria-expanded={menu === "actions"} disabled={busy} onClick={() => setMenu((value) => value === "actions" ? null : "actions")}><HeaderIcon kind="more" /></button>
         {menu === "actions" && <div ref={menuSurface} data-studio-overlay="menu" className="conversation-popover conversation-action-menu" role="menu" aria-label="Chat options">
           <button type="button" role="menuitem" {...controlBinding("chat-pin-menu-toggle", "catalog.chat.pin-toggle")} onClick={() => run(() => onSetPinned(!chat.pinned))}>{chat.pinned ? "Unpin chat" : "Pin chat"}</button>
           <button type="button" role="menuitem" {...controlBinding("chat-rename", "catalog.chat.rename")} onClick={() => { setMenu(null); setRenaming(true); }}>Rename</button>
