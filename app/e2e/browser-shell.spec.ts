@@ -9,7 +9,7 @@ test("production workspace presents the complete three-region shell", async ({ s
   await expect(shellPage.getByText("Checking protocol identity and capability closure.")).toHaveCount(0);
   await expect(shellPage.getByText("workspace.inspect")).toHaveCount(0);
   await expect(shellPage.getByPlaceholder("Message Prime Studio — try / for commands")).toBeEditable();
-  await expect(shellPage.getByRole("button", { name: "Model unavailable" })).toBeDisabled();
+  await expect(shellPage.getByRole("group", { name: "Quick model switcher" })).toHaveCount(0);
   await expect(shellPage.getByText("Prompt admission is not connected.")).toHaveCount(0);
   await shellPage.screenshot({ path: testInfo.outputPath("canonical-desktop.png"), fullPage: true });
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-workspace");
@@ -23,10 +23,10 @@ test("Harness keeps child work, activity, and current-chat usage out of the pare
   await expect(harness.getByText(/No verified child transcript entries are available/)).toBeVisible();
   await harness.getByRole("button", { name: "Back to Harness" }).click();
   await harness.getByRole("tab", { name: "Activity" }).click();
-  await expect(harness.getByText("Checking protocol identity and capability closure.")).toBeVisible();
-  await expect(harness.getByText("workspace.inspect")).toBeVisible();
+  await expect(harness.getByRole("status")).toContainText(/does not expose inspector paging and controls/);
+  await expect(harness.getByText("workspace.inspect")).toHaveCount(0);
   await harness.getByRole("tab", { name: "Usage" }).click();
-  await expect(harness.getByText("Current chat only")).toBeVisible();
+  await expect(harness.getByText("Current chat", { exact: true })).toBeVisible();
   await expect(harness.getByText("2,400")).toBeVisible();
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-harness");
 });
@@ -49,7 +49,7 @@ test("account usage routes to Settings and remains truthfully distinct", async (
   await expect(shellPage.getByRole("main", { name: "Settings" })).toBeVisible();
   await expect(shellPage.getByRole("heading", { name: "Usage", level: 1 })).toBeVisible();
   await expect(shellPage.getByText(/No verified usage in this window/)).toBeVisible();
-  await expect(shellPage.getByRole("button", { name: "Export CSV" })).toBeDisabled();
+  await expect(shellPage.getByRole("button", { name: "Export CSV" })).toBeEnabled();
   await shellPage.getByRole("button", { name: "Back to chat" }).click();
   await expect(shellPage.getByRole("main", { name: "Prime Harness architecture" })).toBeVisible();
 });
