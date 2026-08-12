@@ -1,6 +1,7 @@
 use prime_studio_lib::harness::broker::{
     AttachRequest, BrokerState, HarnessBroker, ProjectionFreshness, RefreshSessionRequest,
-    ResidentCreateRequest, SessionCommandRequest, SessionOwnership, StudioOperationRequest,
+    ResidentBranchRequest, ResidentCreateRequest, SessionCommandRequest, SessionOwnership,
+    StudioOperationRequest,
 };
 use prime_studio_lib::harness::generated::{
     ChildAgentStatus, ChildAgentSummary, CurrentChatUsage, HarnessCursor, HarnessEvent,
@@ -212,6 +213,45 @@ fn resident_creation_rejects_a_child_reusing_the_new_root_identity() {
     }));
     assert!(matches!(result, Err(HarnessError::OwnershipViolation)));
     assert!(broker.projects().is_empty());
+}
+
+#[test]
+fn resident_branch_admits_a_distinct_authoritative_root_and_reconciles_exact_replay() {
+    let mut broker = HarnessBroker::new(
+        sidecar("broker-resident-branch"),
+        "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900".to_owned(),
+        "prime-agent-daemon-v7-schema13-816309b1cd50".to_owned(),
+        vec![ownership("root", "project", "chat")],
+        None,
+    )
+    .unwrap();
+    let boot = tauri::async_runtime::block_on(broker.bootstrap()).unwrap();
+    let request = ResidentBranchRequest {
+        creation_id: "studio-branch-1".to_owned(),
+        source_session_id: "root".to_owned(),
+        entry_id: "message-1".to_owned(),
+        name: "Branch of Source".to_owned(),
+        expected_cursor: boot.sessions[0].cursor.clone(),
+    };
+
+    let created = tauri::async_runtime::block_on(broker.branch_resident(request.clone())).unwrap();
+    assert_eq!(created.creation_id, "studio-branch-1");
+    assert_eq!(created.session.session_id, "branch-root");
+    assert_eq!(created.session.chat_id, "branch-chat");
+    assert_ne!(created.session.session_id, request.source_session_id);
+    assert_eq!(broker.projects().len(), 2);
+
+    let replay = tauri::async_runtime::block_on(broker.branch_resident(request)).unwrap();
+    assert_eq!(replay.session.session_id, "branch-root");
+    assert_eq!(broker.projects().len(), 2);
+    let conflict = tauri::async_runtime::block_on(broker.branch_resident(ResidentBranchRequest {
+        creation_id: "studio-branch-1".to_owned(),
+        source_session_id: "root".to_owned(),
+        entry_id: "different-message".to_owned(),
+        name: "Branch of Source".to_owned(),
+        expected_cursor: HarnessCursor { runtime_generation: "generation-source".to_owned(), sequence: 1 },
+    }));
+    assert!(matches!(conflict, Err(HarnessError::OwnershipViolation)));
 }
 
 #[test]

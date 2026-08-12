@@ -38,6 +38,7 @@ export type ScenarioRequest =
   | Readonly<{ type: "discover_runtime" }>
   | Readonly<{ type: "bootstrap" }>
   | Readonly<{ type: "create_resident"; creationId: string; name: string; cwd: string }>
+  | Readonly<{ type: "branch_resident"; creationId: string; sourceSessionId: string; entryId: string; name: string }>
   | Readonly<{ type: "attach_session"; sessionId: string }>
   | Readonly<{ type: "refresh_session"; sessionId: string; knownCursor: Readonly<{ runtimeGeneration: string; sequence: number }> }>
   | Readonly<{
@@ -60,6 +61,7 @@ export type ScenarioResponse =
   | Readonly<{ type: "snapshot_result"; snapshot: FakeRootSessionSnapshot }>
   | Readonly<{ type: "command_result"; commandId: string; outcome: "accepted" | "queued" | "reconciled"; snapshot: FakeRootSessionSnapshot }>
   | Readonly<{ type: "resident_created"; creationId: string; snapshot: FakeRootSessionSnapshot }>
+  | Readonly<{ type: "resident_branched"; creationId: string; sourceSessionId: string; entryId: string; snapshot: FakeRootSessionSnapshot }>
   | Readonly<{ type: "inspector_result"; detailsJson: string }>
   | Readonly<{
       type: "studio_operation_result"; operationId: string;
@@ -267,6 +269,9 @@ export class FakeDaemonController {
     }
     if (request.type === "create_resident") {
       return deepFreeze({ type: "error", code: "unsupported_command", message: "Fake daemon resident creation is not implemented" });
+    }
+    if (request.type === "branch_resident") {
+      return deepFreeze({ type: "error", code: "unsupported_command", message: "Fake daemon resident branching is not implemented" });
     }
     const current = this.#sessions.get(request.sessionId);
     if (!current) return deepFreeze({ type: "error", code: "unknown_session", message: "Session is not owned by this scenario" });

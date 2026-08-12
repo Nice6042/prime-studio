@@ -44,6 +44,8 @@ export type DaemonConnectionPort = Readonly<Record<string, unknown>> & {
   followUp(message: string): Promise<void>;
   abort(): Promise<void>;
   dispose(): Promise<void>;
+  importFromJsonl?(inputPath: string, cwdOverride?: string): Promise<unknown>;
+  fork?(entryId: string, options?: { position?: "before" | "at" }): Promise<unknown>;
   subscribe?(listener: (event: unknown) => void): () => void;
 };
 
@@ -244,6 +246,16 @@ function residentMarker(creationId: string, fingerprint: string, name: string): 
   const fingerprintTag = `${createHash("sha256").update(fingerprint).digest("hex").slice(0, 24)}:`;
   return Object.freeze({ prefix, marker: prefix + fingerprintTag + [...name].slice(0, 200 - prefix.length - fingerprintTag.length).join("") });
 }
+function residentBranchMarkers(creationId: string, fingerprint: string): Readonly<{ prefix: string; pending: string; committed: string }> {
+  const prefix = `prime-studio-branch:${createHash("sha256").update(creationId).digest("hex").slice(0, 24)}:`;
+  const fingerprintTag = createHash("sha256").update(fingerprint).digest("hex").slice(0, 24);
+  return Object.freeze({ prefix, pending: `${prefix}${fingerprintTag}:pending`, committed: `${prefix}${fingerprintTag}:committed` });
+}
+function treeContainsEntry(value: unknown, entryId: string): boolean {
+  if (!plain(value)) return false;
+  const visit = (nodes: unknown): boolean => Array.isArray(nodes) && nodes.some((node) => plain(node) && (plain(node.entry) && node.entry.id === entryId || visit(node.children)));
+  return visit(value.tree);
+}
 function rootState(state: Record<string, unknown>): FakeRootSessionSnapshot["state"] {
   if (state.isStreaming === true || state.isCompacting === true || state.isBashRunning === true) return "working";
   return "idle";
@@ -321,6 +333,50 @@ export class PrimeDaemonBridge {
     if (name !== undefined) command.name = name;
     if (cwd !== undefined) command.config = { cwd };
     return responseData(await this.#client.request(command, 30_000), "create");
+  }
+
+  async branchResident(options: Readonly<{ creationId: string; sourceSessionId: string; entryId: string; name: string }>): Promise<Extract<ScenarioResponse, { type: "resident_branched" }>> {
+    await this.negotiate();
+    if (!this.#identity.capabilities.includes("resident_sessions")) throw new Error("resident branch capability is unavailable");
+    const creationId = boundedString(options.creationId, 128);
+    const sourceSessionId = boundedString(options.sourceSessionId, 128);
+    const entryId = boundedString(options.entryId, 128);
+    const name = boundedString(options.name, 200);
+    const fingerprint = JSON.stringify({ sourceSessionId, entryId, name });
+    const markers = residentBranchMarkers(creationId, fingerprint);
+    const rows = sessionCatalogRows(responseData(await this.#client.request({ type: "list", includeClientOwned: true }, 10_000), "list"));
+    const matches = rows.filter((row) => plain(row) && row.isSessionActive === true && typeof row.sessionName === "string" && row.sessionName.startsWith(markers.prefix));
+    if (matches.length > 1) throw new Error("resident branch recovery is ambiguous");
+    if (matches.length === 1) {
+      const row = matches[0];
+      if (!plain(row) || typeof row.activeSessionId !== "string" || typeof row.sessionName !== "string") throw new Error("resident branch recovery is invalid");
+      if (row.sessionName === markers.pending) throw new Error("resident branch outcome requires reconciliation");
+      if (row.sessionName !== markers.committed) throw new Error("resident branch identity was reused with different input");
+      const snapshot = await this.snapshot(boundedString(row.activeSessionId, 128));
+      if (snapshot.sessionId === sourceSessionId || !snapshot.parentMessages.some((message) => message.id === entryId)) throw new Error("resident branch recovery identity is invalid");
+      return Object.freeze({ type: "resident_branched", creationId, sourceSessionId, entryId, snapshot });
+    }
+
+    const source = await this.#bound(sourceSessionId);
+    const sourceSnapshot = await source.connection.getInitialSnapshot();
+    if (!plain(sourceSnapshot) || !plain(sourceSnapshot.state) || !treeContainsEntry(sourceSnapshot.sessionTree, entryId)) throw new TypeError("resident branch source entry is unavailable");
+    const cwd = boundedString(sourceSnapshot.state.cwd, 4096);
+    const sourceFile = boundedString(sourceSnapshot.state.sessionFile, 4096);
+    const sourceChatId = boundedString(sourceSnapshot.state.sessionId, 128);
+    const created = responseData(await this.#client.request({ type: "create", lifecycle: "resident", name: markers.pending, config: { cwd } }, 30_000), "create");
+    if (!plain(created) || typeof created.activeSessionId !== "string" || created.sessionName !== markers.pending) throw new Error("resident branch create response is invalid");
+    const branchSessionId = boundedString(created.activeSessionId, 128);
+    if (branchSessionId === sourceSessionId) throw new Error("resident branch reused the source active session");
+    const branch = await this.#bound(branchSessionId);
+    if (typeof branch.connection.importFromJsonl !== "function" || typeof branch.connection.fork !== "function") throw new Error("resident branch operations are unavailable");
+    const imported = await branch.connection.importFromJsonl(sourceFile, cwd);
+    if (!plain(imported) || imported.cancelled !== false) throw new Error("resident branch import was not committed");
+    const forked = await branch.connection.fork(entryId, { position: "at" });
+    if (!plain(forked) || forked.cancelled !== false) throw new Error("resident branch fork was not committed");
+    const snapshot = await this.snapshot(branchSessionId);
+    if (snapshot.chatId === sourceChatId || !snapshot.parentMessages.some((message) => message.id === entryId)) throw new Error("resident branch result identity is invalid");
+    responseData(await this.#client.request({ type: "rename", activeSessionId: branchSessionId, name: markers.committed }, 10_000), "rename");
+    return Object.freeze({ type: "resident_branched", creationId, sourceSessionId, entryId, snapshot });
   }
 
   async attach(activeSessionId: string): Promise<FakeRootSessionSnapshot> {
@@ -625,6 +681,9 @@ export class PrimeDaemonBridge {
     if (request.type === "bootstrap") return this.bootstrap();
     if (request.type === "create_resident") {
       return await this.createResident({ creationId: request.creationId, name: request.name, cwd: request.cwd }) as Extract<ScenarioResponse, { type: "resident_created" }>;
+    }
+    if (request.type === "branch_resident") {
+      return this.branchResident(request);
     }
     if (request.type === "attach_session") return { type: "snapshot_result", snapshot: await this.snapshot(request.sessionId) };
     if (request.type === "refresh_session") {

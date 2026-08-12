@@ -8,7 +8,8 @@ use uuid::Uuid;
 use super::compatibility::decide_compatibility;
 use super::generated::{
     CommandOutcome, HarnessCapability, HarnessCompatibility, HarnessCursor, HarnessEvent,
-    HarnessStudioAction, RootSessionSnapshot, SessionCommandKind, StudioOperationStatus,
+    HarnessStudioAction, ParentMessage, RootSessionSnapshot, SessionCommandKind,
+    StudioOperationStatus,
     StudioRequest, StudioResponse,
 };
 pub use super::projections::{BootProjection, ProjectionFreshness, RootSessionProjection};
@@ -23,6 +24,14 @@ const TEST_RUNTIME_DIGEST: &str =
 const TEST_PROFILE: &str = "daemon-v7-schema13";
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 const MAX_INSPECTOR_ARTIFACT_CANDIDATES: usize = 2_048;
+
+fn snapshot_contains_message(snapshot: &RootSessionSnapshot, message_id: &str) -> bool {
+    snapshot.parent_messages.iter().any(|message| match message {
+        ParentMessage::User { id, .. }
+        | ParentMessage::Assistant { id, .. }
+        | ParentMessage::Notice { id, .. } => id == message_id,
+    })
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BrokerState {
@@ -76,6 +85,29 @@ struct ResidentCreation {
     cwd: String,
     expected_account_id: Option<String>,
     expected_project_id: String,
+    session_id: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResidentBranchRequest {
+    pub creation_id: String,
+    pub source_session_id: String,
+    pub entry_id: String,
+    pub name: String,
+    pub expected_cursor: HarnessCursor,
+}
+
+pub struct ResidentBranchResult {
+    pub creation_id: String,
+    pub session: RootSessionProjection,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ResidentBranch {
+    source_session_id: String,
+    entry_id: String,
+    name: String,
+    expected_cursor: HarnessCursor,
     session_id: String,
 }
 
@@ -159,6 +191,7 @@ pub struct HarnessBroker {
     compatibility: Option<HarnessCompatibility>,
     unknown_outcomes: BTreeMap<String, BTreeSet<UnknownOperation>>,
     resident_creations: BTreeMap<String, ResidentCreation>,
+    resident_branches: BTreeMap<String, ResidentBranch>,
     artifact_candidates: BTreeMap<String, ArtifactCandidate>,
     activity_attention: BTreeMap<String, AttentionEvidence>,
     runtime_digest: String,
@@ -230,6 +263,7 @@ impl HarnessBroker {
             compatibility: None,
             unknown_outcomes: BTreeMap::new(),
             resident_creations: BTreeMap::new(),
+            resident_branches: BTreeMap::new(),
             artifact_candidates: BTreeMap::new(),
             activity_attention: BTreeMap::new(),
             runtime_digest,
@@ -578,6 +612,130 @@ impl HarnessBroker {
         Ok(ResidentCreateResult {
             creation_id: request.creation_id,
             session,
+        })
+    }
+
+    pub async fn branch_resident(
+        &mut self,
+        request: ResidentBranchRequest,
+    ) -> Result<ResidentBranchResult, HarnessError> {
+        if self.state != BrokerState::Live
+            || !valid_id(&request.creation_id)
+            || !valid_id(&request.source_session_id)
+            || !valid_id(&request.entry_id)
+            || !valid_label(&request.name)
+            || request.expected_cursor.sequence > MAX_SAFE_INTEGER
+        {
+            return Err(HarnessError::ProtocolViolation);
+        }
+        let resident_capability = match self.compatibility.as_ref() {
+            Some(HarnessCompatibility::Ready { capabilities, .. })
+            | Some(HarnessCompatibility::Degraded { capabilities, .. }) => {
+                capabilities.contains(&HarnessCapability::ResidentSessions)
+            }
+            _ => false,
+        };
+        if !resident_capability {
+            return Err(HarnessError::StateViolation);
+        }
+        if let Some(prior) = self.resident_branches.get(&request.creation_id) {
+            if prior.source_session_id != request.source_session_id
+                || prior.entry_id != request.entry_id
+                || prior.name != request.name
+                || prior.expected_cursor != request.expected_cursor
+            {
+                return Err(HarnessError::OwnershipViolation);
+            }
+            let session = self
+                .project(&prior.session_id)
+                .ok_or(HarnessError::OwnershipViolation)?;
+            return Ok(ResidentBranchResult {
+                creation_id: request.creation_id,
+                session,
+            });
+        }
+        let source = self
+            .ownership
+            .get(&request.source_session_id)
+            .cloned()
+            .ok_or(HarnessError::OwnershipViolation)?;
+        let source_snapshot = self
+            .committed
+            .get(&request.source_session_id)
+            .ok_or(HarnessError::OwnershipViolation)?;
+        if source_snapshot.cursor != request.expected_cursor
+            || !snapshot_contains_message(source_snapshot, &request.entry_id)
+        {
+            return Err(HarnessError::ChronologyViolation);
+        }
+        let sidecar = self.sidecar.clone().ok_or(HarnessError::StateViolation)?;
+        let response = sidecar
+            .request(
+                StudioRequest::BranchResident {
+                    creation_id: request.creation_id.clone(),
+                    source_session_id: request.source_session_id.clone(),
+                    entry_id: request.entry_id.clone(),
+                    name: request.name.clone(),
+                },
+                Instant::now() + Duration::from_secs(75),
+            )
+            .await?;
+        let StudioResponse::ResidentBranched {
+            creation_id,
+            source_session_id,
+            entry_id,
+            snapshot,
+        } = response
+        else {
+            return Err(HarnessError::ProtocolViolation);
+        };
+        if creation_id != request.creation_id
+            || source_session_id != request.source_session_id
+            || entry_id != request.entry_id
+            || !validate_root_snapshot(&snapshot)
+            || !snapshot_contains_message(&snapshot, &request.entry_id)
+        {
+            return Err(HarnessError::ProtocolViolation);
+        }
+        let session_id = snapshot.session_id.clone();
+        if session_id == request.source_session_id
+            || snapshot.account_id != source.account_id
+            || snapshot.project_id != source.project_id
+            || snapshot.chat_id == source.chat_id
+            || self.ownership.contains_key(&session_id)
+            || self.committed.contains_key(&session_id)
+            || self.ownership.values().any(|owner| owner.chat_id == snapshot.chat_id)
+            || self.committed.len() >= 256
+            || self
+                .retired_generations
+                .get(&session_id)
+                .is_some_and(|set| set.contains(&snapshot.cursor.runtime_generation))
+        {
+            return Err(HarnessError::OwnershipViolation);
+        }
+        self.validate_child_ownership(&snapshot)?;
+        self.ownership.insert(
+            session_id.clone(),
+            SessionOwnership {
+                account_id: snapshot.account_id.clone(),
+                project_id: snapshot.project_id.clone(),
+                chat_id: snapshot.chat_id.clone(),
+            },
+        );
+        self.committed.insert(session_id.clone(), *snapshot);
+        self.resident_branches.insert(
+            request.creation_id.clone(),
+            ResidentBranch {
+                source_session_id: request.source_session_id,
+                entry_id: request.entry_id,
+                name: request.name,
+                expected_cursor: request.expected_cursor,
+                session_id: session_id.clone(),
+            },
+        );
+        Ok(ResidentBranchResult {
+            creation_id: request.creation_id,
+            session: self.project(&session_id).ok_or(HarnessError::OwnershipViolation)?,
         })
     }
 

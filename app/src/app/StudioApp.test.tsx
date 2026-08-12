@@ -10,6 +10,7 @@ import type { RootSessionProjection } from "../entities/harness/types";
 import type { StudioOperation } from "../contracts/studioOperations";
 import type { HarnessInspectorAdapter } from "../features/harness/adapter";
 import * as rpc from "../rpc";
+import * as projectCatalogClient from "../features/navigation/projectCatalogClient";
 
 const chat = {
   id: "chat-1",
@@ -454,16 +455,39 @@ describe("Studio application state", () => {
     expect(store.getSnapshot().navigation.route).toBe("workspace");
   });
 
-  it("routes immutable edits, branches, regeneration, and Harness slash commands through the verified adapter", async () => {
+  it("creates and selects a distinct native-bound catalog chat for both message branching and Harness slash commands", async () => {
     const operations: StudioOperation[] = [];
+    const branchSession: RootSessionProjection = {
+      ...rootSession,
+      sessionId: "session-branch",
+      chatId: "daemon-chat-branch",
+      cursor: { runtimeGeneration: "g-branch", sequence: 1 },
+      parentMessages: [rootSession.parentMessages[0]!],
+    };
+    const sourceCatalog = catalogBoundToRootSession();
+    const createdBranch = transitionProjectChatState(sourceCatalog, {
+      type: "chat.create", projectId: "project:personal", chatId: "chat-branch", title: "Branch of Harness architecture",
+    });
+    if (createdBranch.status !== "applied") throw new Error("test branch create failed");
+    const boundBranch = transitionProjectChatState(createdBranch.state, {
+      type: "chat.bind-prime-session", projectId: "project:personal", chatId: "chat-branch",
+      binding: { kind: "prime-session", accountId: branchSession.accountId, sessionId: branchSession.sessionId, sessionFile: "branch.jsonl", agentId: branchSession.chatId },
+    });
+    if (boundBranch.status !== "applied") throw new Error("test branch bind failed");
+    const branchSpy = vi.spyOn(projectCatalogClient, "branchResidentCatalogChat").mockResolvedValue({
+      branchChatId: "chat-branch",
+      catalog: { revision: 3, state: boundBranch.state },
+      session: branchSession,
+    });
     const store = createStudioStore(initialStudioState({
-      projectCatalog: catalogBoundToRootSession(),
+      projectCatalog: sourceCatalog,
       sessions: [rootSession],
       compatibility: {
         status: "ready", profile: "verified",
         capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"],
       },
     }));
+    store.dispatch({ type: "project-catalog/loaded", snapshot: { revision: 2, state: sourceCatalog } });
     store.dispatch({ type: "chat/open", chatId: chat.id });
     render(<AppProviders store={store}><StudioApp harnessAdapter={conversationAdapter(operations)} /></AppProviders>);
 
@@ -479,12 +503,23 @@ describe("Studio application state", () => {
     expect(store.getSnapshot().conversationDisplay[chat.id]?.messages.u1?.versions).toEqual([{ text: "Original prompt" }, { text: "Edited prompt" }]);
 
     await userEvent.click(screen.getByRole("button", { name: "Branch chat from message" }));
+    await waitFor(() => expect(store.getSnapshot().navigation.selectedChatId).toBe("chat-branch"));
+    expect(store.getSnapshot().sessions["session-branch"]?.chatId).toBe("daemon-chat-branch");
+    expect(branchSpy).toHaveBeenCalledWith({
+      expectedRevision: 2,
+      projectId: "project:personal",
+      sourceChatId: "chat-1",
+      sourceSessionId: "session-1",
+      messageId: "u1",
+      expectedCursor: { runtimeGeneration: "g1", sequence: 2 },
+    });
+    act(() => store.dispatch({ type: "project-chat/command", command: { type: "selection.select-chat", projectId: "project:personal", chatId: "chat-1" } }));
+    await waitFor(() => expect(store.getSnapshot().navigation.selectedChatId).toBe("chat-1"));
     await userEvent.click(screen.getByRole("button", { name: "Regenerate response" }));
     await userEvent.click(screen.getByRole("button", { name: "Use Verified model" }));
     await userEvent.click(screen.getByRole("button", { name: "Thinking low" }));
     await userEvent.click(screen.getByRole("menuitemradio", { name: "High" }));
     expect(operations).toEqual(expect.arrayContaining([
-      { action: "conversation.branch.create", payload: { sessionId: "session-1", messageId: "u1" } },
       { action: "conversation.response.regenerate", payload: { sessionId: "session-1", messageId: "a1" } },
       { action: "composer.model.select", payload: { chatId: "chat-1", modelId: "verified-model" } },
       { action: "composer.thinking.select", payload: { chatId: "chat-1", level: "high" } },
@@ -495,6 +530,7 @@ describe("Studio application state", () => {
     await waitFor(() => expect(composer).toHaveValue("/compact"));
     fireEvent.keyDown(composer, { key: "Enter" });
     await waitFor(() => expect(operations).toContainEqual({ action: "harness.session.compact", payload: { sessionId: "session-1" } }));
+    branchSpy.mockRestore();
   }, 20_000);
 
   it("keeps renderer-owned Harness navigation out of the Harness adapter", async () => {

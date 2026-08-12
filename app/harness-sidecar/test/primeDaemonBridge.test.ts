@@ -474,3 +474,97 @@ test("resident creation fails closed when the verified runtime lacks resident ca
   );
   assert.equal(requests, 0);
 });
+
+test("resident branch clones the source, forks the clone, and recovers only a committed marker", async () => {
+  const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
+  const calls: string[] = [];
+  let branchRow: Record<string, unknown> | null = null;
+  const baseState = (activeSessionId: string, sessionId: string, sessionFile: string) => ({
+    activeSessionId, cwd: "C:\\work", thinkingLevel: "high", serviceTier: "auto",
+    availableThinkingLevels: [], isStreaming: false, isCompacting: false, isBashRunning: false,
+    retryAttempt: 0, steeringMode: "all", followUpMode: "all", sessionId, sessionFile, leafId: "message-1",
+    autoCompactionEnabled: true, messageCount: 1, sessionActions: {}, compactionCount: 0, goal: {}, scopedModels: [], activeToolNames: [],
+  });
+  const connection = (activeSessionId: string) => {
+    let state = activeSessionId === "source-active"
+      ? baseState(activeSessionId, "source-chat", "C:\\sessions\\source.jsonl")
+      : baseState(activeSessionId, "empty-chat", "C:\\sessions\\empty.jsonl");
+    return {
+      async getInitialSnapshot() {
+        return {
+          state,
+          messages: [{ role: "user", content: "Branch here", timestamp: 1 }], children: [],
+          sessionTree: { tree: [{ entry: { type: "message", id: "message-1", message: { role: "user", content: "Branch here", timestamp: 1 } }, children: [] }] },
+          lastEventCursor: { generation: activeSessionId === "source-active" ? "source-generation" : "branch-generation", sequence: 1 },
+        };
+      },
+      async getState() { return state; }, async getMessages() { return [{ role: "user", content: "Branch here", timestamp: 1 }]; },
+      async getQueue() { return {}; }, async getResourceSnapshot() { return {}; }, async getSessionStats() { return { tokens: {}, cost: 0 }; },
+      async getToolDefinition() { return undefined; }, async prompt() {}, async steer() {}, async followUp() {}, async abort() {}, async dispose() {},
+      async importFromJsonl(path: string, cwd: string) { calls.push(`import:${path}:${cwd}`); state = baseState(activeSessionId, "imported-chat", "C:\\sessions\\imported.jsonl"); return { cancelled: false }; },
+      async fork(entryId: string, options?: { position?: "before" | "at" }) { calls.push(`fork:${entryId}:${options?.position}`); state = baseState(activeSessionId, "branch-chat", "C:\\sessions\\branch.jsonl"); return { cancelled: false }; },
+    };
+  };
+  const connections = new Map<string, ReturnType<typeof connection>>();
+  const ports = {
+    identity: { packageName: "prime-agent" as const, packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
+    client: {
+      async connect() {},
+      async waitForHello() { return { type: "daemon_hello" as const, socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; },
+      async request(command: Readonly<Record<string, unknown>>) {
+        if (command.type === "list") return { type: "response", command: "list", success: true, data: { sessions: branchRow ? [branchRow] : [] } };
+        if (command.type === "create") {
+          calls.push("create");
+          branchRow = { activeSessionId: "branch-active", sessionId: "empty-chat", sessionName: command.name, cwd: "C:\\work", isSessionActive: true };
+          return { type: "response", command: "create", success: true, data: branchRow };
+        }
+        if (command.type === "rename") {
+          calls.push("commit");
+          branchRow = { ...branchRow, sessionName: command.name };
+          return { type: "response", command: "rename", success: true, data: {} };
+        }
+        throw new Error(`unexpected ${String(command.type)}`);
+      },
+      close() {},
+    },
+    attach: async (_client: unknown, activeSessionId: string) => {
+      const attached = connections.get(activeSessionId) ?? connection(activeSessionId);
+      connections.set(activeSessionId, attached);
+      return attached;
+    },
+  };
+  const request = { type: "branch_resident", creationId: "studio-branch-1", sourceSessionId: "source-active", entryId: "message-1", name: "Branch of Source" } as const;
+  const bridge = new PrimeDaemonBridge(ports);
+  const source = await bridge.attach("source-active");
+  assert.equal(source.chatId, "source-chat");
+  const created = await bridge.handle(request as never) as unknown as { type: string; snapshot: { sessionId: string; chatId: string } };
+  assert.equal(created.type, "resident_branched");
+  assert.equal(created.snapshot.sessionId, "branch-active");
+  assert.equal(created.snapshot.chatId, "branch-chat");
+  assert.deepEqual(calls, ["create", "import:C:\\sessions\\source.jsonl:C:\\work", "fork:message-1:at", "commit"]);
+
+  const restarted = new PrimeDaemonBridge(ports);
+  const recovered = await restarted.handle(request as never) as unknown as { type: string };
+  assert.equal(recovered.type, "resident_branched");
+  assert.deepEqual(calls, ["create", "import:C:\\sessions\\source.jsonl:C:\\work", "fork:message-1:at", "commit"]);
+});
+
+test("resident branch never resumes or reports success from an incomplete marker", async () => {
+  const { createHash } = await import("node:crypto");
+  const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
+  const creationId = "studio-branch-pending";
+  const fingerprint = JSON.stringify({ sourceSessionId: "source-active", entryId: "message-1", name: "Branch" });
+  const prefix = `prime-studio-branch:${createHash("sha256").update(creationId).digest("hex").slice(0, 24)}:`;
+  const pending = `${prefix}${createHash("sha256").update(fingerprint).digest("hex").slice(0, 24)}:pending`;
+  let attaches = 0;
+  const bridge = new PrimeDaemonBridge({
+    identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
+    client: { async connect() {}, async waitForHello() { return { type: "daemon_hello" as const, socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request(command: Readonly<Record<string, unknown>>) { assert.equal(command.type, "list"); return { type: "response", command: "list", success: true, data: { sessions: [{ activeSessionId: "pending-active", sessionName: pending, isSessionActive: true }] } }; }, close() {} },
+    attach: async () => { attaches += 1; throw new Error("incomplete branch must not be resumed"); },
+  });
+  await assert.rejects(
+    () => bridge.handle({ type: "branch_resident", creationId, sourceSessionId: "source-active", entryId: "message-1", name: "Branch" } as never),
+    /reconciliation/u,
+  );
+  assert.equal(attaches, 0);
+});

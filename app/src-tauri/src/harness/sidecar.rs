@@ -513,6 +513,17 @@ fn validate_studio_response(response: &StudioResponse) -> bool {
             creation_id,
             snapshot,
         } => valid_id(creation_id) && validate_root_snapshot(snapshot),
+        StudioResponse::ResidentBranched {
+            creation_id,
+            source_session_id,
+            entry_id,
+            snapshot,
+        } => {
+            valid_id(creation_id)
+                && valid_id(source_session_id)
+                && valid_id(entry_id)
+                && validate_root_snapshot(snapshot)
+        }
         StudioResponse::InspectorResult { details_json } => valid_text(details_json),
         StudioResponse::StudioOperationResult {
             operation_id,

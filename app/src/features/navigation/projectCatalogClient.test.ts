@@ -8,7 +8,12 @@ vi.mock("../../shared/ipc/client", async (importOriginal) => {
   return { ...actual, registerHarnessSessionProjection };
 });
 
-import { applyProjectCatalogCommand, createResidentForCatalogChat, loadProjectCatalog } from "./projectCatalogClient";
+import {
+  applyProjectCatalogCommand,
+  branchResidentCatalogChat,
+  createResidentForCatalogChat,
+  loadProjectCatalog,
+} from "./projectCatalogClient";
 
 describe("project catalog client", () => {
   beforeEach(() => {
@@ -122,5 +127,78 @@ describe("project catalog client", () => {
       cursor: { runtimeGeneration: "generation-1", sequence: 0 },
     }));
     expect(invoke).toHaveBeenCalledWith("harness_create_resident_chat", { request: { expectedRevision: 1, projectId: "project:personal", chatId: "studio-chat-1" } });
+  });
+
+  it("admits a daemon fork only when native authority returns a distinct bound Studio branch chat", async () => {
+    invoke.mockResolvedValue({
+      branchChatId: "studio-branch-1",
+      catalog: {
+        revision: 3,
+        state: {
+          schemaVersion: 2, selectedProjectId: "project:personal",
+          projects: [{ id: "project:personal", kind: "personal", name: "Personal", root: { kind: "studio-managed-empty" }, pinned: false, archived: false, selectedChatId: "studio-branch-1", chats: [{
+            id: "studio-branch-1", projectId: "project:personal", title: "Branch of New chat", pinned: false, archived: false,
+            binding: { kind: "prime-session", accountId: null, sessionId: "daemon-active-branch", sessionFile: "branch.jsonl", agentId: "daemon-chat-branch" },
+          }] }],
+        },
+      },
+      session: {
+        sessionId: "daemon-active-branch", accountId: null, projectId: "daemon-project-1", chatId: "daemon-chat-branch",
+        cursor: { runtimeGeneration: "generation-branch", sequence: 1 }, state: "idle", freshness: "live",
+        parentMessages: [{ channel: "parent", kind: "user", id: "message-1", text: "Branch here", emittedAtMs: 1 }],
+        children: [], queue: [], tools: [], resources: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: null },
+      },
+    });
+
+    const result = await branchResidentCatalogChat({
+      expectedRevision: 2,
+      projectId: "project:personal",
+      sourceChatId: "studio-chat-1",
+      sourceSessionId: "daemon-active-source",
+      messageId: "message-1",
+      expectedCursor: { runtimeGeneration: "generation-source", sequence: 7 },
+    });
+
+    expect(result.branchChatId).toBe("studio-branch-1");
+    expect(result.session.sessionId).toBe("daemon-active-branch");
+    expect(result.session.chatId).toBe("daemon-chat-branch");
+    expect(invoke).toHaveBeenCalledWith("harness_branch_resident_chat", { request: {
+      expectedRevision: 2,
+      projectId: "project:personal",
+      sourceChatId: "studio-chat-1",
+      sourceSessionId: "daemon-active-source",
+      messageId: "message-1",
+      expectedCursor: { runtimeGeneration: "generation-source", sequence: 7 },
+    } });
+  });
+
+  it("rejects a branch response that conflates the Studio chat id with daemon identity", async () => {
+    invoke.mockResolvedValue({
+      branchChatId: "daemon-active-branch",
+      catalog: {
+        revision: 3,
+        state: {
+          schemaVersion: 2, selectedProjectId: "project:personal",
+          projects: [{ id: "project:personal", kind: "personal", name: "Personal", root: { kind: "studio-managed-empty" }, pinned: false, archived: false, selectedChatId: "daemon-active-branch", chats: [{
+            id: "daemon-active-branch", projectId: "project:personal", title: "Branch", pinned: false, archived: false,
+            binding: { kind: "prime-session", accountId: null, sessionId: "daemon-active-branch", sessionFile: "branch.jsonl", agentId: "daemon-chat-branch" },
+          }] }],
+        },
+      },
+      session: {
+        sessionId: "daemon-active-branch", accountId: null, projectId: "daemon-project-1", chatId: "daemon-chat-branch",
+        cursor: { runtimeGeneration: "generation-branch", sequence: 1 }, state: "idle", freshness: "live",
+        parentMessages: [], children: [], queue: [], tools: [], resources: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: null },
+      },
+    });
+
+    await expect(branchResidentCatalogChat({
+      expectedRevision: 2,
+      projectId: "project:personal",
+      sourceChatId: "studio-chat-1",
+      sourceSessionId: "daemon-active-source",
+      messageId: "message-1",
+      expectedCursor: { runtimeGeneration: "generation-source", sequence: 7 },
+    })).rejects.toThrow("Project catalog unavailable");
   });
 });

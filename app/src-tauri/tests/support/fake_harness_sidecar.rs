@@ -259,6 +259,42 @@ fn main() {
                 }
             }));
         }
+        "broker-resident-branch" => {
+            let discovery = read_frame();
+            write_frame(&json!({
+                "studioProtocol": 1, "requestId": discovery["requestId"],
+                "payload": { "type":"discover_runtime_result", "runtime":broker_runtime(), "compatibility":broker_compatibility("prime-agent-daemon-v7-schema13-816309b1cd50") }
+            }));
+            let bootstrap = read_frame();
+            write_frame(&json!({
+                "studioProtocol": 1, "requestId": bootstrap["requestId"],
+                "payload": { "type":"bootstrap_result", "compatibility":broker_compatibility("prime-agent-daemon-v7-schema13-816309b1cd50"), "sessions":[{
+                    "sessionId":"root","accountId":"account","projectId":"project","chatId":"chat",
+                    "cursor":{"runtimeGeneration":"generation-source","sequence":1},"state":"idle",
+                    "parentMessages":[{"channel":"parent","kind":"user","id":"message-1","text":"Branch here","emittedAtMs":1}],
+                    "children":[],"queue":[],"tools":[],"resources":[],
+                    "usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null}
+                }] }
+            }));
+            let branch = read_frame();
+            assert_eq!(branch["payload"]["type"], "branch_resident");
+            assert_eq!(branch["payload"]["creationId"], "studio-branch-1");
+            assert_eq!(branch["payload"]["sourceSessionId"], "root");
+            assert_eq!(branch["payload"]["entryId"], "message-1");
+            write_frame(&json!({
+                "studioProtocol": 1, "requestId": branch["requestId"],
+                "payload": {
+                    "type":"resident_branched","creationId":"studio-branch-1","sourceSessionId":"root","entryId":"message-1",
+                    "snapshot": {
+                        "sessionId":"branch-root","accountId":"account","projectId":"project","chatId":"branch-chat",
+                        "cursor":{"runtimeGeneration":"generation-branch","sequence":1},"state":"idle",
+                        "parentMessages":[{"channel":"parent","kind":"user","id":"message-1","text":"Branch here","emittedAtMs":1}],
+                        "children":[],"queue":[],"tools":[],"resources":[],
+                        "usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null}
+                    }
+                }
+            }));
+        }
         "broker-owned-bootstrap" => {
             let discovery = read_frame();
             assert_eq!(discovery["payload"]["type"], "discover_runtime");

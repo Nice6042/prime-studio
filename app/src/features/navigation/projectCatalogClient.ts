@@ -6,6 +6,7 @@ import {
   type ProjectChatState,
 } from "../../domain/projectChats";
 import type { RootSessionProjection } from "../../entities/harness/types";
+import type { HarnessCursor } from "../../shared/ipc/harness.generated";
 import { decodeRootSessionProjection, registerHarnessSessionProjection } from "../../shared/ipc/client";
 
 const MAX_CATALOG_TRANSPORT_BYTES = 8 * 1024 * 1024;
@@ -18,6 +19,19 @@ export interface ProjectCatalogSnapshot {
 export interface ResidentChatBindingResult {
   readonly catalog: ProjectCatalogSnapshot;
   readonly session: RootSessionProjection;
+}
+
+export interface BranchResidentCatalogChatRequest {
+  readonly expectedRevision: number;
+  readonly projectId: string;
+  readonly sourceChatId: string;
+  readonly sourceSessionId: string;
+  readonly messageId: string;
+  readonly expectedCursor: HarnessCursor;
+}
+
+export interface BranchResidentChatBindingResult extends ResidentChatBindingResult {
+  readonly branchChatId: string;
 }
 
 function fail(): never {
@@ -113,4 +127,47 @@ export async function createResidentForCatalogChat(
     catalog: decodeProjectCatalogSnapshot(source.catalog),
     session,
   });
+}
+
+export async function branchResidentCatalogChat(
+  request: BranchResidentCatalogChatRequest,
+): Promise<BranchResidentChatBindingResult> {
+  const identifiers = [request.projectId, request.sourceChatId, request.sourceSessionId, request.messageId, request.expectedCursor.runtimeGeneration];
+  if (
+    !Number.isSafeInteger(request.expectedRevision)
+    || request.expectedRevision < 0
+    || !Number.isSafeInteger(request.expectedCursor.sequence)
+    || request.expectedCursor.sequence < 0
+    || !identifiers.every((value) => value.length > 0 && value.length <= 128 && /^[\x20-\x7e]+$/.test(value) && value.trim() === value)
+  ) return fail();
+  const value = await invoke("harness_branch_resident_chat", { request: structuredClone(request) });
+  preflight(value);
+  let detached: unknown;
+  try {
+    detached = structuredClone(value);
+  } catch {
+    return fail();
+  }
+  if (!detached || typeof detached !== "object" || Array.isArray(detached)) return fail();
+  const source = detached as Record<string, unknown>;
+  if (Object.keys(source).sort().join(",") !== "branchChatId,catalog,session") return fail();
+  if (typeof source.branchChatId !== "string") return fail();
+  const branchChatId = source.branchChatId;
+  const catalog = decodeProjectCatalogSnapshot(source.catalog);
+  const session = decodeRootSessionProjection(source.session);
+  const project = catalog.state.projects.find((candidate) => candidate.id === request.projectId && !candidate.archived);
+  const matches = project?.chats.filter((chat) => chat.id === branchChatId && !chat.archived) ?? [];
+  const branch = matches.length === 1 ? matches[0] : null;
+  if (
+    !branch
+    || branchChatId === request.sourceChatId
+    || branchChatId === request.sourceSessionId
+    || branchChatId === session.sessionId
+    || branchChatId === session.chatId
+    || branch.binding?.sessionId !== session.sessionId
+    || branch.binding.accountId !== session.accountId
+    || branch.binding.agentId !== session.chatId
+    || !session.parentMessages.some((message) => message.id === request.messageId)
+  ) return fail();
+  return deepFreeze({ branchChatId, catalog, session });
 }

@@ -337,11 +337,23 @@
         "cwd": { "$ref": "#/$defs/Path" }
       }
     },
+    "BranchResidentRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "creationId", "sourceSessionId", "entryId", "name"],
+      "properties": {
+        "type": { "const": "branch_resident" },
+        "creationId": { "$ref": "#/$defs/Id" },
+        "sourceSessionId": { "$ref": "#/$defs/Id" },
+        "entryId": { "$ref": "#/$defs/Id" },
+        "name": { "$ref": "#/$defs/Label" }
+      }
+    },
     "StudioRequest": {
       "oneOf": [
         { "$ref": "#/$defs/DiscoverRuntimeRequest" },
         { "$ref": "#/$defs/BootstrapRequest" },
         { "$ref": "#/$defs/CreateResidentRequest" },
+        { "$ref": "#/$defs/BranchResidentRequest" },
         { "$ref": "#/$defs/AttachSessionRequest" },
         { "$ref": "#/$defs/SessionCommandRequest" },
         { "$ref": "#/$defs/InspectorRequest" },
@@ -387,6 +399,17 @@
         "snapshot": { "$ref": "#/$defs/RootSessionSnapshot" }
       }
     },
+    "ResidentBranchedResponse": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "creationId", "sourceSessionId", "entryId", "snapshot"],
+      "properties": {
+        "type": { "const": "resident_branched" },
+        "creationId": { "$ref": "#/$defs/Id" },
+        "sourceSessionId": { "$ref": "#/$defs/Id" },
+        "entryId": { "$ref": "#/$defs/Id" },
+        "snapshot": { "$ref": "#/$defs/RootSessionSnapshot" }
+      }
+    },
     "ProtocolErrorResponse": {
       "type": "object", "additionalProperties": false, "required": ["type", "code", "message"],
       "properties": {
@@ -418,6 +441,7 @@
         { "$ref": "#/$defs/SnapshotResponse" },
         { "$ref": "#/$defs/CommandResponse" },
         { "$ref": "#/$defs/ResidentCreatedResponse" },
+        { "$ref": "#/$defs/ResidentBranchedResponse" },
         { "$ref": "#/$defs/InspectorResponse" },
         { "$ref": "#/$defs/StudioOperationResponse" },
         { "$ref": "#/$defs/ProtocolErrorResponse" }

@@ -10,7 +10,7 @@ import { WorkspaceShell } from "../features/shell/WorkspaceShell";
 import { CollapsedSidebar } from "../features/navigation/CollapsedSidebar";
 import { CreateProjectDialog, NavigationIcon, ProjectSidebar } from "../features/navigation/ProjectSidebar";
 import { selectNavigationProjects } from "../features/navigation/navigationSelectors";
-import { applyProjectCatalogCommand, createResidentForCatalogChat, loadProjectCatalog } from "../features/navigation/projectCatalogClient";
+import { applyProjectCatalogCommand, branchResidentCatalogChat, createResidentForCatalogChat, loadProjectCatalog } from "../features/navigation/projectCatalogClient";
 import { residentCreationDisabledReason } from "../features/navigation/residentCreationPolicy";
 import { ParentConversation } from "../features/conversation/ParentConversation";
 import { controlBinding } from "../features/conversation/controlBinding";
@@ -479,7 +479,56 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     return { status: "updated", revision: Date.now() };
   };
 
+  const branchResidentChat = async (sessionId: string, messageId: string): Promise<StudioOperationOutcome> => {
+    const current = store.getSnapshot();
+    const revision = current.catalogRevision;
+    if (revision === null) return { status: "unavailable", reason: "Branching failed because the project catalog is unavailable." };
+    const sourceSession = current.sessions[sessionId];
+    const matches = current.projectCatalog.projects.flatMap((project) => project.chats.map((chat) => ({ project, chat }))).filter(({ chat }) => (
+      !chat.archived
+      && chat.binding?.sessionId === sessionId
+      && chat.id === current.navigation.selectedChatId
+    ));
+    const source = matches.length === 1 ? matches[0] : null;
+    if (
+      !sourceSession
+      || !source?.chat.binding
+      || source.chat.binding.accountId !== sourceSession.accountId
+      || (source.chat.binding.agentId !== null && source.chat.binding.agentId !== sourceSession.chatId)
+      || !sourceSession.parentMessages.some((message) => message.id === messageId)
+    ) return { status: "unavailable", reason: "The selected message has no authoritative resident Harness session to branch." };
+
+    const request = {
+      expectedRevision: revision,
+      projectId: source.project.id,
+      sourceChatId: source.chat.id,
+      sourceSessionId: sourceSession.sessionId,
+      messageId,
+      expectedCursor: sourceSession.cursor,
+    };
+    setCatalogOperation({ phase: "pending", label: "Creating resident branch" });
+    try {
+      let branched;
+      try {
+        branched = await branchResidentCatalogChat(request);
+      } catch {
+        const recovered = await loadProjectCatalog();
+        branched = await branchResidentCatalogChat({ ...request, expectedRevision: recovered.revision });
+      }
+      store.dispatch({ type: "project-catalog/loaded", snapshot: branched.catalog });
+      store.dispatch({ type: "harness/session-projected", session: branched.session });
+      setCatalogOperation({ phase: "success", message: "Resident branch ready." });
+      return { status: "updated", revision: branched.catalog.revision };
+    } catch (error) {
+      const detail = error instanceof Error && error.message !== "Project catalog unavailable." ? ` ${error.message}` : "";
+      const reason = `The branch could not be verified, so the parent chat remains selected.${detail}`;
+      setCatalogOperation({ phase: "error", message: reason });
+      return { status: "rejected", reason, retryable: true };
+    }
+  };
+
   const harnessExecutor = async (operation: StudioOperation): Promise<StudioOperationOutcome> => {
+    if (operation.action === "conversation.branch.create") return branchResidentChat(operation.payload.sessionId, operation.payload.messageId);
     if (operation.action === "editor.artifact.open" || operation.action === "activity.file.open" || operation.action === "harness.context-source.open") {
       if (harnessAdapter.availability.status !== "available") return { status: "unavailable", reason: harnessAdapter.availability.reason };
       if (!harnessAdapter.openArtifact) return { status: "unavailable", reason: "The native identity-bound artifact resolver is unavailable." };
