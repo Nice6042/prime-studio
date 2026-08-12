@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import type { ActiveWorkspaceChat, WorkspaceChatCommands, WorkspaceChatSummary, WorkspaceOperationState } from "./workspaceAdapter";
+import type { ActiveWorkspaceChat, WorkspaceChatSummary, WorkspaceOperationState } from "./workspacePresentation";
 import { controlBinding } from "./controlBinding";
 
 function HeaderIcon({ kind }: { readonly kind: "folder" | "chevron" | "down" | "pin" | "more" | "panel" }) {
@@ -35,14 +35,14 @@ export function WorkspaceHeader({
   readonly chats: readonly WorkspaceChatSummary[];
   readonly operation: WorkspaceOperationState;
   readonly inspectorHidden?: boolean;
-  readonly onSelectChat: WorkspaceChatCommands["selectChat"];
-  readonly onSetPinned: WorkspaceChatCommands["setPinned"];
-  readonly onRename: WorkspaceChatCommands["rename"];
-  readonly onDuplicate: WorkspaceChatCommands["duplicate"];
-  readonly onMove: WorkspaceChatCommands["move"];
-  readonly onArchive: WorkspaceChatCommands["archive"];
-  readonly onDelete: WorkspaceChatCommands["delete"];
-  readonly onOpenInspector: WorkspaceChatCommands["openInspector"];
+  readonly onSelectChat: (chatId: string) => void;
+  readonly onSetPinned: (pinned: boolean) => void;
+  readonly onRename: (title: string) => void;
+  readonly onDuplicate: () => void;
+  readonly onMove: () => void;
+  readonly onArchive: () => void;
+  readonly onDelete: () => void;
+  readonly onOpenInspector: () => void;
 }) {
   const [menu, setMenu] = useState<"switcher" | "actions" | null>(null);
   const [renaming, setRenaming] = useState(false);

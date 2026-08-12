@@ -4,7 +4,7 @@ import type { RootSessionProjection } from "../../entities/harness/types";
 import { createEmptyParentTranscript, reduceParentTranscript } from "../../entities/messages/parentTranscriptReducer";
 import { MessageActions } from "./MessageActions";
 import { TurnActivity } from "./TurnActivity";
-import type { ConversationTurnPresentation } from "./workspaceAdapter";
+import type { ConversationTurnPresentation } from "./workspacePresentation";
 import { controlBinding } from "./controlBinding";
 import "./conversation.css";
 

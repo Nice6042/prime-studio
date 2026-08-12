@@ -12,7 +12,7 @@ import { applyProjectCatalogCommand, loadProjectCatalog } from "../features/navi
 import { ParentConversation } from "../features/conversation/ParentConversation";
 import { Composer } from "../features/conversation/Composer";
 import { WorkspaceHeader } from "../features/conversation/WorkspaceHeader";
-import type { WorkspaceOperationState } from "../features/conversation/workspaceAdapter";
+import type { WorkspaceOperationState } from "../features/conversation/workspacePresentation";
 import { deriveComposerState } from "../features/conversation/composerModel";
 import { HarnessInspector } from "../features/harness/HarnessInspector";
 import { SettingsShell } from "../features/settings/SettingsShell";
@@ -230,12 +230,14 @@ export function StudioApp() {
         onExpand={() => changeLayout({ sidebarOpen: true })}
         onNewChat={createChat}
         newChatDisabledReason={catalogOperation.phase === "pending" ? catalogOperation.label : undefined}
+        onOpenSearch={openPalette}
         onOpenSettings={openSettings}
       />;
   const sidebarRailContent = <CollapsedSidebar
     onExpand={() => changeLayout({ sidebarOpen: true })}
     onNewChat={createChat}
     newChatDisabledReason={catalogOperation.phase === "pending" ? catalogOperation.label : undefined}
+    onOpenSearch={openPalette}
     onOpenSettings={openSettings}
   />;
 
@@ -298,7 +300,15 @@ export function StudioApp() {
     }
   };
   return <div className="studio-application">
-    <TitleBar title={title} actions={<>
+    <TitleBar title={title} onOperation={(operation) => {
+      switch (operation.action) {
+        case "catalog.chat.create": createChat(); break;
+        case "route.settings.open": store.dispatch({ type: "route/settings" }); break;
+        case "layout.sidebar.toggle": changeLayout({ sidebarOpen: !layout.sidebarOpen }); break;
+        case "layout.inspector.toggle": changeLayout({ inspectorOpen: !layout.inspectorOpen }); break;
+        default: setCatalogOperation({ phase: "disabled", reason: `${operation.action} is unavailable in this verified runtime.` });
+      }
+    }} actions={<>
       <button type="button" className="studio-command-trigger" aria-label="Projects" aria-pressed={viewport < 760 ? activeSheet === "sidebar" : layout.sidebarOpen} onClick={() => { if (viewport < 760) { changeLayout({ sidebarOpen: true }); setActiveSheet((value) => value === "sidebar" ? null : "sidebar"); } else changeLayout({ sidebarOpen: !layout.sidebarOpen }); }}><NavigationIcon kind="menu" /></button>
       <button type="button" className="studio-command-trigger" aria-label="Harness" aria-pressed={viewport < 760 ? activeSheet === "inspector" : layout.inspectorOpen} onClick={() => { if (viewport < 760) { changeLayout({ inspectorOpen: true }); setActiveSheet((value) => value === "inspector" ? null : "inspector"); } else changeLayout({ inspectorOpen: !layout.inspectorOpen }); }}><NavigationIcon kind="harness" /></button>
       <button type="button" className="studio-command-trigger" aria-label={layout.editorOpen ? "Close editor" : "Open editor"} onClick={() => { changeLayout({ editorOpen: !layout.editorOpen }); setActiveSheet(layout.editorOpen ? null : "editor"); }}><NavigationIcon kind="editor" /></button>

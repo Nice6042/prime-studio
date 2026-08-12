@@ -13,7 +13,7 @@ import {
   type SlashCommand,
 } from "./composerModel";
 import { SlashMenu } from "./SlashMenu";
-import type { ComposerModelId, ComposerRuntimeChoice, ThinkingLevel } from "./workspaceAdapter";
+import type { ComposerModelId, ComposerRuntimeChoice, ThinkingLevel } from "./workspacePresentation";
 import { controlBinding } from "./controlBinding";
 
 function SendIcon({ stop = false }: { readonly stop?: boolean }) {
