@@ -70,6 +70,17 @@ test("command palette, settings search, theme, and editor are keyboard reachable
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-settings-editor");
 });
 
+test("wide settings renders every registered destination without horizontal page overflow", async ({ shellPage }) => {
+  await shellPage.keyboard.press("Control+,");
+  const labels = ["General", "Appearance", "Composer", "Harness", "Usage", "Models", "Accounts", "Tools", "Git", "Environments", "Privacy & security", "Keyboard shortcuts", "About"];
+  for (const label of labels) {
+    await shellPage.getByRole("button", { name: new RegExp(`^${label}`) }).click();
+    await expect(shellPage.getByRole("heading", { name: label, level: 1 })).toBeVisible();
+  }
+  const geometry = await shellPage.getByRole("main", { name: "Settings" }).evaluate((element) => ({ width: element.clientWidth, scrollWidth: element.scrollWidth }));
+  expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width + 1);
+});
+
 test("resizable project and Harness panes preserve a usable conversation", async ({ shellPage }) => {
   const center = shellPage.getByRole("main", { name: "Prime Harness architecture" });
   const before = await center.evaluate((element) => element.getBoundingClientRect().width);

@@ -32,6 +32,47 @@ describe("AccountUsageSettings", () => {
     expect(screen.queryByText(/^Current chat$/i)).not.toBeInTheDocument();
   });
 
+  it("keeps unsupported chat, task, model, project, attribution, and quota facts explicit and keyboard reachable", async () => {
+    render(<AccountUsageSettings accounts={accounts} />);
+    await screen.findByRole("img", { name: /Daily cost over 7 days/ });
+
+    for (const name of ["Chats", "Tasks", "Model breakdown", "Project breakdown", "Subscription quota"]) {
+      const unavailable = screen.getByRole("note", { name: `${name} unavailable` });
+      expect(unavailable).toHaveAttribute("tabindex", "0");
+      expect(unavailable).toHaveTextContent(/not reported|does not report/i);
+    }
+
+    const subagents = screen.getByRole("button", { name: "Subagents unavailable" });
+    const tools = screen.getByRole("button", { name: "Tools unavailable" });
+    expect(subagents).toHaveAttribute("aria-disabled", "true");
+    expect(tools).toHaveAttribute("aria-disabled", "true");
+    await userEvent.click(subagents);
+    expect(screen.getByRole("status")).toHaveTextContent(/Subagent attribution is unavailable/i);
+  });
+
+  it("does not present invented zero totals when no account ledger can be queried", async () => {
+    render(<AccountUsageSettings accounts={[]} />);
+    expect(await screen.findByRole("status", { name: "Account usage unavailable" })).toHaveTextContent(/No account ledger is available/i);
+    expect(screen.queryByText("$0.00")).not.toBeInTheDocument();
+    expect(screen.queryByText(/^0$/)).not.toBeInTheDocument();
+  });
+
+  it("does not flash a zero total while the first verified ledger read is pending", async () => {
+    let resolveUsage!: (rows: []) => void;
+    const loadUsage = vi.fn(() => new Promise<[]>((resolve) => { resolveUsage = resolve; }));
+    render(<AccountUsageSettings accounts={[accounts[0]]} loadUsage={loadUsage} />);
+    expect(screen.queryByText("$0.00")).not.toBeInTheDocument();
+    resolveUsage([]);
+    await waitFor(() => expect(screen.getAllByText("$0.00").length).toBeGreaterThan(0));
+  });
+
+  it("reconciles a failed ledger read as unavailable rather than zero usage", async () => {
+    vi.mocked(rpc.accountUsageSeriesStrict).mockRejectedValueOnce(new Error("ledger unavailable"));
+    render(<AccountUsageSettings accounts={[accounts[0]]} />);
+    expect(await screen.findByRole("status", { name: "Account usage unavailable" })).toHaveTextContent(/could not be read/i);
+    expect(screen.queryByText("$0.00")).not.toBeInTheDocument();
+  });
+
   it("reloads the native accounting window and can switch to tokens", async () => {
     render(<AccountUsageSettings accounts={accounts} />);
     await userEvent.click(screen.getByRole("button", { name: "30 days" }));

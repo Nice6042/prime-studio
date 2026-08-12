@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { HarnessCompatibility } from "../../shared/ipc/harness.generated";
 import { SettingsShell } from "./SettingsShell";
+import { settingsSections } from "./settingsRegistry";
 
 const unavailable: HarnessCompatibility = { status: "unavailable", reason: "security_verification_failed" };
 
@@ -74,6 +75,24 @@ describe("SettingsShell", () => {
     expect(screen.getByRole("heading", { name: "Environments", level: 1 })).toBeVisible();
     rerender(<SettingsShell section="privacy" onBack={() => undefined} onSection={() => undefined} compatibility={unavailable} />);
     expect(screen.getByRole("heading", { name: "Privacy & security", level: 1 })).toBeVisible();
+  });
+
+  it.each(settingsSections)("renders the $label destination from the 13-page registry", ({ id, label }) => {
+    render(<SettingsShell section={id} onBack={() => undefined} onSection={() => undefined} compatibility={unavailable} />);
+    expect(screen.getByRole("heading", { name: label, level: 1 })).toBeVisible();
+    expect(document.querySelector('.studio-settings-content')).toHaveAttribute("data-settings-section", id);
+  });
+
+  it("maps every rendered settings-owned action to a stable control id", () => {
+    const { rerender } = render(<SettingsShell section="general" onBack={() => undefined} onSection={() => undefined} compatibility={unavailable} />);
+    for (const section of settingsSections) {
+      rerender(<SettingsShell section={section.id} onBack={() => undefined} onSection={() => undefined} compatibility={unavailable} />);
+      const actionControls = [...document.querySelectorAll<HTMLElement>('.studio-settings [data-action]')];
+      expect(actionControls.length).toBeGreaterThan(0);
+      for (const control of actionControls) {
+        expect(control.dataset.controlId, `${section.id}: ${control.getAttribute("aria-label") ?? control.textContent}`).toBeTruthy();
+      }
+    }
   });
 
 });
