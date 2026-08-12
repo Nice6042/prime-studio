@@ -31,7 +31,7 @@ export const FEATURE_ACCEPTANCE: readonly PackageFeatureAcceptance[] = Object.fr
   row("NV-05", "Archived chats route lists and restores archived records", "complete", ["route.archived.open", "catalog.project.restore", "catalog.chat.restore"]),
   row("NV-06", "inactive-chat completion sets unread and selection clears it", "complete", ["catalog.chat.unread-clear"]),
   row("NV-07", "chat rows show authoritative working, live, and error status", "partial"),
-  row("NV-08", "footer reports configured workspace identity and opens its menu", "partial", ["surface.popover.toggle", "workspace.switch", "route.settings.open", "workspace.sign-out"]),
+  row("NV-08", "footer reports configured workspace identity and opens its menu", "complete", ["surface.popover.toggle", "workspace.switch", "route.settings.open", "workspace.sign-out"]),
   row("NV-09", "collapsed rail preserves expand, new, search, settings, avatar actions and tooltips", "partial", ["layout.sidebar.toggle", "catalog.chat.create", "palette.open", "route.settings.open"]),
   row("NV-10", "rename, duplicate, move, archive, restore, and delete are durable catalog commands", "complete", ["catalog.chat.rename", "catalog.chat.duplicate", "catalog.chat.move", "catalog.chat.archive", "catalog.chat.restore", "catalog.chat.delete"]),
 
@@ -48,7 +48,7 @@ export const FEATURE_ACCEPTANCE: readonly PackageFeatureAcceptance[] = Object.fr
   row("CV-11", "Undo edited files is visibly unavailable without verified reversible patch authority", "explicitly_unavailable", ["conversation.files.undo"]),
   row("CV-12", "Worked-for disclosure groups real steps under the owning root turn", "partial", ["conversation.work-details.toggle"]),
   row("CV-13", "empty conversation suggestions fill but never send the draft", "complete", ["conversation.suggestion.fill"]),
-  row("CV-14", "history pages by cursor with truncation and omission metadata", "partial", ["conversation.history.page"]),
+  row("CV-14", "history pages by cursor with truncation and omission metadata", "complete", ["conversation.history.page"]),
   row("CV-15", "archived transcripts are read-only and may fork to continue", "partial", ["conversation.archive-fork"]),
 
   row("CP-01", "composer grows to a bounded height and scrolls beyond it", "partial"),
@@ -145,7 +145,7 @@ export const FEATURE_ACCEPTANCE: readonly PackageFeatureAcceptance[] = Object.fr
  */
 export const PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS = Object.freeze([
   "NV-07",
-  "CV-04", "CV-05", "CV-06", "CV-10", "CV-12", "CV-14",
+  "CV-04", "CV-05", "CV-06", "CV-10", "CV-12",
   "CP-03", "CP-04", "CP-05", "CP-07",
   "HR-02", "HR-03", "HR-04", "HR-07", "HR-08", "HR-10",
   "HR-13", "HR-14", "HR-16", "HR-18",
