@@ -45,17 +45,19 @@ function contextRatios(details: HarnessPanelDetails | null): readonly number[] |
 }
 
 function reconciledContributions(details: HarnessPanelDetails | null, totalTokens: number) {
-  const contributions = details?.contributions ?? [];
-  if (!contributions.length || !Number.isSafeInteger(totalTokens) || totalTokens < 0) return null;
+  const partition = details?.contributionPartition;
+  if (!partition || partition.unit !== "current_chat_tokens" || partition.totalTokens !== totalTokens || !Number.isSafeInteger(totalTokens) || totalTokens < 0) return null;
+  const contributions = partition.contributions;
+  if (!contributions.length || !Number.isSafeInteger(partition.totalTokens) || partition.totalTokens < 0) return null;
   const ids = new Set<string>();
   let total = 0;
   for (const contribution of contributions) {
     if (!contribution.id || ids.has(contribution.id) || !Number.isSafeInteger(contribution.tokens) || contribution.tokens < 0) return null;
     ids.add(contribution.id);
     total += contribution.tokens;
-    if (!Number.isSafeInteger(total) || total > totalTokens) return null;
+    if (!Number.isSafeInteger(total) || total > partition.totalTokens) return null;
   }
-  return total === totalTokens ? contributions : null;
+  return total === partition.totalTokens ? contributions : null;
 }
 
 function UsageCharts({ details }: { readonly details: HarnessPanelDetails | null }) {

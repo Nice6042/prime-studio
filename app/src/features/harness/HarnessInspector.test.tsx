@@ -315,6 +315,52 @@ describe("HarnessInspector", () => {
     expect(source.load).toHaveBeenCalledTimes(2);
   });
 
+  it("discards a stale session load and starts the replacement session without leaking private details", async () => {
+    let resolveA: ((value: HarnessPanelDetails) => void) | null = null;
+    let resolveB: ((value: HarnessPanelDetails) => void) | null = null;
+    const aDetails = { ...details, outputs: [{ id: "private-a", label: "A private output", candidateId: "candidate-a", kind: "file" }] };
+    const bDetails = { ...details, outputs: [{ id: "private-b", label: "B private output", candidateId: "candidate-b", kind: "file" }] };
+    const source: HarnessInspectorAdapter = {
+      availability: { status: "available" },
+      load: vi.fn((sessionId: string) => new Promise<HarnessPanelDetails>((resolve) => {
+        if (sessionId === "root-a") resolveA = resolve;
+        else resolveB = resolve;
+      })),
+      execute: vi.fn(),
+    };
+    const view = render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={source} />);
+    const replacement = { ...session, sessionId: "root-b", chatId: "chat-b", cursor: { runtimeGeneration: "g2", sequence: 1 } };
+    view.rerender(<HarnessInspector chatId="chat-b" session={replacement} compatibility={compatibility} adapter={source} />);
+
+    expect(source.load).toHaveBeenCalledWith("root-b");
+    await act(async () => { resolveA?.(aDetails); });
+    expect(screen.queryByText("A private output")).not.toBeInTheDocument();
+    await act(async () => { resolveB?.(bDetails); });
+    expect(await screen.findByText("B private output")).toBeVisible();
+  });
+
+  it("begins and stops idle polling as stable adapter availability changes", async () => {
+    vi.useFakeTimers();
+    let available = false;
+    const source: HarnessInspectorAdapter = {
+      get availability() { return available ? { status: "available" as const } : { status: "unavailable" as const, reason: "Runtime offline." }; },
+      load: vi.fn(async () => details),
+      execute: vi.fn(),
+    };
+    render(<HarnessInspector chatId="chat-a" session={{ ...session, state: "idle" }} compatibility={compatibility} adapter={source} />);
+    expect(source.load).not.toHaveBeenCalled();
+
+    available = true;
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(source.load).toHaveBeenCalledTimes(1);
+    available = false;
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(source.load).toHaveBeenCalledTimes(1);
+    available = true;
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(source.load).toHaveBeenCalledTimes(2);
+  });
+
   it("shows the production silent-worker recovery blocker instead of a working retry claim", async () => {
     const source: HarnessInspectorAdapter = { ...adapter(), workerRecovery: {
       status: "unavailable",

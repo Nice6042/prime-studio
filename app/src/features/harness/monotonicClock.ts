@@ -4,20 +4,29 @@ function readMonotonicNow(): number {
   return typeof performance !== "undefined" && Number.isFinite(performance.now()) ? performance.now() : Date.now();
 }
 
-/** Keeps elapsed presentation forward-only when the host wall clock regresses. */
-export function monotonicEpoch(baseEpochMs: number, baseMonotonicMs: number, currentMonotonicMs: number, wallEpochMs: number): number {
-  const elapsed = Math.max(0, currentMonotonicMs - baseMonotonicMs);
-  return Math.max(baseEpochMs + elapsed, wallEpochMs);
+/** Keeps elapsed presentation forward-only across both wall-clock regressions and normalization. */
+export class MonotonicEpochClock {
+  private lastEpochMs: number;
+
+  constructor(private readonly baseEpochMs: number, private readonly baseMonotonicMs: number) {
+    this.lastEpochMs = baseEpochMs;
+  }
+
+  read(currentMonotonicMs: number, wallEpochMs: number): number {
+    const elapsed = Math.max(0, currentMonotonicMs - this.baseMonotonicMs);
+    this.lastEpochMs = Math.max(this.lastEpochMs, this.baseEpochMs + elapsed, wallEpochMs);
+    return this.lastEpochMs;
+  }
 }
 
 /** One inspector-level clock avoids per-row timers for elapsed values. */
 export function useMonotonicNow(intervalMs = 1_000): number {
-  const baseEpochMs = useRef(Date.now());
-  const baseMonotonicMs = useRef(readMonotonicNow());
-  const [now, setNow] = useState(baseEpochMs.current);
+  const clock = useRef<MonotonicEpochClock | null>(null);
+  if (clock.current === null) clock.current = new MonotonicEpochClock(Date.now(), readMonotonicNow());
+  const [now, setNow] = useState(() => clock.current!.read(readMonotonicNow(), Date.now()));
 
   useEffect(() => {
-    const tick = () => setNow(monotonicEpoch(baseEpochMs.current, baseMonotonicMs.current, readMonotonicNow(), Date.now()));
+    const tick = () => setNow(clock.current!.read(readMonotonicNow(), Date.now()));
     const handle = window.setInterval(tick, intervalMs);
     return () => window.clearInterval(handle);
   }, [intervalMs]);

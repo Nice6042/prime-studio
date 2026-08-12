@@ -51,6 +51,25 @@ describe("ChatUsage", () => {
     expect(screen.queryByText("Subagents")).not.toBeInTheDocument();
   });
 
+  it("does not treat coincident child context occupancy as a current-chat token partition", () => {
+    render(<ChatUsage usage={usage} details={{ ...details, contributions: [
+      { id: "child-context", label: "Subagents", tokens: 165 },
+    ] }} onRefresh={vi.fn()} refreshing={false} />);
+
+    expect(screen.getByText("Parent and child attribution is unavailable. Totals are not guessed.")).toBeVisible();
+    expect(screen.queryByText("Subagents")).not.toBeInTheDocument();
+  });
+
+  it("renders attribution only from an explicitly projected current-chat token partition", () => {
+    render(<ChatUsage usage={usage} details={{ ...details, contributionPartition: {
+      unit: "current_chat_tokens", totalTokens: 165,
+      contributions: [{ id: "parent", label: "Main chat", tokens: 115 }, { id: "children", label: "Subagents", tokens: 40 }, { id: "tools", label: "Tools", tokens: 10 }],
+    } }} onRefresh={vi.fn()} refreshing={false} />);
+
+    expect(screen.getByText("Main chat")).toBeVisible();
+    expect(screen.getByText("Subagents")).toBeVisible();
+  });
+
   it("normalizes observed token-count context samples against the real capacity", () => {
     render(<ChatUsage usage={usage} details={{ ...details, context: { usedTokens: 15_200, capacityTokens: 40_000, samples: [4_000, 8_000, 12_000] } }} onRefresh={vi.fn()} refreshing={false} />);
 

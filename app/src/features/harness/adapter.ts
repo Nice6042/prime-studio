@@ -24,6 +24,17 @@ export interface HarnessContribution {
   readonly tokens: number;
 }
 
+/**
+ * A daemon-minted partition of the exact current-chat token total. Raw
+ * inspector contributions are intentionally not interchangeable with this:
+ * they may describe context occupancy or a child-local measurement.
+ */
+export interface HarnessContributionPartition {
+  readonly unit: "current_chat_tokens";
+  readonly totalTokens: number;
+  readonly contributions: readonly HarnessContribution[];
+}
+
 export interface HarnessNotice {
   readonly id: string;
   readonly kind: "info" | "warning" | "error";
@@ -82,6 +93,8 @@ export interface HarnessPanelDetails {
   readonly context: HarnessContextWindow | null;
   /** Per-turn token evidence. Absent means the runtime did not expose it. */
   readonly turnUsage?: readonly Readonly<{ turn: number; input: number; output: number; totalTokens: number }>[];
+  /** Present only when the verified daemon supplies same-unit partition provenance. */
+  readonly contributionPartition?: HarnessContributionPartition;
   readonly contributions: readonly HarnessContribution[];
   readonly notices: readonly HarnessNotice[];
   readonly activity: readonly HarnessActivityItem[];
