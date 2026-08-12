@@ -122,7 +122,7 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
   const child = selectedChildId ? session?.children.find((candidate) => candidate.id === selectedChildId) : null;
   const collapse = createControlBinding("layout.inspector.toggle:harness", "layout.inspector.toggle");
   return <div className="harness-inspector" data-load-phase={loadPhase}>
-    {state.route.kind !== "child" && <><div className="harness-inspector-header"><div><strong>Harness</strong>{compatibility.status !== "ready" && <span className="harness-compatibility">{compatibility.status.replace("_", " ")}</span>}</div><button type="button" data-control-id={collapse.controlId} className="harness-collapse" aria-label="Collapse Harness panel" onClick={() => { onCollapse?.(); void runAction({ action: "layout.inspector.toggle", payload: {} }, "collapse", true); }}>»</button></div><InspectorTabs route={state.route} onSelect={selectTopRoute} /></>}
+    {state.route.kind !== "child" && <><div className="harness-inspector-header"><div><strong>Harness</strong>{compatibility.status !== "ready" && <span className="harness-compatibility">{compatibility.status.replace("_", " ")}</span>}</div><button type="button" data-control-id={collapse.controlId} className="harness-collapse" aria-label="Collapse Harness panel" onClick={onCollapse}>»</button></div><InspectorTabs route={state.route} onSelect={selectTopRoute} /></>}
     {state.notice && <p className="harness-notice" role="status">{state.notice}</p>}
     {feedback && <p className="harness-operation-feedback" role={feedback.kind}>{feedback.text}</p>}
     <div className="harness-inspector-content" role="region" aria-label="Harness inspector content">
