@@ -275,6 +275,8 @@ pub enum TauriCommand {
     HarnessProjection,
     HarnessAttachSession,
     HarnessSessionCommand,
+    HarnessInspector,
+    HarnessStudioOperation,
     GetLayoutPreferences,
     SetLayoutPreferences,
     SetAppSetting,
@@ -287,7 +289,7 @@ pub enum TauriCommand {
     ComputerUseReadiness,
 }
 
-pub const ALL_TAURI_COMMANDS: [TauriCommand; 49] = [
+pub const ALL_TAURI_COMMANDS: [TauriCommand; 51] = [
     TauriCommand::StartSession,
     TauriCommand::AttachSession,
     TauriCommand::DetachSession,
@@ -327,6 +329,8 @@ pub const ALL_TAURI_COMMANDS: [TauriCommand; 49] = [
     TauriCommand::HarnessProjection,
     TauriCommand::HarnessAttachSession,
     TauriCommand::HarnessSessionCommand,
+    TauriCommand::HarnessInspector,
+    TauriCommand::HarnessStudioOperation,
     TauriCommand::GetLayoutPreferences,
     TauriCommand::SetLayoutPreferences,
     TauriCommand::SetAppSetting,
@@ -388,6 +392,8 @@ impl TauriCommand {
             Self::HarnessProjection => "harness_projection",
             Self::HarnessAttachSession => "harness_attach_session",
             Self::HarnessSessionCommand => "harness_session_command",
+            Self::HarnessInspector => "harness_inspector",
+            Self::HarnessStudioOperation => "harness_studio_operation",
             Self::GetLayoutPreferences => "get_layout_preferences",
             Self::SetLayoutPreferences => "set_layout_preferences",
             Self::SetAppSetting => "set_app_setting",
@@ -436,9 +442,10 @@ impl TauriCommand {
             Self::BeginAccountLogin => CommandAuthority::Effects(&[AccountAuthentication]),
             Self::OpenExternal => CommandAuthority::Effects(&[ExternalNavigation]),
             Self::DetachSession | Self::StopSession => CommandAuthority::SafetyControl,
-            Self::HarnessAttachSession | Self::HarnessSessionCommand => {
-                CommandAuthority::VerifiedBroker
-            }
+            Self::HarnessAttachSession
+            | Self::HarnessSessionCommand
+            | Self::HarnessInspector
+            | Self::HarnessStudioOperation => CommandAuthority::VerifiedBroker,
             Self::NoteAgent | Self::ProjectCatalogApply => CommandAuthority::LocalBookkeeping,
             Self::SendRpc => CommandAuthority::DynamicRawRpc,
             Self::GetProviderProductSnapshot
