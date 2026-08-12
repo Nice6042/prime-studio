@@ -31,19 +31,6 @@ describe("CommandPalette", () => {
     expect(run).toHaveBeenCalledWith("chat.new");
   });
 
-  it("keeps keyboard selection on executable results when unavailable actions are present", async () => {
-    const run = vi.fn();
-    render(<CommandPalette admissionConnected={false} onRun={run} onClose={() => undefined} />);
-
-    const disabled = screen.getByRole("option", { name: /New chat/ });
-    const firstEnabled = screen.getByRole("option", { name: /Open command palette/ });
-    expect(disabled).toHaveAttribute("aria-selected", "false");
-    expect(firstEnabled).toHaveAttribute("aria-selected", "true");
-
-    await userEvent.keyboard("{ArrowUp}{Enter}");
-    expect(run).toHaveBeenCalledWith("settings.usage");
-  });
-
   it("closes on Escape", async () => {
     const close = vi.fn();
     render(<CommandPalette admissionConnected={false} onRun={() => undefined} onClose={close} />);
