@@ -47,14 +47,15 @@ describe("Prime Studio package acceptance catalog", () => {
     expect(PACKAGE_IMPLEMENTATION_SUMMARY.complete).toBeGreaterThan(18);
   });
 
-  it("records merged product evidence without closing production adapter or artifact hydration gaps", () => {
+  it("records merged production adapter, resident lifecycle, and artifact evidence truthfully", () => {
     const status = (id: string) => FEATURE_ACCEPTANCE.find((feature) => feature.id === id)?.current;
 
     expect(["SH-01", "NV-01", "NV-03", "NV-05", "NV-10", "CV-09", "AU-02", "PL-02", "PL-03"]
       .map(status)).toEqual(Array(9).fill("complete"));
-    expect(["CV-05", "CV-07", "CP-03", "HR-07", "HR-16", "AC-04", "ED-01", "ED-04"]
-      .map(status)).toEqual(Array(8).fill("partial"));
-    expect(status("SH-04")).toBe("partial");
+    expect(["CV-07", "AC-04", "ED-04", "SH-04"]
+      .map(status)).toEqual(Array(4).fill("complete"));
+    expect(["CV-05", "CP-03", "HR-07", "HR-16", "ED-01"]
+      .map(status)).toEqual(Array(5).fill("partial"));
     expect(status("CP-01")).toBe("partial");
     expect(status("CV-15")).toBe("partial");
   });
@@ -71,7 +72,7 @@ describe("Prime Studio package acceptance catalog", () => {
     ])).toBe(true);
   });
 
-  it("keeps every production bridge re-audit row nonterminal before the adapter is mounted", () => {
+  it("keeps every remaining production bridge re-audit row nonterminal", () => {
     expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS.length).toBeGreaterThan(0);
     expect(new Set(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).size).toBe(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS.length);
     for (const id of PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS) {

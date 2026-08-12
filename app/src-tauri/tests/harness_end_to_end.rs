@@ -168,13 +168,12 @@ fn tauri_broker_bootstraps_through_the_real_sidecar_against_a_fake_daemon() {
     assert_eq!(submitted.outcome, CommandOutcome::Accepted);
     assert_eq!(submitted.session.cursor.sequence, 9);
     assert_eq!(submitted.session.parent_messages.len(), 4);
-    let live_refreshed = tauri::async_runtime::block_on(broker.refresh_session(
-        RefreshSessionRequest {
+    let live_refreshed =
+        tauri::async_runtime::block_on(broker.refresh_session(RefreshSessionRequest {
             session_id: "session-e2e".to_owned(),
             known_cursor: submitted.session.cursor.clone(),
-        },
-    ))
-    .expect("the real Rust broker must continue polling from the direct-command cursor");
+        }))
+        .expect("the real Rust broker must continue polling from the direct-command cursor");
     assert_eq!(live_refreshed.cursor.sequence, 10);
     let inspector = tauri::async_runtime::block_on(broker.inspector(InspectorRequest {
         session_id: "session-e2e".to_owned(),

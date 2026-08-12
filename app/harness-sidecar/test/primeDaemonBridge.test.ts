@@ -356,6 +356,7 @@ test("inspector projects only explicit daemon context and output evidence", asyn
     async getInitialSnapshot() { return { state, startedAtMs: 1_000, messages: [{ role: "user", content: "one" }, { role: "assistant", content: "two" }], children: [], lastEventCursor: { generation: "generation-1", sequence: 1 } }; },
     async getState() { return state; }, async getMessages() { return []; }, async getQueue() { return {}; },
     async getSessionContext() { return {}; },
+    async getModelCatalog() { return { models: [] }; },
     async getResourceSnapshot() { return resourceResult; },
     async getSessionStats() { return statsResult; },
     async getToolDefinition() { return undefined; }, async prompt() {}, async steer() {}, async followUp() {}, async abort() {}, async dispose() {},

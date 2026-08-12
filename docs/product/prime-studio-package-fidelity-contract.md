@@ -95,11 +95,12 @@ No provider credential, raw SDK object, unrestricted path, or fabricated count e
 
 The historical baseline at `4206bbedb5fb7d6ee0ae34e3092d5fea5b02241d` had 18 complete, 63 partial,
 11 placeholder, 21 missing, and 2 explicitly unavailable requirements. The current audited tree
-has 39 complete, 69 partial, 0 placeholder, 5 missing, and 2 explicitly unavailable requirements.
+has 51 complete, 60 partial, 0 placeholder, 2 missing, and 2 explicitly unavailable requirements.
 These counts are derived by `summarizePackageImplementation()` from the same rows used by the gate;
 they are not a separately maintained release claim. “Complete” means the visible product slice meets
-the package contract, not merely that a component renders. The production Harness adapter and
-session/artifact hydration remain nonterminal, so `isPackageReleaseReady()` is intentionally false.
+the package contract, not merely that a component renders. The verified production Harness adapter,
+resident session lifecycle, and artifact hydration are wired; other audited rows remain nonterminal,
+so `isPackageReleaseReady()` is intentionally false.
 `PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS` identifies the exact rows that require fresh production
 adapter evidence before their status may be promoted.
 
