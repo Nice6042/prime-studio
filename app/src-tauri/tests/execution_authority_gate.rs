@@ -9,7 +9,7 @@ use prime_studio_lib::authority::{
 };
 use serde_json::{json, Value};
 
-const EXPECTED_TAURI_COMMANDS: [&str; 61] = [
+const EXPECTED_TAURI_COMMANDS: [&str; 64] = [
     "start_session",
     "attach_session",
     "detach_session",
@@ -45,6 +45,7 @@ const EXPECTED_TAURI_COMMANDS: [&str; 61] = [
     "project_catalog_load",
     "project_catalog_apply",
     "attention_load",
+    "attention_activity_evidence",
     "attention_mark_seen",
     "scheduler_projection",
     "harness_bootstrap",
@@ -53,9 +54,11 @@ const EXPECTED_TAURI_COMMANDS: [&str; 61] = [
     "harness_session_command",
     "harness_inspector",
     "harness_artifact_open",
+    "harness_composer_projection",
     "harness_refresh_session",
     "harness_studio_operation",
     "harness_create_resident_chat",
+    "harness_branch_resident_chat",
     "get_layout_preferences",
     "set_layout_preferences",
     "set_app_setting",
@@ -228,6 +231,7 @@ fn tauri_policy_keeps_only_offline_account_configuration_reads_and_owned_stop_pa
         (TauriCommand::ProjectCatalogLoad, OfflineRead),
         (TauriCommand::ProjectCatalogApply, LocalBookkeeping),
         (TauriCommand::AttentionLoad, OfflineRead),
+        (TauriCommand::AttentionActivityEvidence, VerifiedBroker),
         (TauriCommand::AttentionMarkSeen, LocalBookkeeping),
         (TauriCommand::SchedulerProjection, OfflineRead),
         (TauriCommand::HarnessBootstrap, OfflineRead),
@@ -236,9 +240,11 @@ fn tauri_policy_keeps_only_offline_account_configuration_reads_and_owned_stop_pa
         (TauriCommand::HarnessSessionCommand, VerifiedBroker),
         (TauriCommand::HarnessInspector, VerifiedBroker),
         (TauriCommand::HarnessArtifactOpen, VerifiedBroker),
+        (TauriCommand::HarnessComposerProjection, VerifiedBroker),
         (TauriCommand::HarnessRefreshSession, VerifiedBroker),
         (TauriCommand::HarnessStudioOperation, VerifiedBroker),
         (TauriCommand::HarnessCreateResidentChat, VerifiedBroker),
+        (TauriCommand::HarnessBranchResidentChat, VerifiedBroker),
         (TauriCommand::GetLayoutPreferences, OfflineRead),
         (TauriCommand::ExportAccountUsageCsv, SafetyControl),
         (TauriCommand::EditorArtifactOpen, VerifiedBroker),
