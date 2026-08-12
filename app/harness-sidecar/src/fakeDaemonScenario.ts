@@ -3,12 +3,11 @@ import { lstat, readFile } from "node:fs/promises";
 import { decideCompatibility, type Compatibility } from "./compatibility.js";
 import { parseClosedJson } from "./framing.js";
 import type { RuntimeIdentity } from "./runtimeDiscovery.js";
-import { parseStudioHarnessOperation, type StudioHarnessAction } from "./studioHarnessOperations.js";
 
 const MAX_SCENARIO_BYTES = 4 * 1024 * 1024;
 const MAX_SAFE = Number.MAX_SAFE_INTEGER;
 
-export type ParentMessage =
+type ParentMessage =
   | { readonly channel: "parent"; readonly kind: "user" | "notice"; readonly id: string; readonly text: string; readonly emittedAtMs: number }
   | { readonly channel: "parent"; readonly kind: "assistant"; readonly id: string; readonly blocks: readonly Record<string, unknown>[]; readonly streaming: boolean; readonly emittedAtMs: number };
 
@@ -45,25 +44,12 @@ export type ScenarioRequest =
       expectedCursor: Readonly<{ runtimeGeneration: string; sequence: number }>;
       kind: "prompt" | "steer" | "follow_up" | "abort";
       text: string;
-    }>
-  | Readonly<{ type: "inspector"; sessionId: string }>
-  | Readonly<{
-      type: "studio_operation"; sessionId: string; operationId: string; action: StudioHarnessAction;
-      payloadJson: string; expectedCursor: Readonly<{ runtimeGeneration: string; sequence: number }> | null;
-      idempotencyKey: string | null;
     }>;
 export type ScenarioResponse =
   | Readonly<{ type: "discover_runtime_result"; runtime: RuntimeIdentity; compatibility: Compatibility }>
   | Readonly<{ type: "bootstrap_result"; compatibility: Compatibility; sessions: readonly FakeRootSessionSnapshot[] }>
   | Readonly<{ type: "snapshot_result"; snapshot: FakeRootSessionSnapshot }>
   | Readonly<{ type: "command_result"; commandId: string; outcome: "accepted" | "queued" | "reconciled"; snapshot: FakeRootSessionSnapshot }>
-  | Readonly<{ type: "inspector_result"; detailsJson: string }>
-  | Readonly<{
-      type: "studio_operation_result"; operationId: string;
-      status: "accepted" | "queued" | "updated" | "cancelled" | "unavailable" | "rejected" | "unknown_outcome";
-      commandId: string | null; position: number | null; revision: string | null; reason: string | null;
-      retryable: boolean | null; snapshot: FakeRootSessionSnapshot | null;
-    }>
   | Readonly<{ type: "error"; code: string; message: string }>;
 
 function invalid(): never {
@@ -248,7 +234,6 @@ export class FakeDaemonController {
   readonly #scenario: FakeDaemonScenario;
   readonly #sessions = new Map<string, FakeRootSessionSnapshot>();
   readonly #commands = new Map<string, Readonly<{ type: "command_result"; commandId: string; outcome: "accepted"; snapshot: FakeRootSessionSnapshot }>>();
-  readonly #operations = new Map<string, Readonly<{ fingerprint: string; response: Extract<ScenarioResponse, { type: "studio_operation_result" }> }>>();
 
   constructor(scenario: FakeDaemonScenario) {
     this.#scenario = scenario;
@@ -268,62 +253,6 @@ export class FakeDaemonController {
       const snapshot = this.#advance(current, {});
       this.#sessions.set(request.sessionId, snapshot);
       return deepFreeze({ type: "snapshot_result", snapshot });
-    }
-    if (request.type === "inspector") {
-      const observedAtMs = 1_775_995_200_000 + current.cursor.sequence * 1_000;
-      const children = Object.fromEntries(current.children.map((child) => [id(child.id), {
-        summary: typeof child.task === "string" ? child.task : "Subagent", startedAtMs: null, context: null,
-        transcript: [], activity: [], files: [], error: null,
-      }]));
-      const details = {
-        observedAtMs, startedAtMs: null,
-        context: { usedTokens: current.usage.totalTokens, capacityTokens: 200_000, turns: current.parentMessages.length, samples: [current.usage.totalTokens] },
-        contributions: current.children.map((child) => ({ id: id(child.id), label: typeof child.task === "string" ? child.task : "Subagent", tokens: 0 })),
-        notices: [], activity: [], outputs: [],
-        sources: current.resources.map((resource) => ({ id: id(resource.id), label: typeof resource.label === "string" ? resource.label : "Resource", detail: typeof resource.kind === "string" ? resource.kind : "resource", kind: typeof resource.kind === "string" ? resource.kind : "resource" })),
-        children,
-      };
-      return deepFreeze({ type: "inspector_result", detailsJson: JSON.stringify(details) });
-    }
-    if (request.type === "studio_operation") {
-      let payload: unknown;
-      try { payload = parseClosedJson(request.payloadJson); } catch { return deepFreeze({ type: "error", code: "invalid_operation", message: "Operation payload is invalid" }); }
-      const operation = parseStudioHarnessOperation({
-        operationId: request.operationId, action: request.action, payload,
-        expectedCursor: request.expectedCursor, idempotencyKey: request.idempotencyKey,
-      });
-      if (!operation) return deepFreeze({ type: "error", code: "invalid_operation", message: "Operation envelope is invalid" });
-      const fingerprint = JSON.stringify({ action: operation.action, payload: operation.payload, expectedCursor: operation.expectedCursor });
-      const prior = this.#operations.get(operation.operationId);
-      if (prior) {
-        if (prior.fingerprint === fingerprint) return prior.response;
-        return deepFreeze({
-          type: "studio_operation_result", operationId: operation.operationId, status: "rejected", commandId: null,
-          position: null, revision: null, reason: "Operation identity was reused with different input.", retryable: false, snapshot: null,
-        });
-      }
-      if (operation.expectedCursor && (
-        operation.expectedCursor.runtimeGeneration !== current.cursor.runtimeGeneration
-        || operation.expectedCursor.sequence !== current.cursor.sequence
-      )) return deepFreeze({
-        type: "studio_operation_result", operationId: operation.operationId, status: "rejected", commandId: null,
-        position: null, revision: null, reason: "Session cursor changed.", retryable: true, snapshot: null,
-      });
-      if (operation.action !== "usage.current.refresh") return deepFreeze({
-        type: "studio_operation_result", operationId: operation.operationId, status: "unavailable", commandId: null,
-        position: null, revision: null, reason: "Fake daemon implements only deterministic read parity.", retryable: null, snapshot: null,
-      });
-      const snapshot = this.#advance(current, {});
-      this.#sessions.set(request.sessionId, snapshot);
-      const response = deepFreeze({
-        type: "studio_operation_result" as const, operationId: operation.operationId, status: "updated" as const,
-        commandId: null, position: null, revision: String(snapshot.cursor.sequence), reason: null, retryable: null, snapshot,
-      });
-      this.#operations.set(operation.operationId, { fingerprint, response });
-      return response;
-    }
-    if (request.type !== "session_command") {
-      return deepFreeze({ type: "error", code: "unsupported_command", message: "Fake daemon operation is not implemented" });
     }
     const prior = this.#commands.get(request.commandId);
     if (prior) return deepFreeze({ ...prior, outcome: "reconciled" as const });

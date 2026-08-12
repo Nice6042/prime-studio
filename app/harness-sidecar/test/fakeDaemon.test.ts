@@ -79,7 +79,7 @@ test("compiled sidecar serves discovery and bootstrap from the deterministic fak
     const deadline = Date.now() + 3_000;
     while (responses.length === 0 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 5));
     assert.notEqual(responses.length, 0, stderr);
-    return responses.shift() as { requestId: string; payload: Record<string, unknown> & { type: string; sessions?: unknown[] } };
+    return responses.shift() as { requestId: string; payload: { type: string; sessions?: unknown[] } };
   };
 
   const discovery = await request("request_discover_0001", { type: "discover_runtime" });
@@ -100,16 +100,6 @@ test("compiled sidecar serves discovery and bootstrap from the deterministic fak
     text: "Verify the transport",
   });
   assert.equal(command.payload.type, "command_result");
-  const inspector = await request("request_inspector_001", { type: "inspector", sessionId: "session-e2e" });
-  assert.equal(inspector.payload.type, "inspector_result");
-  assert.equal(typeof inspector.payload.detailsJson, "string");
-  const operation = await request("request_operation_001", {
-    type: "studio_operation", sessionId: "session-e2e", operationId: "operation-fixture-1",
-    action: "usage.current.refresh", payloadJson: '{"sessionId":"session-e2e"}', expectedCursor: null, idempotencyKey: null,
-  });
-  assert.equal(operation.payload.type, "studio_operation_result");
-  assert.equal(operation.payload.status, "updated");
-  assert.equal((operation.payload.snapshot as { cursor: { sequence: number } }).cursor.sequence, 10);
   child.stdin.end();
   await new Promise<void>((resolve, reject) => {
     child.once("exit", (code) => code === 0 ? resolve() : reject(new Error(`sidecar exited ${code}: ${stderr}`)));
@@ -145,22 +135,4 @@ test("fake daemon attach and command chronology are idempotent and cursor-bound"
   assert.deepEqual(stale, { type: "error", code: "stale_cursor", message: "Session cursor does not match" });
   const unknown = controller.handle({ type: "attach_session", sessionId: "missing-session" });
   assert.deepEqual(unknown, { type: "error", code: "unknown_session", message: "Session is not owned by this scenario" });
-});
-
-test("fake daemon inspector and Studio operation routes preserve production response parity", async () => {
-  const controller = new FakeDaemonController(await loadFakeDaemonScenario(scenarioPath));
-  const inspector = controller.handle({ type: "inspector", sessionId: "session-e2e" });
-  assert.equal(inspector.type, "inspector_result");
-  const details = inspector.type === "inspector_result" ? JSON.parse(inspector.detailsJson) as Record<string, unknown> : {};
-  assert.deepEqual(Object.keys(details).sort(), ["activity", "children", "context", "contributions", "notices", "observedAtMs", "outputs", "sources", "startedAtMs"]);
-
-  const operation = {
-    type: "studio_operation" as const, sessionId: "session-e2e", operationId: "operation-fixture-2",
-    action: "usage.current.refresh" as const, payloadJson: '{"sessionId":"session-e2e"}', expectedCursor: null, idempotencyKey: null,
-  };
-  const refreshed = controller.handle(operation);
-  assert.equal(refreshed.type, "studio_operation_result");
-  assert.equal(refreshed.type === "studio_operation_result" ? refreshed.status : "", "updated");
-  assert.equal(refreshed.type === "studio_operation_result" ? refreshed.snapshot?.cursor.sequence : -1, 8);
-  assert.deepEqual(controller.handle(operation), refreshed);
 });

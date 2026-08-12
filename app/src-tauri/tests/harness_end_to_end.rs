@@ -5,12 +5,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use prime_studio_lib::harness::broker::{
-    AttachRequest, BrokerState, HarnessBroker, InspectorRequest, SessionCommandRequest,
-    SessionOwnership, StudioOperationRequest,
+    AttachRequest, BrokerState, HarnessBroker, SessionCommandRequest, SessionOwnership,
 };
 use prime_studio_lib::harness::generated::{
-    ChildAgentStatus, CommandOutcome, HarnessCursor, HarnessStudioAction, RootSessionState,
-    SessionCommandKind, StudioOperationStatus,
+    ChildAgentStatus, CommandOutcome, HarnessCursor, RootSessionState, SessionCommandKind,
 };
 use prime_studio_lib::harness::sidecar::{SidecarSupervisor, VerifiedSidecarSpec};
 use sha2::{Digest, Sha256};
@@ -91,8 +89,6 @@ fn tauri_broker_bootstraps_through_the_real_sidecar_against_a_fake_daemon() {
         "index.js",
         "redaction.js",
         "runtimeDiscovery.js",
-        "primeDaemonBridge.js",
-        "studioHarnessOperations.js",
         "profiles/daemon-v7-schema13.js",
     ]
     .into_iter()
@@ -164,24 +160,6 @@ fn tauri_broker_bootstraps_through_the_real_sidecar_against_a_fake_daemon() {
     assert_eq!(submitted.outcome, CommandOutcome::Accepted);
     assert_eq!(submitted.session.cursor.sequence, 9);
     assert_eq!(submitted.session.parent_messages.len(), 4);
-    let inspector = tauri::async_runtime::block_on(broker.inspector(InspectorRequest {
-        session_id: "session-e2e".to_owned(),
-    }))
-    .unwrap();
-    let inspector: serde_json::Value = serde_json::from_str(&inspector).unwrap();
-    assert_eq!(inspector["context"]["usedTokens"], 2_418);
-    let refreshed =
-        tauri::async_runtime::block_on(broker.execute_operation(StudioOperationRequest {
-            session_id: "session-e2e".to_owned(),
-            operation_id: "operation-rust-1".to_owned(),
-            action: HarnessStudioAction::UsageCurrentRefresh,
-            payload_json: r#"{"sessionId":"session-e2e"}"#.to_owned(),
-            expected_cursor: None,
-            idempotency_key: None,
-        }))
-        .unwrap();
-    assert_eq!(refreshed.status, StudioOperationStatus::Updated);
-    assert_eq!(refreshed.session.unwrap().cursor.sequence, 10);
     assert_eq!(broker.recovery_record(1).unwrap().sessions.len(), 1);
     broker.close();
 }

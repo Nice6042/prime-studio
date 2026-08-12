@@ -1,4 +1,4 @@
-// Generated from harness-v1.schema.json; SHA-256: b1349997402e85ed24f4c16e50944bc1fbc88c22a77a6888ec87a790579d405e
+// Generated from harness-v1.schema.json; SHA-256: d3e6996fca8c4a63fc1bd6890c8c65aab21dfec14db657b559cf5ec0a329ac38
 // Do not edit by hand. Run npm run generate:harness-contract.
 
 export const STUDIO_HARNESS_PROTOCOL = 1 as const;
@@ -106,28 +106,17 @@ export interface RootSessionSnapshot {
   usage: CurrentChatUsage;
 }
 
-export type HarnessStudioAction =
-  | "conversation.user-version.create" | "conversation.response.regenerate" | "conversation.branch.create" | "conversation.files.review" | "conversation.archive-fork" | "conversation.history.page"
-  | "composer.model.select" | "composer.thinking.select" | "composer.slash.execute"
-  | "harness.session.prompt" | "harness.session.follow-up" | "harness.session.steer" | "harness.session.abort" | "harness.session.export" | "harness.session.compact"
-  | "harness.child.stop" | "harness.child.transcript-page" | "harness.queue.run-now" | "harness.queue.remove" | "harness.tool.set-enabled" | "harness.context-source.open"
-  | "harness.overload.retry" | "harness.extension.respond" | "usage.current.refresh" | "activity.file.open" | "editor.artifact.open" | "settings.harness-policy.set" | "settings.tool.set-enabled";
-
 export type StudioRequest =
   | { type: "discover_runtime" }
   | { type: "bootstrap" }
   | { type: "attach_session"; sessionId: string }
-  | { type: "session_command"; sessionId: string; commandId: string; expectedCursor: HarnessCursor; kind: "prompt" | "steer" | "follow_up" | "abort"; text: string }
-  | { type: "inspector"; sessionId: string }
-  | { type: "studio_operation"; sessionId: string; operationId: string; action: HarnessStudioAction; payloadJson: string; expectedCursor: HarnessCursor | null; idempotencyKey: string | null };
+  | { type: "session_command"; sessionId: string; commandId: string; expectedCursor: HarnessCursor; kind: "prompt" | "steer" | "follow_up" | "abort"; text: string };
 
 export type StudioResponse =
   | { type: "discover_runtime_result"; runtime: RuntimeIdentity | null; compatibility: HarnessCompatibility }
   | { type: "bootstrap_result"; compatibility: HarnessCompatibility; sessions: readonly RootSessionSnapshot[] }
   | { type: "snapshot_result"; snapshot: RootSessionSnapshot }
   | { type: "command_result"; commandId: string; outcome: "accepted" | "queued" | "reconciled"; snapshot: RootSessionSnapshot }
-  | { type: "inspector_result"; detailsJson: string }
-  | { type: "studio_operation_result"; operationId: string; status: "accepted" | "queued" | "updated" | "cancelled" | "unavailable" | "rejected" | "unknown_outcome"; commandId: string | null; position: number | null; revision: string | null; reason: string | null; retryable: boolean | null; snapshot: RootSessionSnapshot | null }
   | { type: "error"; code: string; message: string };
 
 export type HarnessEvent =

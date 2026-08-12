@@ -1,12 +1,9 @@
 import { stdout, stderr, stdin } from "node:process";
 
-import { encodeFrame, FrameStreamDecoder, parseClosedJson } from "./framing.js";
-import { decideCompatibility } from "./compatibility.js";
+import { encodeFrame, FrameStreamDecoder } from "./framing.js";
 import { FakeDaemonController, loadFakeDaemonScenario, type ScenarioRequest } from "./fakeDaemonScenario.js";
 import { sanitizeDiagnostic } from "./redaction.js";
 import { discoverRuntime } from "./runtimeDiscovery.js";
-import { loadVerifiedPrimeDaemonBridge, type PrimeDaemonBridge } from "./primeDaemonBridge.js";
-import { STUDIO_HARNESS_ACTIONS, type StudioHarnessAction } from "./studioHarnessOperations.js";
 
 type Mode = Readonly<{ runtimeRoot: string; fixture: null }> | Readonly<{ runtimeRoot: null; fixture: FakeDaemonController }>;
 
@@ -47,16 +44,6 @@ function validText(value: unknown): value is string {
   return true;
 }
 
-const studioHarnessActions = new Set<string>(STUDIO_HARNESS_ACTIONS);
-
-function closedCursor(value: unknown): { runtimeGeneration: string; sequence: number } | null {
-  if (value === null) return null;
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("request payload is invalid");
-  const cursor = value as Record<string, unknown>;
-  if (!exactKeys(cursor, ["runtimeGeneration", "sequence"]) || !validId(cursor.runtimeGeneration) || !Number.isSafeInteger(cursor.sequence) || (cursor.sequence as number) < 0) throw new Error("request payload is invalid");
-  return { runtimeGeneration: cursor.runtimeGeneration, sequence: cursor.sequence as number };
-}
-
 function closedPayload(value: unknown): ScenarioRequest {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("request payload is invalid");
   const payload = value as Record<string, unknown>;
@@ -65,16 +52,6 @@ function closedPayload(value: unknown): ScenarioRequest {
   }
   if (payload.type === "attach_session" && exactKeys(payload, ["type", "sessionId"]) && validId(payload.sessionId)) {
     return { type: "attach_session", sessionId: payload.sessionId };
-  }
-  if (payload.type === "inspector" && exactKeys(payload, ["type", "sessionId"]) && validId(payload.sessionId)) {
-    return { type: "inspector", sessionId: payload.sessionId };
-  }
-  if (payload.type === "studio_operation" && exactKeys(payload, ["type", "sessionId", "operationId", "action", "payloadJson", "expectedCursor", "idempotencyKey"]) && validId(payload.sessionId) && validId(payload.operationId) && typeof payload.action === "string" && studioHarnessActions.has(payload.action) && validText(payload.payloadJson) && (payload.idempotencyKey === null || validId(payload.idempotencyKey))) {
-    return {
-      type: "studio_operation", sessionId: payload.sessionId, operationId: payload.operationId,
-      action: payload.action as StudioHarnessAction, payloadJson: payload.payloadJson,
-      expectedCursor: closedCursor(payload.expectedCursor), idempotencyKey: payload.idempotencyKey,
-    };
   }
   if (payload.type === "session_command" && exactKeys(payload, ["type", "sessionId", "commandId", "expectedCursor", "kind", "text"]) && validId(payload.sessionId) && validId(payload.commandId) && validText(payload.text)) {
     const expectedCursor = payload.expectedCursor;
@@ -111,7 +88,6 @@ function closedRequest(value: unknown): ClosedRequest {
 async function main(): Promise<void> {
   const mode = await modeArgument(process.argv.slice(2));
   const decoder = new FrameStreamDecoder();
-  let bridge: PrimeDaemonBridge | null = null;
   for await (const chunk of stdin) {
     for (const raw of decoder.push(chunk)) {
       const request = closedRequest(raw);
@@ -124,46 +100,22 @@ async function main(): Promise<void> {
           }));
           continue;
         }
-        const runtime = await discoverRuntime(mode.runtimeRoot);
         if (request.payload.type !== "discover_runtime") {
-          bridge ??= await loadVerifiedPrimeDaemonBridge(mode.runtimeRoot);
-          if (request.payload.type === "inspector") {
-            const detailsJson = JSON.stringify(await bridge.inspector(request.payload.sessionId));
-            if ([...detailsJson].length > 131_072) throw new Error("inspector response exceeds its bound");
-            stdout.write(encodeFrame({ studioProtocol: 1, requestId: request.requestId, payload: { type: "inspector_result", detailsJson } }));
-            continue;
-          }
-          if (request.payload.type === "studio_operation") {
-            const payload = parseClosedJson(request.payload.payloadJson);
-            const outcome = await bridge.executeOperation(request.payload.sessionId, {
-              operationId: request.payload.operationId, action: request.payload.action, payload,
-              expectedCursor: request.payload.expectedCursor, idempotencyKey: request.payload.idempotencyKey,
-            });
-            const snapshot = ["accepted", "queued", "updated", "cancelled"].includes(outcome.status)
-              ? await bridge.snapshot(request.payload.sessionId)
-              : null;
-            const normalized = {
-              type: "studio_operation_result", operationId: request.payload.operationId, status: outcome.status,
-              commandId: "commandId" in outcome ? outcome.commandId : null,
-              position: "position" in outcome ? outcome.position : null,
-              revision: "revision" in outcome ? String(outcome.revision) : null,
-              reason: "reason" in outcome ? outcome.reason.slice(0, 200) : null,
-              retryable: "retryable" in outcome ? outcome.retryable : null,
-              snapshot,
-            };
-            stdout.write(encodeFrame({ studioProtocol: 1, requestId: request.requestId, payload: normalized }));
-            continue;
-          }
-          stdout.write(encodeFrame({ studioProtocol: 1, requestId: request.requestId, payload: await bridge.handle(request.payload) }));
+          stdout.write(encodeFrame({
+            studioProtocol: 1,
+            requestId: request.requestId,
+            payload: { type: "error", code: "security_verification_failed", message: "Harness activation is unavailable" },
+          }));
           continue;
         }
+        const runtime = await discoverRuntime(mode.runtimeRoot);
         stdout.write(encodeFrame({
           studioProtocol: 1,
           requestId: request.requestId,
           payload: {
             type: "discover_runtime_result",
             runtime,
-            compatibility: decideCompatibility(runtime),
+            compatibility: { status: "read_only", reason: "security_verification_failed", runtime },
           },
         }));
       } catch (error) {
@@ -171,13 +123,12 @@ async function main(): Promise<void> {
         stdout.write(encodeFrame({
           studioProtocol: 1,
           requestId: request.requestId,
-          payload: { type: "error", code, message: "Harness runtime operation failed" },
+          payload: { type: "error", code, message: "Harness runtime discovery failed" },
         }));
         stderr.write(`${sanitizeDiagnostic(error)}\n`);
       }
     }
   }
-  if (bridge) await bridge.close();
 }
 
 main().catch((error) => {

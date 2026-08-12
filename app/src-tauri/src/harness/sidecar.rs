@@ -509,25 +509,6 @@ fn validate_studio_response(response: &StudioResponse) -> bool {
             snapshot,
             ..
         } => valid_id(command_id) && validate_root_snapshot(snapshot),
-        StudioResponse::InspectorResult { details_json } => valid_text(details_json),
-        StudioResponse::StudioOperationResult {
-            operation_id,
-            command_id,
-            position,
-            revision,
-            reason,
-            snapshot,
-            ..
-        } => {
-            valid_id(operation_id)
-                && command_id.as_ref().is_none_or(|value| valid_id(value))
-                && position.is_none_or(|value| value <= MAX_SAFE_INTEGER)
-                && revision.as_ref().is_none_or(|value| valid_id(value))
-                && reason.as_ref().is_none_or(|value| valid_label(value))
-                && snapshot
-                    .as_ref()
-                    .is_none_or(|value| validate_root_snapshot(value))
-        }
         StudioResponse::Error { code, message } => valid_id(code) && valid_label(message),
     }
 }

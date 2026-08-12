@@ -299,37 +299,12 @@
         "text": { "$ref": "#/$defs/Text" }
       }
     },
-    "InspectorRequest": {
-      "type": "object", "additionalProperties": false, "required": ["type", "sessionId"],
-      "properties": { "type": { "const": "inspector" }, "sessionId": { "$ref": "#/$defs/Id" } }
-    },
-    "HarnessStudioAction": {
-      "type": "string", "enum": [
-        "conversation.user-version.create", "conversation.response.regenerate", "conversation.branch.create", "conversation.files.review", "conversation.archive-fork", "conversation.history.page",
-        "composer.model.select", "composer.thinking.select", "composer.slash.execute",
-        "harness.session.prompt", "harness.session.follow-up", "harness.session.steer", "harness.session.abort", "harness.session.export", "harness.session.compact",
-        "harness.child.stop", "harness.child.transcript-page", "harness.queue.run-now", "harness.queue.remove", "harness.tool.set-enabled", "harness.context-source.open",
-        "harness.overload.retry", "harness.extension.respond", "usage.current.refresh", "activity.file.open", "editor.artifact.open", "settings.harness-policy.set", "settings.tool.set-enabled"
-      ]
-    },
-    "StudioOperationRequest": {
-      "type": "object", "additionalProperties": false,
-      "required": ["type", "sessionId", "operationId", "action", "payloadJson", "expectedCursor", "idempotencyKey"],
-      "properties": {
-        "type": { "const": "studio_operation" }, "sessionId": { "$ref": "#/$defs/Id" }, "operationId": { "$ref": "#/$defs/Id" },
-        "action": { "$ref": "#/$defs/HarnessStudioAction" }, "payloadJson": { "$ref": "#/$defs/Text" },
-        "expectedCursor": { "oneOf": [{ "$ref": "#/$defs/HarnessCursor" }, { "type": "null" }] },
-        "idempotencyKey": { "oneOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] }
-      }
-    },
     "StudioRequest": {
       "oneOf": [
         { "$ref": "#/$defs/DiscoverRuntimeRequest" },
         { "$ref": "#/$defs/BootstrapRequest" },
         { "$ref": "#/$defs/AttachSessionRequest" },
-        { "$ref": "#/$defs/SessionCommandRequest" },
-        { "$ref": "#/$defs/InspectorRequest" },
-        { "$ref": "#/$defs/StudioOperationRequest" }
+        { "$ref": "#/$defs/SessionCommandRequest" }
       ]
     },
     "DiscoverRuntimeResponse": {
@@ -367,32 +342,12 @@
         "type": { "const": "error" }, "code": { "$ref": "#/$defs/Id" }, "message": { "$ref": "#/$defs/Label" }
       }
     },
-    "InspectorResponse": {
-      "type": "object", "additionalProperties": false, "required": ["type", "detailsJson"],
-      "properties": { "type": { "const": "inspector_result" }, "detailsJson": { "$ref": "#/$defs/Text" } }
-    },
-    "StudioOperationResponse": {
-      "type": "object", "additionalProperties": false,
-      "required": ["type", "operationId", "status", "commandId", "position", "revision", "reason", "retryable", "snapshot"],
-      "properties": {
-        "type": { "const": "studio_operation_result" }, "operationId": { "$ref": "#/$defs/Id" },
-        "status": { "type": "string", "enum": ["accepted", "queued", "updated", "cancelled", "unavailable", "rejected", "unknown_outcome"] },
-        "commandId": { "oneOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] },
-        "position": { "oneOf": [{ "$ref": "#/$defs/SafeInteger" }, { "type": "null" }] },
-        "revision": { "oneOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] },
-        "reason": { "oneOf": [{ "$ref": "#/$defs/Label" }, { "type": "null" }] },
-        "retryable": { "oneOf": [{ "type": "boolean" }, { "type": "null" }] },
-        "snapshot": { "oneOf": [{ "$ref": "#/$defs/RootSessionSnapshot" }, { "type": "null" }] }
-      }
-    },
     "StudioResponse": {
       "oneOf": [
         { "$ref": "#/$defs/DiscoverRuntimeResponse" },
         { "$ref": "#/$defs/BootstrapResponse" },
         { "$ref": "#/$defs/SnapshotResponse" },
         { "$ref": "#/$defs/CommandResponse" },
-        { "$ref": "#/$defs/InspectorResponse" },
-        { "$ref": "#/$defs/StudioOperationResponse" },
         { "$ref": "#/$defs/ProtocolErrorResponse" }
       ]
     },
