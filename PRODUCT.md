@@ -45,7 +45,7 @@ usage and configuration remain in Settings.
   edits, context compaction, reconnects, and daemon restarts.
 - The public source repository remains a fail-closed development snapshot. Verified runtime
   activation and resident-session authority are implemented and independently reviewed; package
-  release readiness still depends on closing the remaining partial and missing product rows.
+  release readiness still depends on closing the remaining partial product rows.
 
 ## Capabilities and Constraints
 

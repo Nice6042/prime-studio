@@ -43,8 +43,13 @@ describe("Prime Studio package acceptance catalog", () => {
 
   it("derives the current implementation summary from the audited feature rows", () => {
     expect(PACKAGE_IMPLEMENTATION_SUMMARY).toEqual(summarizePackageImplementation(FEATURE_ACCEPTANCE));
-    expect(Object.values(PACKAGE_IMPLEMENTATION_SUMMARY).reduce((sum, count) => sum + count, 0)).toBe(115);
-    expect(PACKAGE_IMPLEMENTATION_SUMMARY.complete).toBeGreaterThan(18);
+    expect(PACKAGE_IMPLEMENTATION_SUMMARY).toEqual({
+      complete: 53,
+      partial: 60,
+      placeholder: 0,
+      missing: 0,
+      explicitly_unavailable: 2,
+    });
   });
 
   it("records merged production adapter, resident lifecycle, and artifact evidence truthfully", () => {
@@ -82,8 +87,13 @@ describe("Prime Studio package acceptance catalog", () => {
     }
   });
 
-  it("requires production turn-usage evidence before re-auditing CU-04", () => {
-    expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).toContain("CU-04");
+  it("records production worker recovery and turn-usage evidence as complete", () => {
+    const status = (id: string) => FEATURE_ACCEPTANCE.find((feature) => feature.id === id)?.current;
+
+    expect(status("HR-11")).toBe("complete");
+    expect(status("CU-04")).toBe("complete");
+    expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).not.toContain("HR-11");
+    expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).not.toContain("CU-04");
   });
 
   it("records every package surface, state family, persisted setting, shortcut, responsive rule, and data authority", () => {

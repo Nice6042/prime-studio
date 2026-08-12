@@ -54,7 +54,17 @@ export const test = base.extend<ShellFixtures>({
       const callbacks = new Map<number, Callback>();
       const listeners = new Map<string, number[]>();
       let nextCallback = 1;
-      let projectedHarnessSessions = scenario.sessions.map((session) => ({ ...session, freshness: "live" }));
+      let projectedHarnessSessions = scenario.sessions.map((session) => ({
+        ...session,
+        freshness: "live",
+        workerRecovery: {
+          status: "ready",
+          closureReason: null,
+          observationId: null,
+          automaticRetryCount: 0,
+          detail: null,
+        },
+      }));
       let layoutPreferences = {
         schemaVersion: 1,
         sidebarOpen: true,

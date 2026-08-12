@@ -100,4 +100,12 @@ describe("ChatUsage", () => {
     expect(screen.getByText("8 turns · last 3 shown")).toBeVisible();
     expect(screen.getByText("5 earlier turns are omitted from this bounded view.")).toBeVisible();
   });
+
+  it("makes the horizontally scrollable turn table keyboard reachable", () => {
+    render(<ChatUsage usage={usage} details={details} onRefresh={vi.fn()} refreshing={false} />);
+
+    const region = screen.getByRole("region", { name: "Scrollable tokens by turn data" });
+    expect(region).toHaveAttribute("tabindex", "0");
+    expect(region).toContainElement(screen.getByRole("table", { name: "Tokens by turn data" }));
+  });
 });

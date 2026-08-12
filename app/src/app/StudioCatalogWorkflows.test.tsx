@@ -47,6 +47,7 @@ describe("Studio durable catalog workflows", () => {
           cursor: { runtimeGeneration: "g1", sequence: 0 }, state: "idle", freshness: "live",
           parentMessages: [], children: [], queue: [], tools: [], resources: [],
           usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: null },
+          workerRecovery: { status: "ready", closureReason: null, observationId: null, automaticRetryCount: 0, detail: null },
         },
       };
     });
