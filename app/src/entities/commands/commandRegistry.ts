@@ -42,7 +42,7 @@ const enabled = () => ({ enabled: true }) as const;
 
 export const studioCommands: readonly StudioCommand[] = Object.freeze<readonly StudioCommand[]>([
   { id: "chat.new", action: "catalog.chat.create", label: "New chat", group: "Chat", shortcuts: ["Ctrl+N"], keywords: ["create", "conversation"], operation: ({ projectId }) => ({ action: "catalog.chat.create", payload: { projectId } }), availability: enabled },
-  { id: "project.new", action: "catalog.project.create", label: "New project", group: "Chat", shortcuts: [], keywords: ["create", "folder", "workspace"], operation: () => ({ action: "surface.popover.toggle", payload: { popoverId: "create-project" } }), availability: enabled },
+  { id: "project.new", action: "surface.popover.toggle", label: "New project", group: "Chat", shortcuts: [], keywords: ["create", "folder", "workspace"], operation: () => ({ action: "surface.popover.toggle", payload: { popoverId: "create-project" } }), availability: enabled },
   { id: "archived.open", action: "route.archived.open", label: "Archived chats", group: "Chat", shortcuts: [], keywords: ["restore", "projects", "conversations"], operation: () => ({ action: "route.archived.open", payload: {} }), availability: enabled },
   { id: "palette.open", action: "palette.open", label: "Open command palette", group: "View", shortcuts: ["Ctrl+K"], keywords: ["search", "actions"], operation: () => ({ action: "palette.open", payload: {} }), availability: enabled },
   { id: "sidebar.toggle", action: "layout.sidebar.toggle", label: "Toggle projects", group: "View", shortcuts: ["Ctrl+B"], keywords: ["sidebar", "navigation"], operation: () => ({ action: "layout.sidebar.toggle", payload: {} }), availability: enabled },

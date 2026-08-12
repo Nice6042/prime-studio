@@ -12,7 +12,7 @@ export interface StudioToast extends ToastInput {
   readonly occurrences: number;
 }
 
-const MAX_TOASTS = 4;
+const MAX_TRANSIENT_TOASTS = 4;
 
 function keyFor(input: ToastInput) {
   return `${input.kind}\u0000${input.text}\u0000${input.actionLabel ?? ""}`;
@@ -27,7 +27,10 @@ export function enqueueToast(queue: readonly StudioToast[], input: ToastInput): 
     persistent: input.kind === "failure",
     occurrences: 1,
   });
-  return Object.freeze([...queue.filter((candidate) => candidate.persistent).slice(-(MAX_TOASTS - 1)), toast]);
+  const persistent = queue.filter((candidate) => candidate.persistent);
+  const transient = queue.filter((candidate) => !candidate.persistent);
+  if (toast.persistent) return Object.freeze([...persistent, toast, ...transient]);
+  return Object.freeze([...persistent, ...transient.slice(-(MAX_TRANSIENT_TOASTS - 1)), toast]);
 }
 
 export function dismissToast(queue: readonly StudioToast[], id: string): readonly StudioToast[] {

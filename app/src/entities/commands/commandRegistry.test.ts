@@ -22,4 +22,13 @@ describe("studio command registry", () => {
       payload: { projectId: "project-current" },
     });
   });
+
+  it("labels New project as the presentation command that opens its verified creation dialog", () => {
+    const command = studioCommands.find((candidate) => candidate.id === "project.new")!;
+    expect(command.action).toBe("surface.popover.toggle");
+    expect(operationForStudioCommand(command, "project-current")).toEqual({
+      action: "surface.popover.toggle",
+      payload: { popoverId: "create-project" },
+    });
+  });
 });
