@@ -36,9 +36,19 @@ describe("AccountUsageSettings", () => {
     render(<AccountUsageSettings accounts={accounts} />);
     await screen.findByRole("img", { name: /Daily cost over 7 days/i });
 
-    expect(screen.getByRole("button", { name: "Account history" })).toBeEnabled();
+    const accountHistory = screen.getByRole("button", { name: "Account history" });
+    expect(accountHistory).toBeEnabled();
     expect(screen.getByRole("button", { name: "Subagents unavailable" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Tools unavailable" })).toBeDisabled();
+
+    const subagentPolicy = screen.getByRole("note", { name: "Subagent daily series unavailable" });
+    const toolPolicy = screen.getByRole("note", { name: "Tool daily series unavailable" });
+    expect(subagentPolicy).toHaveAttribute("tabindex", "0");
+    expect(toolPolicy).toHaveAttribute("tabindex", "0");
+    accountHistory.focus();
+    await userEvent.tab();
+    expect(subagentPolicy).toHaveFocus();
+    expect(subagentPolicy).toHaveTextContent(/does not report subagent attribution/i);
   });
 
   it("keeps unsupported chat, task, model, project, attribution, and quota facts explicit and keyboard reachable", async () => {
