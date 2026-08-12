@@ -271,6 +271,7 @@ pub enum TauriCommand {
     ProjectCatalogLoad,
     ProjectCatalogApply,
     AttentionLoad,
+    AttentionActivityEvidence,
     AttentionMarkSeen,
     SchedulerProjection,
     HarnessBootstrap,
@@ -297,7 +298,7 @@ pub enum TauriCommand {
     ComputerUseReadiness,
 }
 
-pub const ALL_TAURI_COMMANDS: [TauriCommand; 59] = [
+pub const ALL_TAURI_COMMANDS: [TauriCommand; 60] = [
     TauriCommand::StartSession,
     TauriCommand::AttachSession,
     TauriCommand::DetachSession,
@@ -333,6 +334,7 @@ pub const ALL_TAURI_COMMANDS: [TauriCommand; 59] = [
     TauriCommand::ProjectCatalogLoad,
     TauriCommand::ProjectCatalogApply,
     TauriCommand::AttentionLoad,
+    TauriCommand::AttentionActivityEvidence,
     TauriCommand::AttentionMarkSeen,
     TauriCommand::SchedulerProjection,
     TauriCommand::HarnessBootstrap,
@@ -404,6 +406,7 @@ impl TauriCommand {
             Self::ProjectCatalogLoad => "project_catalog_load",
             Self::ProjectCatalogApply => "project_catalog_apply",
             Self::AttentionLoad => "attention_load",
+            Self::AttentionActivityEvidence => "attention_activity_evidence",
             Self::AttentionMarkSeen => "attention_mark_seen",
             Self::SchedulerProjection => "scheduler_projection",
             Self::HarnessBootstrap => "harness_bootstrap",
@@ -469,6 +472,7 @@ impl TauriCommand {
             Self::HarnessAttachSession
             | Self::HarnessSessionCommand
             | Self::HarnessInspector
+            | Self::AttentionActivityEvidence
             | Self::HarnessArtifactOpen
             | Self::HarnessRefreshSession
             | Self::HarnessStudioOperation

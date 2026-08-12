@@ -33,7 +33,7 @@ import { createStudioOperationDispatcher } from "../contracts/dispatcher/studioO
 import { useStudioSelector, useStudioStore } from "./AppProviders";
 import { installWorkspacePreferences } from "./workspacePreferences";
 import { hasOpenStudioOverlay } from "../surfaceEscape";
-import { activityAttentionForChat, deriveUnreadChatIds } from "../attention/attentionLedger";
+import { chatAttentionEvidence, deriveUnreadChatIds } from "../attention/attentionLedger";
 import { loadAttentionSnapshot, markAttentionSeen } from "../attention/attentionClient";
 
 let bootstrapPromise: ReturnType<typeof rpc.bootstrapHarness> | null = null;
@@ -79,6 +79,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     ? projectCatalog.projects.flatMap((project) => project.chats).find((chat) => chat.id === navigation.selectedChatId && !chat.archived) ?? null
     : null;
   const selectedSession = selectedCatalogChat?.binding ? sessions[selectedCatalogChat.binding.sessionId] ?? null : null;
+  const selectedChatEvidence = selectedSession ? chatAttentionEvidence(selectedSession) : null;
   const compatibility = useStudioSelector((state) => state.compatibility);
   const drafts = useStudioSelector((state) => state.drafts);
   const attachments = useStudioSelector((state) => state.attachments);
@@ -128,10 +129,6 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     sessionStates,
     query,
   }), [attention, expandedProjectIds, navigation.selectedChatId, projectCatalog, query, sessionStates, sessions]);
-  const activityAttention = useMemo(
-    () => navigation.selectedChatId ? activityAttentionForChat(navigation.selectedChatId, selectedSession, attention) : { status: "unavailable" as const, reason: "Activity cursor evidence is unavailable for this chat." },
-    [attention, navigation.selectedChatId, selectedSession],
-  );
   const paletteChats = useMemo<readonly PaletteChat[]>(() => projectCatalog.projects.flatMap((project) =>
     project.chats.map((chat) => ({ id: chat.id, title: chat.title, project: project.name, archived: project.archived || chat.archived })),
   ), [projectCatalog]);
@@ -267,17 +264,18 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     }
   };
 
-  const persistSeenCursor = async (chatId: string, channel: "chat" | "activity", throughSequence?: number): Promise<StudioOperationOutcome> => {
+  const persistSeenEvidence = async (chatId: string, channel: "chat" | "activity", activityEvidence?: Parameters<typeof markAttentionSeen>[3]): Promise<StudioOperationOutcome> => {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const current = store.getSnapshot();
       if (current.attention.status !== "available") return { status: "unavailable", reason: current.attention.status === "unavailable" ? current.attention.reason : "Attention ledger is still loading." };
       const matches = current.projectCatalog.projects.flatMap((project) => project.chats).filter((chat) => chat.id === chatId && !chat.archived);
       const binding = matches.length === 1 ? matches[0]!.binding : null;
       const session = binding ? current.sessions[binding.sessionId] ?? null : null;
-      if (!binding || !session || binding.accountId !== session.accountId || (binding.agentId !== null && binding.agentId !== session.chatId)) return { status: "unavailable", reason: "The chat has no authoritative Harness cursor." };
-      if (throughSequence !== undefined && throughSequence !== session.cursor.sequence) return { status: "rejected", reason: "The Activity cursor advanced before it could be acknowledged.", retryable: true };
+      if (!binding || !session || binding.accountId !== session.accountId || (binding.agentId !== null && binding.agentId !== session.chatId)) return { status: "unavailable", reason: "The chat has no authoritative Harness evidence." };
+      const evidence = channel === "chat" ? chatAttentionEvidence(session) : activityEvidence ?? null;
+      if (!evidence) return { status: "updated", revision: current.attention.revision };
       try {
-        const snapshot = await markAttentionSeen(current.attention.revision, chatId, channel, session.cursor);
+        const snapshot = await markAttentionSeen(current.attention.revision, chatId, channel, evidence);
         store.dispatch({ type: "attention/loaded", snapshot });
         return { status: "updated", revision: snapshot.revision };
       } catch (error) {
@@ -361,9 +359,9 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         return applyCatalog({ type, projectId: project.id, chatId: operation.payload.chatId }, label);
       }
       case "catalog.chat.unread-clear":
-        return persistSeenCursor(operation.payload.chatId, "chat");
+        return persistSeenEvidence(operation.payload.chatId, "chat");
       case "activity.seen.mark":
-        return persistSeenCursor(operation.payload.chatId, "activity", operation.payload.throughSequence);
+        return persistSeenEvidence(operation.payload.chatId, "activity", operation.payload.evidence);
       case "conversation.user-version.select":
       case "conversation.assistant-version.select":
         store.dispatch({ type: "conversation/version-selected", chatId: operation.payload.chatId, messageId: operation.payload.messageId, kind: operation.action === "conversation.user-version.select" ? "user" : "assistant", version: operation.payload.version });
@@ -507,7 +505,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     if (attention.status === "available" && navigation.selectedChatId && selectedSession) {
       void dispatchOperation({ action: "catalog.chat.unread-clear", payload: { chatId: navigation.selectedChatId } });
     }
-  }, [attention.status, navigation.selectedChatId, selectedSession?.cursor.runtimeGeneration, selectedSession?.cursor.sequence]);
+  }, [attention.status, navigation.selectedChatId, selectedChatEvidence?.runtimeGeneration, selectedChatEvidence?.marker, selectedChatEvidence?.occurredAtMs]);
 
   const createChat = () => {
     const projectId = store.getSnapshot().projectCatalog.selectedProjectId;
@@ -824,7 +822,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         session={selectedSession}
         compatibility={compatibility}
         adapter={harnessAdapter}
-        activityAttention={activityAttention}
+        attention={attention}
         onExecute={dispatchOperation}
         routeRequest={inspectorRouteRequest}
         onCollapse={() => { if (layout.inspectorOpen) void dispatchOperation({ action: "layout.inspector.toggle", payload: {} }); setActiveSheet(null); }}

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { RootSessionProjection } from "../../entities/harness/types";
 import type { StudioOperation } from "../../contracts/studioOperations";
+import { reconcileAttentionSnapshot } from "../../attention/attentionLedger";
 import {
   type HarnessInspectorAdapter,
   type HarnessPanelDetails,
@@ -211,20 +212,31 @@ describe("HarnessInspector", () => {
     ]));
   });
 
-  it("marks Activity seen through the typed action only when an authoritative unseen cursor exists", async () => {
+  it("marks Activity seen only when broker-minted content evidence changes", async () => {
+    const evidence = { runtimeGeneration: "g1", marker: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", occurredAtMs: 1_725_700_300_000 };
+    const source = { ...adapter(), loadActivityEvidence: vi.fn(async () => evidence) };
+    const attention = reconcileAttentionSnapshot({ revision: 7, records: [{ chatId: "chat-a", chatSeen: null, activitySeen: { ...evidence, marker: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" } }] });
     const onExecute = vi.fn(async () => ({ status: "updated" as const, revision: 8 }));
     const user = userEvent.setup();
-    const view = render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={adapter()} onExecute={onExecute} activityAttention={{ status: "unseen", throughSequence: 8 }} />);
+    const view = render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={source} onExecute={onExecute} attention={attention} />);
     await screen.findByText("This chat");
-    expect(screen.getByRole("tab", { name: "Activity, unseen" })).toBeVisible();
+    expect(await screen.findByRole("tab", { name: "Activity, unseen" })).toBeVisible();
     await user.click(screen.getByRole("tab", { name: "Activity, unseen" }));
-    await waitFor(() => expect(onExecute).toHaveBeenCalledWith({ action: "activity.seen.mark", payload: { chatId: "chat-a", throughSequence: 8 } }));
+    await waitFor(() => expect(onExecute).toHaveBeenCalledWith({ action: "activity.seen.mark", payload: { chatId: "chat-a", evidence } }));
+
+    onExecute.mockClear();
+    const seenAttention = reconcileAttentionSnapshot({ revision: 8, records: [{ chatId: "chat-a", chatSeen: null, activitySeen: evidence }] });
+    view.rerender(<HarnessInspector chatId="chat-a" session={{ ...session, cursor: { ...session.cursor, sequence: 11 } }} compatibility={compatibility} adapter={source} onExecute={onExecute} attention={seenAttention} />);
+    await waitFor(() => expect(source.loadActivityEvidence).toHaveBeenCalled());
+    expect(screen.getByRole("tab", { name: "Activity" })).toBeVisible();
+    expect(screen.queryByRole("tab", { name: "Activity, unseen" })).not.toBeInTheDocument();
+    expect(onExecute).not.toHaveBeenCalledWith(expect.objectContaining({ action: "activity.seen.mark" }));
 
     view.unmount();
     onExecute.mockClear();
-    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={adapter()} onExecute={onExecute} activityAttention={{ status: "unavailable", reason: "Activity cursor evidence unavailable." }} />);
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={adapter()} onExecute={onExecute} attention={{ status: "unavailable", reason: "Activity content evidence unavailable." }} />);
     await user.click(await screen.findByRole("tab", { name: "Activity" }));
-    expect(await screen.findByText("Activity cursor evidence unavailable.")).toBeVisible();
+    expect(await screen.findByText("Activity content evidence unavailable.")).toBeVisible();
     expect(onExecute).not.toHaveBeenCalledWith(expect.objectContaining({ action: "activity.seen.mark" }));
   });
 

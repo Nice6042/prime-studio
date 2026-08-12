@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   activityAttentionForChat,
+  chatAttentionEvidence,
   deriveUnreadChatIds,
   reconcileAttentionSnapshot,
   type AttentionSnapshot,
@@ -33,15 +34,41 @@ const session = (sessionId: string, sequence: number, runtimeGeneration = "gener
   usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: null },
 });
 
+const completed = (id: string, emittedAtMs: number, streaming = false) => ({
+  channel: "parent" as const,
+  kind: "assistant" as const,
+  id,
+  blocks: [{ kind: "text" as const, text: id }],
+  streaming,
+  emittedAtMs,
+});
+
 describe("attention ledger projection", () => {
-  it("marks only an inactive bound chat unread when its admitted cursor advances", () => {
+  it("does not mark an inactive chat unread when only the poll cursor advances", () => {
     const snapshot: AttentionSnapshot = {
       revision: 4,
-      records: [{ chatId: "chat-b", chatSeen: { runtimeGeneration: "generation-1", sequence: 3 }, activitySeen: null }],
+      records: [{ chatId: "chat-b", chatSeen: { runtimeGeneration: "generation-1", marker: "answer-1", occurredAtMs: 100 }, activitySeen: null }],
     };
     const attention = reconcileAttentionSnapshot(snapshot);
-    const unread = deriveUnreadChatIds(catalog(), { "session-a": session("session-a", 9), "session-b": session("session-b", 4) }, "chat-a", attention);
+    const unchanged = { ...session("session-b", 4), parentMessages: [completed("answer-1", 100)] };
+    const unread = deriveUnreadChatIds(catalog(), { "session-a": session("session-a", 9), "session-b": unchanged }, "chat-a", attention);
+    expect([...unread]).toEqual([]);
+
+    const advancedPoll = { ...unchanged, cursor: { runtimeGeneration: "generation-1", sequence: 99 } };
+    expect([...deriveUnreadChatIds(catalog(), { "session-a": session("session-a", 10), "session-b": advancedPoll }, "chat-a", attention)]).toEqual([]);
+  });
+
+  it("marks only a real inactive assistant completion unread", () => {
+    const attention = reconcileAttentionSnapshot({
+      revision: 4,
+      records: [{ chatId: "chat-b", chatSeen: { runtimeGeneration: "generation-1", marker: "answer-1", occurredAtMs: 100 }, activitySeen: null }],
+    });
+    const updated = { ...session("session-b", 4), parentMessages: [completed("answer-1", 100), completed("answer-2", 200)] };
+    const unread = deriveUnreadChatIds(catalog(), { "session-a": session("session-a", 9), "session-b": updated }, "chat-a", attention);
     expect([...unread]).toEqual(["chat-b"]);
+
+    const streaming = { ...updated, parentMessages: [completed("answer-1", 100), completed("answer-2", 200, true)] };
+    expect(chatAttentionEvidence(streaming)).toEqual({ runtimeGeneration: "generation-1", marker: "answer-1", occurredAtMs: 100 });
   });
 
   it("does not leak stale, unbound, active, or prior-generation cursor state across chats", () => {
@@ -49,25 +76,29 @@ describe("attention ledger projection", () => {
       revision: 5,
       records: [
         { chatId: "chat-a", chatSeen: null, activitySeen: null },
-        { chatId: "chat-b", chatSeen: { runtimeGeneration: "old-generation", sequence: 999 }, activitySeen: null },
+        { chatId: "chat-b", chatSeen: { runtimeGeneration: "old-generation", marker: "answer-old", occurredAtMs: 999 }, activitySeen: null },
         { chatId: "chat-unknown", chatSeen: null, activitySeen: null },
       ],
     });
-    const unread = deriveUnreadChatIds(catalog(), { "session-a": session("session-a", 9), "session-b": session("session-b", 1, "new-generation") }, "chat-a", attention);
+    const newGeneration = { ...session("session-b", 1, "new-generation"), parentMessages: [completed("answer-new", 1)] };
+    const unread = deriveUnreadChatIds(catalog(), { "session-a": session("session-a", 9), "session-b": newGeneration }, "chat-a", attention);
     expect([...unread]).toEqual(["chat-b"]);
     const generationBaseline = deriveUnreadChatIds(catalog(), { "session-a": session("session-a", 9), "session-b": session("session-b", 0, "another-generation") }, "chat-a", attention);
     expect([...generationBaseline]).toEqual([]);
   });
 
-  it("exposes Activity unseen only from an exact authoritative event cursor", () => {
-    const attention = reconcileAttentionSnapshot({ revision: 2, records: [{ chatId: "chat-b", chatSeen: null, activitySeen: { runtimeGeneration: "generation-1", sequence: 6 } }] });
-    expect(activityAttentionForChat("chat-b", session("session-b", 7), attention)).toEqual({ status: "unseen", throughSequence: 7 });
-    expect(activityAttentionForChat("chat-b", null, attention)).toEqual({ status: "unavailable", reason: "Activity cursor evidence is unavailable for this chat." });
-    expect(activityAttentionForChat("chat-b", session("session-b", 1, "generation-2"), attention)).toEqual({ status: "unseen", throughSequence: 1 });
+  it("exposes Activity unseen only when native content evidence changes", () => {
+    const evidence = { runtimeGeneration: "generation-1", marker: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", occurredAtMs: 200 };
+    const attention = reconcileAttentionSnapshot({ revision: 2, records: [{ chatId: "chat-b", chatSeen: null, activitySeen: evidence }] });
+    expect(activityAttentionForChat("chat-b", evidence, attention)).toEqual({ status: "seen", evidence });
+    const changed = { ...evidence, marker: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" };
+    expect(activityAttentionForChat("chat-b", changed, attention)).toEqual({ status: "unseen", evidence: changed });
+    expect(activityAttentionForChat("chat-b", undefined, attention)).toEqual({ status: "unavailable", reason: "Activity content evidence is unavailable for this chat." });
+    expect(activityAttentionForChat("chat-b", null, attention)).toEqual({ status: "seen", evidence: null });
   });
 
   it("fails closed when the durable snapshot is unavailable", () => {
     expect(deriveUnreadChatIds(catalog(), { "session-b": session("session-b", 4) }, "chat-a", { status: "unavailable", reason: "denied" })).toEqual(new Set());
-    expect(activityAttentionForChat("chat-b", session("session-b", 4), { status: "unavailable", reason: "denied" })).toEqual({ status: "unavailable", reason: "denied" });
+    expect(activityAttentionForChat("chat-b", null, { status: "unavailable", reason: "denied" })).toEqual({ status: "unavailable", reason: "denied" });
   });
 });

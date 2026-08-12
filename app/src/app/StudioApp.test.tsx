@@ -165,7 +165,7 @@ describe("Studio application state", () => {
   it("adopts only monotonic durable attention snapshots and fails closed when native evidence is unavailable", () => {
     let state = reduceStudio(initialStudioState(), {
       type: "attention/loaded",
-      snapshot: { revision: 7, records: [{ chatId: "chat-1", chatSeen: { runtimeGeneration: "g1", sequence: 2 }, activitySeen: null }] },
+      snapshot: { revision: 7, records: [{ chatId: "chat-1", chatSeen: { runtimeGeneration: "g1", marker: "answer-2", occurredAtMs: 2 }, activitySeen: null }] },
     });
     expect(state.attention).toMatchObject({ status: "available", revision: 7 });
     const stale = reduceStudio(state, { type: "attention/loaded", snapshot: { revision: 6, records: [] } });

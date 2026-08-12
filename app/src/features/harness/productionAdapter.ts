@@ -10,11 +10,13 @@ import type { StudioStore } from "../../shared/state/store";
 import type { HarnessInspectorAdapter, HarnessPanelDetails } from "./adapter";
 import type { ArtifactOpenResult } from "../../entities/editor/types";
 import { openHarnessArtifactCandidate } from "../../rpc";
+import { loadActivityAttentionEvidence } from "../../attention/attentionClient";
 
 interface ProductionHarnessPorts {
   load(sessionId: string): Promise<HarnessPanelDetails>;
   execute(request: HarnessStudioOperationRequest): Promise<Readonly<{ outcome: StudioOperationOutcome; session: RootSessionProjection | null }>>;
   openArtifact?(sessionId: string, candidateId: string): Promise<ArtifactOpenResult>;
+  loadActivityEvidence?(sessionId: string): ReturnType<typeof loadActivityAttentionEvidence>;
 }
 
 const TERMINAL_RUNTIME_STATES = new Set<RootSessionProjection["state"]>(["disconnected", "failed", "stopped"]);
@@ -27,6 +29,7 @@ const realPorts: ProductionHarnessPorts = {
     return { outcome, session: projected };
   },
   openArtifact: openHarnessArtifactCandidate,
+  loadActivityEvidence: loadActivityAttentionEvidence,
 };
 
 function reject(reason: string): StudioOperationOutcome {
@@ -67,6 +70,9 @@ export function createProductionHarnessInspectorAdapter(
     load: (sessionId: string) => store.getSnapshot().sessions[sessionId]
       ? ports.load(sessionId)
       : Promise.reject(new Error("The requested Harness session is not admitted by the native broker.")),
+    loadActivityEvidence: (sessionId: string) => store.getSnapshot().sessions[sessionId] && ports.loadActivityEvidence
+      ? ports.loadActivityEvidence(sessionId)
+      : Promise.reject(new Error("Activity content evidence is unavailable for this Harness session.")),
     workerRecovery: Object.freeze({
       status: "unavailable" as const,
       reason: "Prime Studio cannot safely retry a silent worker because the native Harness bridge does not expose a verified closure reason and retry identity.",

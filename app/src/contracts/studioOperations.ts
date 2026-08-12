@@ -7,6 +7,7 @@
  */
 
 import type { HarnessCapability } from "../shared/ipc/harness.generated";
+import type { AttentionEvidence } from "../attention/attentionLedger";
 
 type EmptyPayload = Readonly<Record<string, never>>;
 type IdentifierPayload<K extends string> = Readonly<Record<K, string>>;
@@ -108,7 +109,7 @@ export interface StudioActionPayloadMap {
   "activity.command.copy": Readonly<{ activityId: string; command: string }>;
   "activity.file.open": Readonly<{ sessionId: string; activityId: string; fileId: string }>;
   "activity.child.open": Readonly<{ sessionId: string; childId: string }>;
-  "activity.seen.mark": Readonly<{ chatId: string; throughSequence: number }>;
+  "activity.seen.mark": Readonly<{ chatId: string; evidence: AttentionEvidence }>;
 
   "editor.artifact.open": Readonly<{ sessionId: string; artifactId: string }>;
   "editor.mode.select": Readonly<{ documentId: string; mode: "diff" | "edit" }>;

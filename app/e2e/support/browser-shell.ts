@@ -70,8 +70,8 @@ export const test = base.extend<ShellFixtures>({
       let attentionRevision = 0;
       let attentionRecord = { chatId: "chat-e2e", chatSeen: null, activitySeen: null } as {
         chatId: string;
-        chatSeen: null | { runtimeGeneration: string; sequence: number };
-        activitySeen: null | { runtimeGeneration: string; sequence: number };
+        chatSeen: null | { runtimeGeneration: string; marker: string; occurredAtMs: number };
+        activitySeen: null | { runtimeGeneration: string; marker: string; occurredAtMs: number };
       };
 
       const emit = (event: string, payload: unknown) => {
@@ -241,11 +241,13 @@ export const test = base.extend<ShellFixtures>({
             return [];
           case "attention_load":
             return { revision: attentionRevision, records: [{ ...attentionRecord }] };
+          case "attention_activity_evidence":
+            return null;
           case "attention_mark_seen": {
-            const request = args.request as { expectedRevision?: number; chatId?: string; channel?: "chat" | "activity"; cursor?: { runtimeGeneration?: string; sequence?: number } } | undefined;
-            if (request?.expectedRevision !== attentionRevision || request.chatId !== attentionRecord.chatId || !request.cursor?.runtimeGeneration || !Number.isSafeInteger(request.cursor.sequence)) throw new Error("Attention cursor stale");
-            const cursor = { runtimeGeneration: request.cursor.runtimeGeneration, sequence: request.cursor.sequence! };
-            attentionRecord = request.channel === "activity" ? { ...attentionRecord, activitySeen: cursor } : request.channel === "chat" ? { ...attentionRecord, chatSeen: cursor } : (() => { throw new Error("Attention channel invalid"); })();
+            const request = args.request as { expectedRevision?: number; chatId?: string; channel?: "chat" | "activity"; evidence?: { runtimeGeneration?: string; marker?: string; occurredAtMs?: number } } | undefined;
+            if (request?.expectedRevision !== attentionRevision || request.chatId !== attentionRecord.chatId || !request.evidence?.runtimeGeneration || !request.evidence.marker || !Number.isSafeInteger(request.evidence.occurredAtMs)) throw new Error("Attention evidence stale");
+            const evidence = { runtimeGeneration: request.evidence.runtimeGeneration, marker: request.evidence.marker, occurredAtMs: request.evidence.occurredAtMs! };
+            attentionRecord = request.channel === "activity" ? { ...attentionRecord, activitySeen: evidence } : request.channel === "chat" ? { ...attentionRecord, chatSeen: evidence } : (() => { throw new Error("Attention channel invalid"); })();
             attentionRevision += 1;
             return { revision: attentionRevision, records: [{ ...attentionRecord }] };
           }

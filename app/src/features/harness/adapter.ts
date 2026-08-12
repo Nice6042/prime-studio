@@ -1,6 +1,7 @@
 import type { StudioOperation, StudioOperationOutcome } from "../../contracts/studioOperations";
 import type { ComposerRuntimeChoice, ThinkingLevel } from "../conversation/workspacePresentation";
 import type { ArtifactOpenResult } from "../../entities/editor/types";
+import type { AttentionEvidence } from "../../attention/attentionLedger";
 
 export type HarnessActivityKind = "agent" | "tool" | "file" | "system";
 
@@ -94,6 +95,8 @@ export interface HarnessInspectorAdapter {
     | Readonly<{ status: "available" }>
     | Readonly<{ status: "unavailable"; reason: string }>;
   load(sessionId: string): Promise<HarnessPanelDetails>;
+  /** Native broker evidence minted from the last hydrated Activity payload. */
+  readonly loadActivityEvidence?: (sessionId: string) => Promise<AttentionEvidence | null>;
   execute(operation: StudioOperation): Promise<StudioOperationOutcome>;
   /** Available only when native authority supplies closure and retry identities. */
   readonly workerRecovery?:

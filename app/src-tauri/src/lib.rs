@@ -26,7 +26,7 @@ pub mod session_process;
 
 use accounts::delete::{AccountDeletion, DeletionError, DeletionErrorCode, RemovalPlan};
 use accounts::{Account, AccountRegistry, MAX_AUTH_FILE_BYTES};
-use attention_ledger::{AttentionChannel, AttentionCursor, AttentionLedger, AttentionSnapshot};
+use attention_ledger::{AttentionChannel, AttentionEvidence, AttentionLedger, AttentionSnapshot};
 use authority::{
     authorize_known_session_rpc, authorize_tauri_invoke, run_guarded_tauri_command, AuthorityGate,
     EffectClass, TauriCommand,
@@ -493,7 +493,7 @@ fn project_catalog_path() -> PathBuf {
 }
 
 fn attention_ledger_path() -> PathBuf {
-    config_dir().join("attention-v1.json")
+    config_dir().join("attention-v2.json")
 }
 
 fn read_settings() -> Settings {
@@ -2738,7 +2738,7 @@ struct AttentionMarkSeenInput {
     expected_revision: u64,
     chat_id: String,
     channel: AttentionChannel,
-    cursor: AttentionCursor,
+    evidence: AttentionEvidence,
 }
 
 #[tauri::command]
@@ -2747,6 +2747,50 @@ fn attention_load(state: State<AppState>) -> Result<AttentionSnapshot, String> {
         .attention_ledger
         .load()
         .map_err(|error| error.to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct AttentionActivityEvidenceInput {
+    session_id: String,
+}
+
+#[tauri::command]
+fn attention_activity_evidence(
+    state: State<AppState>,
+    request: AttentionActivityEvidenceInput,
+) -> Result<Option<AttentionEvidence>, String> {
+    let broker = state
+        .harness
+        .broker()
+        .ok_or_else(|| "Attention Harness broker is unavailable".to_owned())?;
+    let evidence = broker
+        .lock()
+        .map_err(|_| "Attention Harness broker is unavailable".to_owned())?
+        .activity_attention_evidence(&request.session_id);
+    Ok(evidence)
+}
+
+fn chat_attention_evidence(
+    session: &harness::broker::RootSessionProjection,
+) -> Option<AttentionEvidence> {
+    session
+        .parent_messages
+        .iter()
+        .rev()
+        .find_map(|message| match message {
+            harness::generated::ParentMessage::Assistant {
+                id,
+                streaming: false,
+                emitted_at_ms,
+                ..
+            } => Some(AttentionEvidence {
+                runtime_generation: session.cursor.runtime_generation.clone(),
+                marker: id.clone(),
+                occurred_at_ms: *emitted_at_ms,
+            }),
+            _ => None,
+        })
 }
 
 #[tauri::command]
@@ -2777,25 +2821,32 @@ fn attention_mark_seen(
         .binding
         .as_ref()
         .ok_or_else(|| "Attention chat has no authoritative Harness binding".to_owned())?;
-    let sessions: Vec<_> = state
+    let broker = state
         .harness
-        .session_projections()
-        .into_iter()
-        .filter(|session| session.session_id == binding.session_id)
-        .collect();
-    let session = match sessions.as_slice() {
-        [session] => session,
-        _ => return Err("Attention Harness session identity is unavailable".to_owned()),
-    };
+        .broker()
+        .ok_or_else(|| "Attention Harness broker is unavailable".to_owned())?;
+    let broker = broker
+        .lock()
+        .map_err(|_| "Attention Harness broker is unavailable".to_owned())?;
+    let session = broker
+        .project(&binding.session_id)
+        .ok_or_else(|| "Attention Harness session identity is unavailable".to_owned())?;
     if binding.account_id != session.account_id
         || binding
             .agent_id
             .as_ref()
             .is_some_and(|agent_id| agent_id != &session.chat_id)
-        || request.cursor.runtime_generation != session.cursor.runtime_generation
-        || request.cursor.sequence != session.cursor.sequence
     {
-        return Err("Attention cursor is not the current authoritative Harness cursor".to_owned());
+        return Err("Attention evidence identity is not authoritative".to_owned());
+    }
+    let authoritative = match request.channel {
+        AttentionChannel::Chat => chat_attention_evidence(&session),
+        AttentionChannel::Activity => broker.activity_attention_evidence(&session.session_id),
+    };
+    if authoritative.as_ref() != Some(&request.evidence) {
+        return Err(
+            "Attention evidence is not the current authoritative channel content".to_owned(),
+        );
     }
     state
         .attention_ledger
@@ -2803,7 +2854,7 @@ fn attention_mark_seen(
             request.expected_revision,
             &request.chat_id,
             request.channel,
-            request.cursor,
+            request.evidence,
         )
         .map_err(|error| error.to_string())
 }
@@ -4048,6 +4099,7 @@ pub fn run() {
             project_catalog_load,
             project_catalog_apply,
             attention_load,
+            attention_activity_evidence,
             attention_mark_seen,
             scheduler_projection,
             harness_bootstrap,

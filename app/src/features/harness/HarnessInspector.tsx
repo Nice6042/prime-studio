@@ -1,7 +1,7 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 
 import { createControlBinding, type StudioOperation, type StudioOperationOutcome } from "../../contracts/studioOperations";
-import type { ActivityAttention } from "../../attention/attentionLedger";
+import { activityAttentionForChat, type AttentionEvidence, type AttentionState } from "../../attention/attentionLedger";
 import type { RootSessionProjection } from "../../entities/harness/types";
 import type { HarnessCompatibility } from "../../shared/ipc/harness.generated";
 import { ActivityFeed } from "./ActivityFeed";
@@ -37,7 +37,7 @@ function outcomeMessage(outcome: StudioOperationOutcome): { kind: "status" | "al
   return { kind: "alert", text: outcome.reason };
 }
 
-export function HarnessInspector({ chatId, session, compatibility, adapter = unavailableHarnessInspectorAdapter, onExecute, onOpenAccountUsage, onCollapse, routeRequest, activityAttention }: {
+export function HarnessInspector({ chatId, session, compatibility, adapter = unavailableHarnessInspectorAdapter, onExecute, onOpenAccountUsage, onCollapse, routeRequest, attention = { status: "loading" } }: {
   readonly chatId: string | null;
   readonly session: RootSessionProjection | null;
   readonly compatibility: HarnessCompatibility;
@@ -46,26 +46,31 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
   readonly onOpenAccountUsage?: () => void;
   readonly onCollapse?: () => void;
   readonly routeRequest?: Readonly<{ id: number; route: "overview" | "usage" | "activity" }>;
-  readonly activityAttention?: ActivityAttention;
+  readonly attention?: AttentionState;
 }) {
   const [state, dispatch] = useReducer(reduceInspector, chatId, (id) => createInspectorState(restoreRoute(id)));
   const [details, setDetails] = useState<HarnessPanelDetails | null>(null);
+  const [activityEvidence, setActivityEvidence] = useState<AttentionEvidence | null | undefined>(undefined);
   const [loadPhase, setLoadPhase] = useState<"idle" | "loading" | "ready" | "unavailable" | "error">("idle");
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ kind: "status" | "alert"; text: string } | null>(null);
   const [hiddenNoticeIds, setHiddenNoticeIds] = useState<ReadonlySet<string>>(new Set());
   const childReturnFocus = useRef<HTMLElement | null>(null);
   const activitySeenAttempt = useRef<string | null>(null);
+  const activityAttention = chatId ? activityAttentionForChat(chatId, activityEvidence, attention) : { status: "unavailable" as const, reason: "Activity content evidence is unavailable for this chat." };
 
   const loadDetails = async () => {
     if (!session || adapter.availability.status === "unavailable") {
       setDetails(null);
+      setActivityEvidence(undefined);
       setLoadPhase(session ? "unavailable" : "idle");
       return;
     }
     setLoadPhase("loading");
+    setActivityEvidence(undefined);
     try {
       setDetails(await adapter.load(session.sessionId));
+      setActivityEvidence(adapter.loadActivityEvidence ? await adapter.loadActivityEvidence(session.sessionId) : undefined);
       setLoadPhase("ready");
     } catch (error) {
       setLoadPhase("error");
@@ -109,11 +114,11 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
   };
 
   useEffect(() => {
-    if (state.route.kind !== "activity" || !chatId || activityAttention?.status !== "unseen" || pendingKey) return;
-    const key = `${chatId}:${activityAttention.throughSequence}`;
+    if (state.route.kind !== "activity" || !chatId || activityAttention.status !== "unseen" || pendingKey) return;
+    const key = `${chatId}:${activityAttention.evidence.runtimeGeneration}:${activityAttention.evidence.marker}:${activityAttention.evidence.occurredAtMs}`;
     if (activitySeenAttempt.current === key) return;
     activitySeenAttempt.current = key;
-    void runAction({ action: "activity.seen.mark", payload: { chatId, throughSequence: activityAttention.throughSequence } }, `activity-seen:${key}`, true);
+    void runAction({ action: "activity.seen.mark", payload: { chatId, evidence: activityAttention.evidence } }, `activity-seen:${key}`, true);
   }, [activityAttention, chatId, pendingKey, state.route.kind]);
 
   const selectTopRoute = (route: "overview" | "usage" | "activity") => {

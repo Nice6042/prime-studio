@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use super::compatibility::decide_compatibility;
@@ -13,6 +14,7 @@ use super::generated::{
 pub use super::projections::{BootProjection, ProjectionFreshness, RootSessionProjection};
 use super::recovery::{RecoveredSession, RecoveryRecord};
 use super::sidecar::{validate_root_snapshot, HarnessError, SidecarHandle};
+use crate::attention_ledger::AttentionEvidence;
 
 #[cfg(feature = "test-support-bin")]
 const TEST_RUNTIME_DIGEST: &str =
@@ -158,6 +160,7 @@ pub struct HarnessBroker {
     unknown_outcomes: BTreeMap<String, BTreeSet<UnknownOperation>>,
     resident_creations: BTreeMap<String, ResidentCreation>,
     artifact_candidates: BTreeMap<String, ArtifactCandidate>,
+    activity_attention: BTreeMap<String, AttentionEvidence>,
     runtime_digest: String,
     profile: String,
 }
@@ -228,6 +231,7 @@ impl HarnessBroker {
             unknown_outcomes: BTreeMap::new(),
             resident_creations: BTreeMap::new(),
             artifact_candidates: BTreeMap::new(),
+            activity_attention: BTreeMap::new(),
             runtime_digest,
             profile,
         })
@@ -671,14 +675,28 @@ impl HarnessBroker {
             .ok_or(HarnessError::OwnershipViolation)?;
         self.artifact_candidates
             .retain(|_, candidate| candidate.session_id != request.session_id);
-        let (details_json, candidates) = sanitize_inspector_artifacts(
+        let (details_json, candidates, activity_evidence) = sanitize_inspector_artifacts(
             &details_json,
             &request.session_id,
             &ownership.project_id,
             &current.cursor,
         )?;
         self.artifact_candidates.extend(candidates);
+        if let Some(evidence) = activity_evidence {
+            self.activity_attention
+                .insert(request.session_id.clone(), evidence);
+        } else {
+            self.activity_attention.remove(&request.session_id);
+        }
         Ok(details_json)
+    }
+
+    pub fn activity_attention_evidence(&self, session_id: &str) -> Option<AttentionEvidence> {
+        let current = self.committed.get(session_id)?;
+        self.activity_attention
+            .get(session_id)
+            .filter(|evidence| evidence.runtime_generation == current.cursor.runtime_generation)
+            .cloned()
     }
 
     pub fn resolve_artifact_candidate(
@@ -1262,12 +1280,27 @@ fn sanitize_inspector_artifacts(
     session_id: &str,
     project_id: &str,
     cursor: &HarnessCursor,
-) -> Result<(String, BTreeMap<String, ArtifactCandidate>), HarnessError> {
+) -> Result<
+    (
+        String,
+        BTreeMap<String, ArtifactCandidate>,
+        Option<AttentionEvidence>,
+    ),
+    HarnessError,
+> {
     let mut details: serde_json::Value =
         serde_json::from_str(details_json).map_err(|_| HarnessError::ProtocolViolation)?;
     let root = details
         .as_object_mut()
         .ok_or(HarnessError::ProtocolViolation)?;
+    if root.contains_key("activityEvidence") {
+        return Err(HarnessError::ProtocolViolation);
+    }
+    let activity_evidence = mint_activity_attention_evidence(
+        root.get("activity")
+            .ok_or(HarnessError::ProtocolViolation)?,
+        &cursor.runtime_generation,
+    )?;
     let mut candidates = BTreeMap::new();
 
     for output in root
@@ -1378,7 +1411,60 @@ fn sanitize_inspector_artifacts(
     if sanitized.chars().count() > 131_072 {
         return Err(HarnessError::ProtocolViolation);
     }
-    Ok((sanitized, candidates))
+    Ok((sanitized, candidates, activity_evidence))
+}
+
+fn canonical_json(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Array(values) => {
+            serde_json::Value::Array(values.iter().map(canonical_json).collect())
+        }
+        serde_json::Value::Object(object) => serde_json::Value::Object(
+            object
+                .iter()
+                .map(|(key, value)| (key.clone(), canonical_json(value)))
+                .collect(),
+        ),
+        _ => value.clone(),
+    }
+}
+
+fn mint_activity_attention_evidence(
+    activity: &serde_json::Value,
+    runtime_generation: &str,
+) -> Result<Option<AttentionEvidence>, HarnessError> {
+    if !valid_id(runtime_generation) {
+        return Err(HarnessError::ProtocolViolation);
+    }
+    let activity = activity.as_array().ok_or(HarnessError::ProtocolViolation)?;
+    if activity.is_empty() {
+        return Ok(None);
+    }
+    let mut occurred_at_ms = 0_u64;
+    for item in activity {
+        let item = item.as_object().ok_or(HarnessError::ProtocolViolation)?;
+        if !item
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(valid_id)
+        {
+            return Err(HarnessError::ProtocolViolation);
+        }
+        let occurred = item
+            .get("occurredAtMs")
+            .and_then(serde_json::Value::as_u64)
+            .filter(|value| *value <= MAX_SAFE_INTEGER)
+            .ok_or(HarnessError::ProtocolViolation)?;
+        occurred_at_ms = occurred_at_ms.max(occurred);
+    }
+    let canonical = canonical_json(&serde_json::Value::Array(activity.clone()));
+    let bytes = serde_json::to_vec(&canonical).map_err(|_| HarnessError::ProtocolViolation)?;
+    let marker = format!("sha256:{:x}", Sha256::digest(bytes));
+    Ok(Some(AttentionEvidence {
+        runtime_generation: runtime_generation.to_owned(),
+        marker,
+        occurred_at_ms,
+    }))
 }
 
 fn valid_id(value: &str) -> bool {
@@ -1491,13 +1577,28 @@ mod artifact_candidate_tests {
             runtime_generation: "generation-a".to_owned(),
             sequence: 1,
         };
-        let (sanitized, candidates) =
+        let (sanitized, candidates, evidence) =
             sanitize_inspector_artifacts(source, "session-a", "project-a", &cursor).unwrap();
         let value: serde_json::Value = serde_json::from_str(&sanitized).unwrap();
         assert!(!contains_renderer_path_authority(&value));
         assert_eq!(candidates.len(), 3);
         assert!(sanitized.contains("candidateId"));
         assert!(!sanitized.contains("reports/out.md"));
+        let refreshed = source.replace("\"observedAtMs\":1", "\"observedAtMs\":2");
+        let (_, _, refreshed_evidence) =
+            sanitize_inspector_artifacts(&refreshed, "session-a", "project-a", &cursor).unwrap();
+        assert_eq!(
+            refreshed_evidence, evidence,
+            "idle inspector observation time is not activity evidence"
+        );
+
+        let changed = source.replace("\"status\":\"succeeded\"", "\"status\":\"failed\"");
+        let (_, _, changed_evidence) =
+            sanitize_inspector_artifacts(&changed, "session-a", "project-a", &cursor).unwrap();
+        assert_ne!(
+            changed_evidence, evidence,
+            "a real activity status change must advance evidence"
+        );
     }
 
     #[test]

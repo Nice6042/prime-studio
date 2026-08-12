@@ -12,9 +12,10 @@ const MAX_SAFE_SEQUENCE: u64 = 9_007_199_254_740_991;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct AttentionCursor {
+pub struct AttentionEvidence {
     pub runtime_generation: String,
-    pub sequence: u64,
+    pub marker: String,
+    pub occurred_at_ms: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -28,8 +29,8 @@ pub enum AttentionChannel {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AttentionRecord {
     pub chat_id: String,
-    pub chat_seen: Option<AttentionCursor>,
-    pub activity_seen: Option<AttentionCursor>,
+    pub chat_seen: Option<AttentionEvidence>,
+    pub activity_seen: Option<AttentionEvidence>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,7 +44,7 @@ pub struct AttentionSnapshot {
 pub enum AttentionError {
     InvalidState,
     RevisionConflict,
-    CursorRegression,
+    EvidenceRegression,
     RevisionOverflow,
     WriteFailed,
 }
@@ -53,7 +54,7 @@ impl fmt::Display for AttentionError {
         formatter.write_str(match self {
             Self::InvalidState => "invalidState",
             Self::RevisionConflict => "revisionConflict",
-            Self::CursorRegression => "cursorRegression",
+            Self::EvidenceRegression => "evidenceRegression",
             Self::RevisionOverflow => "revisionOverflow",
             Self::WriteFailed => "writeFailed",
         })
@@ -85,10 +86,10 @@ impl AttentionLedger {
         expected_revision: u64,
         chat_id: &str,
         channel: AttentionChannel,
-        cursor: AttentionCursor,
+        evidence: AttentionEvidence,
     ) -> Result<AttentionSnapshot, AttentionError> {
         let _guard = self.lock.lock().map_err(|_| AttentionError::InvalidState)?;
-        if !valid_id(chat_id) || !valid_cursor(&cursor) {
+        if !valid_id(chat_id) || !valid_evidence(&evidence) {
             return Err(AttentionError::InvalidState);
         }
         let mut snapshot = self.load_unlocked()?;
@@ -104,13 +105,13 @@ impl AttentionLedger {
             AttentionChannel::Activity => snapshot.records[index].activity_seen.as_ref(),
         });
         if let Some(prior) = prior {
-            if prior == &cursor {
+            if prior == &evidence {
                 return Ok(snapshot);
             }
-            if prior.runtime_generation == cursor.runtime_generation
-                && cursor.sequence < prior.sequence
+            if prior.runtime_generation == evidence.runtime_generation
+                && evidence.occurred_at_ms < prior.occurred_at_ms
             {
-                return Err(AttentionError::CursorRegression);
+                return Err(AttentionError::EvidenceRegression);
             }
         }
         if index.is_none() && snapshot.records.len() >= MAX_ATTENTION_RECORDS {
@@ -127,8 +128,8 @@ impl AttentionLedger {
             snapshot.records.last_mut().expect("record was appended")
         };
         match channel {
-            AttentionChannel::Chat => record.chat_seen = Some(cursor),
-            AttentionChannel::Activity => record.activity_seen = Some(cursor),
+            AttentionChannel::Chat => record.chat_seen = Some(evidence),
+            AttentionChannel::Activity => record.activity_seen = Some(evidence),
         }
         snapshot.revision = snapshot
             .revision
@@ -189,8 +190,16 @@ fn valid_id(value: &str) -> bool {
         && value.trim() == value
 }
 
-fn valid_cursor(cursor: &AttentionCursor) -> bool {
-    valid_id(&cursor.runtime_generation) && cursor.sequence <= MAX_SAFE_SEQUENCE
+fn valid_marker(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 256
+        && value.bytes().all(|byte| (0x21..=0x7e).contains(&byte))
+}
+
+fn valid_evidence(evidence: &AttentionEvidence) -> bool {
+    valid_id(&evidence.runtime_generation)
+        && valid_marker(&evidence.marker)
+        && evidence.occurred_at_ms <= MAX_SAFE_SEQUENCE
 }
 
 fn validate_snapshot(snapshot: &AttentionSnapshot) -> Result<(), AttentionError> {
@@ -204,11 +213,11 @@ fn validate_snapshot(snapshot: &AttentionSnapshot) -> Result<(), AttentionError>
             || record
                 .chat_seen
                 .as_ref()
-                .is_some_and(|cursor| !valid_cursor(cursor))
+                .is_some_and(|evidence| !valid_evidence(evidence))
             || record
                 .activity_seen
                 .as_ref()
-                .is_some_and(|cursor| !valid_cursor(cursor))
+                .is_some_and(|evidence| !valid_evidence(evidence))
         {
             return Err(AttentionError::InvalidState);
         }
@@ -220,36 +229,69 @@ fn validate_snapshot(snapshot: &AttentionSnapshot) -> Result<(), AttentionError>
 mod tests {
     use super::*;
 
-    fn cursor(generation: &str, sequence: u64) -> AttentionCursor {
-        AttentionCursor {
+    fn evidence(generation: &str, marker: &str, occurred_at_ms: u64) -> AttentionEvidence {
+        AttentionEvidence {
             runtime_generation: generation.to_owned(),
-            sequence,
+            marker: marker.to_owned(),
+            occurred_at_ms,
         }
     }
 
     #[test]
-    fn persists_independent_chat_and_activity_cursors_with_revision_cas() {
+    fn persists_independent_chat_and_activity_evidence_with_revision_cas() {
         let root =
             std::env::temp_dir().join(format!("prime-studio-attention-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
-        let path = root.join("attention-v1.json");
+        let path = root.join("attention-v2.json");
         let ledger = AttentionLedger::new(path.clone());
 
         let first = ledger
-            .mark_seen(0, "chat-a", AttentionChannel::Chat, cursor("g1", 3))
+            .mark_seen(
+                0,
+                "chat-a",
+                AttentionChannel::Chat,
+                evidence("g1", "answer-1", 300),
+            )
             .unwrap();
         assert_eq!(first.revision, 1);
-        assert_eq!(first.records[0].chat_seen, Some(cursor("g1", 3)));
+        assert_eq!(
+            first.records[0].chat_seen,
+            Some(evidence("g1", "answer-1", 300))
+        );
         assert_eq!(first.records[0].activity_seen, None);
         let second = ledger
-            .mark_seen(1, "chat-a", AttentionChannel::Activity, cursor("g1", 4))
+            .mark_seen(
+                1,
+                "chat-a",
+                AttentionChannel::Activity,
+                evidence(
+                    "g1",
+                    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    400,
+                ),
+            )
             .unwrap();
-        assert_eq!(second.records[0].chat_seen, Some(cursor("g1", 3)));
-        assert_eq!(second.records[0].activity_seen, Some(cursor("g1", 4)));
+        assert_eq!(
+            second.records[0].chat_seen,
+            Some(evidence("g1", "answer-1", 300))
+        );
+        assert_eq!(
+            second.records[0].activity_seen,
+            Some(evidence(
+                "g1",
+                "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                400
+            ))
+        );
         assert_eq!(AttentionLedger::new(path).load().unwrap(), second);
         assert_eq!(
             ledger
-                .mark_seen(1, "chat-a", AttentionChannel::Chat, cursor("g1", 5))
+                .mark_seen(
+                    1,
+                    "chat-a",
+                    AttentionChannel::Chat,
+                    evidence("g1", "answer-2", 500)
+                )
                 .unwrap_err(),
             AttentionError::RevisionConflict
         );
@@ -263,16 +305,26 @@ mod tests {
             uuid::Uuid::new_v4()
         ));
         std::fs::create_dir_all(&root).unwrap();
-        let path = root.join("attention-v1.json");
+        let path = root.join("attention-v2.json");
         let ledger = AttentionLedger::new(path.clone());
         ledger
-            .mark_seen(0, "chat-a", AttentionChannel::Chat, cursor("g1", 7))
+            .mark_seen(
+                0,
+                "chat-a",
+                AttentionChannel::Chat,
+                evidence("g1", "answer-7", 700),
+            )
             .unwrap();
         assert_eq!(
             ledger
-                .mark_seen(1, "chat-a", AttentionChannel::Chat, cursor("g1", 6))
+                .mark_seen(
+                    1,
+                    "chat-a",
+                    AttentionChannel::Chat,
+                    evidence("g1", "answer-6", 600)
+                )
                 .unwrap_err(),
-            AttentionError::CursorRegression
+            AttentionError::EvidenceRegression
         );
         std::fs::write(&path, br#"{"revision":1,"records":[{"chatId":"chat-a","chatSeen":null,"activitySeen":null},{"chatId":"chat-a","chatSeen":null,"activitySeen":null}]}"#).unwrap();
         assert_eq!(ledger.load().unwrap_err(), AttentionError::InvalidState);

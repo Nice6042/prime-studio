@@ -1,11 +1,16 @@
 import type { ProjectChatState } from "../domain/projectChats";
 import type { RootSessionProjection } from "../entities/harness/types";
-import type { HarnessCursor } from "../shared/ipc/harness.generated";
+
+export interface AttentionEvidence {
+  readonly runtimeGeneration: string;
+  readonly marker: string;
+  readonly occurredAtMs: number;
+}
 
 export interface AttentionRecord {
   readonly chatId: string;
-  readonly chatSeen: HarnessCursor | null;
-  readonly activitySeen: HarnessCursor | null;
+  readonly chatSeen: AttentionEvidence | null;
+  readonly activitySeen: AttentionEvidence | null;
 }
 
 export interface AttentionSnapshot {
@@ -19,13 +24,22 @@ export type AttentionState =
   | Readonly<{ status: "unavailable"; reason: string }>;
 
 export type ActivityAttention =
-  | Readonly<{ status: "seen"; throughSequence: number }>
-  | Readonly<{ status: "unseen"; throughSequence: number }>
+  | Readonly<{ status: "seen"; evidence: AttentionEvidence | null }>
+  | Readonly<{ status: "unseen"; evidence: AttentionEvidence }>
   | Readonly<{ status: "unavailable"; reason: string }>;
 
-function cursorIsAfter(current: HarnessCursor, seen: HarnessCursor | null): boolean {
-  if (!seen || current.runtimeGeneration !== seen.runtimeGeneration) return current.sequence > 0;
-  return current.sequence > seen.sequence;
+function evidenceIsAfter(current: AttentionEvidence | null, seen: AttentionEvidence | null): boolean {
+  if (!current) return false;
+  if (!seen || current.runtimeGeneration !== seen.runtimeGeneration) return true;
+  if (current.marker === seen.marker) return false;
+  return current.occurredAtMs >= seen.occurredAtMs;
+}
+
+export function chatAttentionEvidence(session: RootSessionProjection): AttentionEvidence | null {
+  const completion = [...session.parentMessages].reverse().find((message) => message.kind === "assistant" && !message.streaming);
+  return completion
+    ? Object.freeze({ runtimeGeneration: session.cursor.runtimeGeneration, marker: completion.id, occurredAtMs: completion.emittedAtMs })
+    : null;
 }
 
 export function reconcileAttentionSnapshot(snapshot: AttentionSnapshot): AttentionState {
@@ -56,16 +70,14 @@ export function deriveUnreadChatIds(
   for (const chat of catalog.projects.flatMap((project) => project.chats)) {
     if (chat.archived || chat.id === selectedChatId) continue;
     const session = boundSession(catalog, sessions, chat.id);
-    if (session && cursorIsAfter(session.cursor, attention.records[chat.id]?.chatSeen ?? null)) unread.add(chat.id);
+    if (session && evidenceIsAfter(chatAttentionEvidence(session), attention.records[chat.id]?.chatSeen ?? null)) unread.add(chat.id);
   }
   return unread;
 }
 
-export function activityAttentionForChat(chatId: string, session: RootSessionProjection | null, attention: AttentionState): ActivityAttention {
+export function activityAttentionForChat(chatId: string, evidence: AttentionEvidence | null | undefined, attention: AttentionState): ActivityAttention {
   if (attention.status === "unavailable") return { status: "unavailable", reason: attention.reason };
-  if (attention.status !== "available" || !session) return { status: "unavailable", reason: "Activity cursor evidence is unavailable for this chat." };
-  const throughSequence = session.cursor.sequence;
-  return cursorIsAfter(session.cursor, attention.records[chatId]?.activitySeen ?? null)
-    ? { status: "unseen", throughSequence }
-    : { status: "seen", throughSequence };
+  if (attention.status !== "available" || evidence === undefined) return { status: "unavailable", reason: "Activity content evidence is unavailable for this chat." };
+  if (evidence && evidenceIsAfter(evidence, attention.records[chatId]?.activitySeen ?? null)) return { status: "unseen", evidence };
+  return { status: "seen", evidence };
 }
