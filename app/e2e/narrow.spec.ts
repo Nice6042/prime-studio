@@ -89,6 +89,5 @@ test("200 percent equivalent geometry keeps sheets and keyboard controls inside 
 });
 
 test("200 percent equivalent titlebar controls retain a minimum accessible target", async ({ shellPage }) => {
-  test.fail(true, "Production defect: narrow titlebar actions shrink the 30px command control to about 21.3 CSS pixels.");
   await expectMinimumTarget(shellPage.getByRole("button", { name: "Open command palette" }));
 });

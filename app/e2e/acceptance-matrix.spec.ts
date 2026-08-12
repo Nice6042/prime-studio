@@ -115,7 +115,6 @@ test("editor covers empty, Canvas edit, and conflict-safe authority-unavailable 
 });
 
 test("Canvas editor metadata meets the strict contrast gate", async ({ shellPage }) => {
-  test.fail(true, "Production defect: both Canvas metadata labels use #777784 on #1b1b1b and fail WCAG AA color contrast.");
   await shellPage.getByRole("button", { name: "Edit answer in Canvas" }).click();
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-editor-authority-matrix");
 });
@@ -165,7 +164,6 @@ test("820 and 640 compact layouts preserve keyboard surfaces without page overfl
 });
 
 test("window controls remain inside the viewport at attached-pane widths", async ({ shellPage }) => {
-  test.fail(true, "Production defect: titlebar padding is 12px while the window-control end margin is -14px, creating two CSS pixels of page overflow.");
   await shellPage.setViewportSize({ width: 1280, height: 800 });
   await expectNoDocumentOverflow(shellPage);
 });
