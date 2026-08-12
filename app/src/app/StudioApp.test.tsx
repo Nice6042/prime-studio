@@ -318,7 +318,7 @@ describe("Studio application state", () => {
     render(<AppProviders store={store}><StudioApp /></AppProviders>);
     await userEvent.click(await screen.findByRole("button", { name: "Export CSV" }));
     await waitFor(() => expect(exportSpy).toHaveBeenCalledWith(expect.stringMatching(/^timestamp,provider/), 7));
-    expect(await screen.findByRole("status")).toHaveTextContent("Export cancelled");
+    expect(await screen.findByText("Export cancelled.")).toBeVisible();
     exportSpy.mockRestore();
   });
 
@@ -400,7 +400,7 @@ describe("Studio application state", () => {
   it("keeps renderer-owned Harness navigation out of the Harness adapter", async () => {
     const operations: StudioOperation[] = [];
     const store = createStudioStore(initialStudioState({
-      chats: [chat],
+      projectCatalog: catalogBoundToRootSession(),
       sessions: [rootSession],
       compatibility: { status: "ready", profile: "verified", capabilities: ["attach_snapshot", "event_sequence"] },
     }));
