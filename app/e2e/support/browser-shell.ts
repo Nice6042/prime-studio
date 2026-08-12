@@ -54,6 +54,7 @@ export const test = base.extend<ShellFixtures>({
       const callbacks = new Map<number, Callback>();
       const listeners = new Map<string, number[]>();
       let nextCallback = 1;
+      let projectedHarnessSessions = scenario.sessions.map((session) => ({ ...session, freshness: "live" }));
 
       const emit = (event: string, payload: unknown) => {
         for (const id of listeners.get(event) ?? []) {
@@ -174,8 +175,50 @@ export const test = base.extend<ShellFixtures>({
                 profile: "prime-agent-daemon-v7-schema13-816309b1cd50",
                 capabilities: scenario.runtime.capabilities,
               },
-              sessions: scenario.sessions.map((session) => ({ ...session, freshness: "live" })),
+              sessions: projectedHarnessSessions,
             };
+          case "harness_attach_session": {
+            const request = args.request as { sessionId?: string } | undefined;
+            const index = projectedHarnessSessions.findIndex((session) => session.sessionId === request?.sessionId);
+            if (index < 0) throw new Error("Harness session unavailable");
+            const current = projectedHarnessSessions[index]!;
+            const updated = { ...current, cursor: { ...current.cursor as Record<string, unknown>, sequence: Number((current.cursor as { sequence: number }).sequence) + 1 } };
+            projectedHarnessSessions = projectedHarnessSessions.map((session, candidate) => candidate === index ? updated : session);
+            return updated;
+          }
+          case "harness_session_command": {
+            const request = args.request as {
+              sessionId?: string;
+              commandId?: string;
+              expectedCursor?: { runtimeGeneration?: string; sequence?: number };
+              kind?: string;
+              text?: string;
+            } | undefined;
+            const index = projectedHarnessSessions.findIndex((session) => session.sessionId === request?.sessionId);
+            if (index < 0 || !request?.commandId || !request.expectedCursor) throw new Error("Harness command unavailable");
+            const current = projectedHarnessSessions[index]! as Record<string, unknown> & {
+              cursor: { runtimeGeneration: string; sequence: number };
+              parentMessages: Array<Record<string, unknown>>;
+              usage: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; cost: number | null };
+            };
+            if (request.expectedCursor.runtimeGeneration !== current.cursor.runtimeGeneration || request.expectedCursor.sequence !== current.cursor.sequence) throw new Error("Harness cursor stale");
+            const sequence = current.cursor.sequence + 1;
+            const input = request.kind === "abort" ? 0 : Math.max(1, Math.ceil((request.text ?? "").length / 4));
+            const output = request.kind === "abort" ? 0 : 12;
+            const messages = request.kind === "abort" ? current.parentMessages : [...current.parentMessages,
+              { channel: "parent", kind: "user", id: `${request.commandId}-user`, text: request.text, emittedAtMs: 1_775_995_220_000 },
+              { channel: "parent", kind: "assistant", id: `${request.commandId}-assistant`, blocks: [{ kind: "text", text: "Synthetic Harness response admitted through the verified Studio protocol." }], streaming: false, emittedAtMs: 1_775_995_220_001 },
+            ];
+            const updated = {
+              ...current,
+              cursor: { ...current.cursor, sequence },
+              state: request.kind === "abort" ? "idle" : "working",
+              parentMessages: messages,
+              usage: { ...current.usage, input: current.usage.input + input, output: current.usage.output + output, totalTokens: current.usage.totalTokens + input + output },
+            };
+            projectedHarnessSessions = projectedHarnessSessions.map((session, candidate) => candidate === index ? updated : session);
+            return { commandId: request.commandId, outcome: "accepted", session: updated };
+          }
           case "harness_projection":
             return [];
           case "get_layout_preferences":

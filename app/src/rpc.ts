@@ -32,7 +32,12 @@ import type {
 
 // The versioned Harness projection is the only new integration surface.
 // Legacy session methods below remain isolated until verified activation.
-export { bootstrapHarness, subscribeHarnessEvents } from "./shared/ipc/client";
+export {
+  attachHarnessSession,
+  bootstrapHarness,
+  sendHarnessCommand,
+  subscribeHarnessEvents,
+} from "./shared/ipc/client";
 
 type EventHandler = (sessionKey: string, event: PrimeEvent) => void;
 type ExitHandler = (sessionKey: string, text: string) => void;

@@ -347,6 +347,65 @@ export async function bootstrapHarness(): Promise<BootProjection> {
   return projection;
 }
 
+export interface HarnessSessionCommandRequest {
+  readonly sessionId: string;
+  readonly commandId: string;
+  readonly expectedCursor: HarnessCursor;
+  readonly kind: "prompt" | "steer" | "follow_up" | "abort";
+  readonly text: string;
+}
+
+export interface HarnessSessionCommandResult {
+  readonly commandId: string;
+  readonly outcome: "accepted" | "queued" | "reconciled";
+  readonly session: RootSessionProjection;
+}
+
+export function decodeHarnessSessionProjection(value: unknown): RootSessionProjection {
+  return deepFreeze(session(detach(value)));
+}
+
+export async function attachHarnessSession(sessionId: string): Promise<RootSessionProjection> {
+  const exactSessionId = id(sessionId);
+  const projection = decodeHarnessSessionProjection(await invoke("harness_attach_session", {
+    request: { sessionId: exactSessionId },
+  }));
+  if (projection.sessionId !== exactSessionId) fail();
+  return projection;
+}
+
+function commandRequest(value: HarnessSessionCommandRequest): HarnessSessionCommandRequest {
+  const source = record(detach(value), ["sessionId", "commandId", "expectedCursor", "kind", "text"]);
+  const kind = oneOf(source.kind, new Set(["prompt", "steer", "follow_up", "abort"] as const));
+  const text = bounded(source.text, 131_072, true);
+  if ((kind === "abort") !== (text.length === 0) || (kind !== "abort" && text.trim().length === 0)) fail();
+  return deepFreeze({
+    sessionId: id(source.sessionId),
+    commandId: id(source.commandId),
+    expectedCursor: cursor(source.expectedCursor),
+    kind,
+    text,
+  });
+}
+
+export async function sendHarnessCommand(request: HarnessSessionCommandRequest): Promise<HarnessSessionCommandResult> {
+  const exact = commandRequest(request);
+  const source = record(detach(await invoke("harness_session_command", { request: exact })), ["commandId", "outcome", "session"]);
+  const commandId = id(source.commandId);
+  const projected = session(source.session);
+  if (
+    commandId !== exact.commandId
+    || projected.sessionId !== exact.sessionId
+    || projected.cursor.runtimeGeneration !== exact.expectedCursor.runtimeGeneration
+    || projected.cursor.sequence !== exact.expectedCursor.sequence + 1
+  ) fail();
+  return deepFreeze({
+    commandId,
+    outcome: oneOf(source.outcome, new Set(["accepted", "queued", "reconciled"] as const)),
+    session: projected,
+  });
+}
+
 type Listener = (event: HarnessProjectionEvent) => void;
 const listeners = new Set<Listener>();
 let unlisten: Promise<UnlistenFn> | null = null;

@@ -12,9 +12,11 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 import {
+  attachHarnessSession,
   bootstrapHarness,
   decodeBootProjection,
   decodeHarnessProjectionEvent,
+  sendHarnessCommand,
   subscribeHarnessEvents,
 } from "./client";
 
@@ -135,6 +137,53 @@ describe("Harness IPC client", () => {
       schemaVersion: 1, sequence: 1, type: "session_projection", session,
     });
     expect(() => decodeHarnessProjectionEvent({ schemaVersion: 1, sequence: 1, type: "session_projection", session, extra: true })).toThrow();
+  });
+
+  it("binds typed attach and command responses to the requested session and command", async () => {
+    mocks.invoke.mockResolvedValueOnce({ ...session, cursor: { ...session.cursor, sequence: 2 } });
+    const attached = await attachHarnessSession("root");
+    expect(attached.cursor.sequence).toBe(2);
+    expect(mocks.invoke).toHaveBeenLastCalledWith("harness_attach_session", { request: { sessionId: "root" } });
+
+    const commandSession = { ...session, cursor: { ...session.cursor, sequence: 3 }, state: "working" };
+    mocks.invoke.mockResolvedValueOnce({ commandId: "command-12345678", outcome: "accepted", session: commandSession });
+    const result = await sendHarnessCommand({
+      sessionId: "root",
+      commandId: "command-12345678",
+      expectedCursor: { runtimeGeneration: "generation", sequence: 2 },
+      kind: "prompt",
+      text: "Hello Harness",
+    });
+    expect(result).toEqual({ commandId: "command-12345678", outcome: "accepted", session: commandSession });
+    expect(Object.isFrozen(result.session)).toBe(true);
+    expect(mocks.invoke).toHaveBeenLastCalledWith("harness_session_command", {
+      request: {
+        sessionId: "root",
+        commandId: "command-12345678",
+        expectedCursor: { runtimeGeneration: "generation", sequence: 2 },
+        kind: "prompt",
+        text: "Hello Harness",
+      },
+    });
+  });
+
+  it("rejects mismatched command identity and malformed session command output", async () => {
+    mocks.invoke.mockResolvedValueOnce({ commandId: "other-command-id", outcome: "accepted", session });
+    await expect(sendHarnessCommand({
+      sessionId: "root",
+      commandId: "command-12345678",
+      expectedCursor: session.cursor,
+      kind: "prompt",
+      text: "Hello",
+    })).rejects.toThrow("Harness projection unavailable");
+    mocks.invoke.mockResolvedValueOnce({ commandId: "command-12345678", outcome: "unknown", session });
+    await expect(sendHarnessCommand({
+      sessionId: "root",
+      commandId: "command-12345678",
+      expectedCursor: session.cursor,
+      kind: "prompt",
+      text: "Hello",
+    })).rejects.toThrow("Harness projection unavailable");
   });
 
   it("uses one listener and stops delivery after a sequence gap", async () => {

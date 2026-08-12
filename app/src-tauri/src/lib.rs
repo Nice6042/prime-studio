@@ -36,7 +36,9 @@ use bounded_io::{
 use browser::{
     BrowserBroker, BrowserIntentAdmission, BrowserIntentAdmissionRequest, BrowserSecurityStatus,
 };
-use commands::harness::{harness_bootstrap, harness_projection};
+use commands::harness::{
+    harness_attach_session, harness_bootstrap, harness_projection, harness_session_command,
+};
 use commands::settings::{get_layout_preferences, set_layout_preferences};
 use computer_use::{ComputerUseBroker, ComputerUseReadinessProjection};
 use project_catalog::{CatalogSnapshot, ProjectCatalog};
@@ -3641,6 +3643,101 @@ fn navigation_allowed(url: &tauri::Url, is_dev: bool) -> bool {
     }
 }
 
+#[cfg(debug_assertions)]
+fn install_explicit_debug_harness_fixture(app: &AppHandle) -> std::io::Result<()> {
+    use harness::broker::{HarnessBroker, SessionOwnership};
+    use harness::sidecar::{SidecarSupervisor, VerifiedSidecarSpec};
+    use sha2::{Digest, Sha256};
+
+    const RUNTIME_DIGEST: &str =
+        "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900";
+    const PROFILE: &str = "prime-agent-daemon-v7-schema13-816309b1cd50";
+    const RESOURCE_NAMES: [&str; 7] = [
+        "compatibility.js",
+        "fakeDaemonScenario.js",
+        "framing.js",
+        "index.js",
+        "redaction.js",
+        "runtimeDiscovery.js",
+        "profiles/daemon-v7-schema13.js",
+    ];
+
+    let configured = [
+        std::env::var_os("PRIME_STUDIO_DEBUG_HARNESS_NODE"),
+        std::env::var_os("PRIME_STUDIO_DEBUG_HARNESS_ENTRY"),
+        std::env::var_os("PRIME_STUDIO_DEBUG_HARNESS_SCENARIO"),
+    ];
+    if configured.iter().all(Option::is_none) {
+        return Ok(());
+    }
+    if configured.iter().any(Option::is_none) {
+        return Err(std::io::Error::other(
+            "all explicit debug Harness fixture paths are required",
+        ));
+    }
+    let node = PathBuf::from(configured[0].as_ref().expect("checked"));
+    let entry = PathBuf::from(configured[1].as_ref().expect("checked"));
+    let scenario = PathBuf::from(configured[2].as_ref().expect("checked"));
+    if !node.is_absolute() || !entry.is_absolute() || !scenario.is_absolute() {
+        return Err(std::io::Error::other(
+            "debug Harness fixture paths must be absolute",
+        ));
+    }
+    let digest = |path: &Path| -> std::io::Result<String> {
+        Ok(format!("sha256:{:x}", Sha256::digest(std::fs::read(path)?)))
+    };
+    let root = entry
+        .parent()
+        .ok_or_else(|| std::io::Error::other("debug Harness entry has no parent"))?;
+    let mut resources = RESOURCE_NAMES
+        .into_iter()
+        .map(|relative| root.join(relative))
+        .collect::<Vec<_>>();
+    resources.push(scenario.clone());
+    let resources = resources
+        .into_iter()
+        .map(|path| digest(&path).map(|hash| (path, hash)))
+        .collect::<std::io::Result<Vec<_>>>()?;
+    let spec = VerifiedSidecarSpec::verify(
+        node.clone(),
+        digest(&node)?,
+        vec![
+            entry.display().to_string(),
+            "--fixture-scenario".to_owned(),
+            scenario.display().to_string(),
+        ],
+        resources,
+    )
+    .map_err(|error| {
+        std::io::Error::other(format!("Harness fixture verification failed: {error}"))
+    })?;
+    let sidecar = SidecarSupervisor::start(spec).map_err(|error| {
+        std::io::Error::other(format!("Harness fixture failed to start: {error}"))
+    })?;
+    let mut broker = HarnessBroker::new(
+        sidecar,
+        RUNTIME_DIGEST.to_owned(),
+        PROFILE.to_owned(),
+        vec![(
+            "session-e2e".to_owned(),
+            SessionOwnership {
+                account_id: Some("account-e2e".to_owned()),
+                project_id: "project:personal".to_owned(),
+                chat_id: "chat-e2e".to_owned(),
+            },
+        )],
+        None,
+    )
+    .map_err(|error| std::io::Error::other(format!("Harness fixture broker failed: {error}")))?;
+    tauri::async_runtime::block_on(broker.bootstrap()).map_err(|error| {
+        std::io::Error::other(format!("Harness fixture bootstrap failed: {error}"))
+    })?;
+    app.state::<AppState>()
+        .harness
+        .install(broker)
+        .map_err(std::io::Error::other)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     std::fs::create_dir_all(config_dir()).unwrap_or_else(|error| {
@@ -3656,6 +3753,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
         .setup(|app| {
+            #[cfg(debug_assertions)]
+            if tauri::is_dev() {
+                install_explicit_debug_harness_fixture(app.handle())?;
+            }
             let config = app
                 .config()
                 .app
@@ -3711,6 +3812,8 @@ pub fn run() {
             scheduler_projection,
             harness_bootstrap,
             harness_projection,
+            harness_attach_session,
+            harness_session_command,
             get_layout_preferences,
             set_layout_preferences,
             set_app_setting,

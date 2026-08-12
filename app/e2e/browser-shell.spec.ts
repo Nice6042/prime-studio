@@ -9,8 +9,8 @@ test("production workspace presents the complete three-region shell", async ({ s
   await expect(shellPage.getByText("Checking protocol identity and capability closure.")).toHaveCount(0);
   await expect(shellPage.getByText("workspace.inspect")).toHaveCount(0);
   await expect(shellPage.getByPlaceholder("Message Prime")).toBeEditable();
-  await expect(shellPage.getByRole("button", { name: "Send message" })).toBeDisabled();
-  await expect(shellPage.getByText("Prompt admission is not connected.")).toBeVisible();
+  await expect(shellPage.getByRole("button", { name: "Model unavailable" })).toBeDisabled();
+  await expect(shellPage.getByText("Prompt admission is not connected.")).toHaveCount(0);
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-workspace");
 });
 
@@ -28,6 +28,17 @@ test("Harness keeps child work, activity, and current-chat usage out of the pare
   await expect(harness.getByText("Current chat only")).toBeVisible();
   await expect(harness.getByText("2,400")).toBeVisible();
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-harness");
+});
+
+test("composer admits a cursor-bound command and replaces the live projection", async ({ shellPage }) => {
+  const composer = shellPage.getByPlaceholder("Message Prime");
+  await composer.fill("Verify the typed command path");
+  await composer.press("Enter");
+  await expect(shellPage.getByText("Synthetic Harness response admitted through the verified Studio protocol.")).toBeVisible();
+  await expect(composer).toHaveValue("");
+  const harness = shellPage.getByRole("complementary", { name: "Harness" });
+  await harness.getByRole("tab", { name: "Usage" }).click();
+  await expect(harness.getByText("2,420")).toBeVisible();
 });
 
 test("account usage routes to Settings and remains truthfully distinct", async ({ shellPage }) => {

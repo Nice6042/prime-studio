@@ -229,6 +229,7 @@ pub enum CommandAuthority {
     AccountManagement,
     LocalBookkeeping,
     SafetyControl,
+    VerifiedBroker,
     DynamicRawRpc,
     Effects(&'static [EffectClass]),
 }
@@ -271,6 +272,8 @@ pub enum TauriCommand {
     SchedulerProjection,
     HarnessBootstrap,
     HarnessProjection,
+    HarnessAttachSession,
+    HarnessSessionCommand,
     GetLayoutPreferences,
     SetLayoutPreferences,
     SetAppSetting,
@@ -283,7 +286,7 @@ pub enum TauriCommand {
     ComputerUseReadiness,
 }
 
-pub const ALL_TAURI_COMMANDS: [TauriCommand; 46] = [
+pub const ALL_TAURI_COMMANDS: [TauriCommand; 48] = [
     TauriCommand::StartSession,
     TauriCommand::AttachSession,
     TauriCommand::DetachSession,
@@ -320,6 +323,8 @@ pub const ALL_TAURI_COMMANDS: [TauriCommand; 46] = [
     TauriCommand::SchedulerProjection,
     TauriCommand::HarnessBootstrap,
     TauriCommand::HarnessProjection,
+    TauriCommand::HarnessAttachSession,
+    TauriCommand::HarnessSessionCommand,
     TauriCommand::GetLayoutPreferences,
     TauriCommand::SetLayoutPreferences,
     TauriCommand::SetAppSetting,
@@ -378,6 +383,8 @@ impl TauriCommand {
             Self::SchedulerProjection => "scheduler_projection",
             Self::HarnessBootstrap => "harness_bootstrap",
             Self::HarnessProjection => "harness_projection",
+            Self::HarnessAttachSession => "harness_attach_session",
+            Self::HarnessSessionCommand => "harness_session_command",
             Self::GetLayoutPreferences => "get_layout_preferences",
             Self::SetLayoutPreferences => "set_layout_preferences",
             Self::SetAppSetting => "set_app_setting",
@@ -426,6 +433,9 @@ impl TauriCommand {
             Self::BeginAccountLogin => CommandAuthority::Effects(&[AccountAuthentication]),
             Self::OpenExternal => CommandAuthority::Effects(&[ExternalNavigation]),
             Self::DetachSession | Self::StopSession => CommandAuthority::SafetyControl,
+            Self::HarnessAttachSession | Self::HarnessSessionCommand => {
+                CommandAuthority::VerifiedBroker
+            }
             Self::NoteAgent => CommandAuthority::LocalBookkeeping,
             Self::SendRpc => CommandAuthority::DynamicRawRpc,
             Self::GetProviderProductSnapshot
@@ -526,7 +536,8 @@ pub fn authorize_tauri_command(
         CommandAuthority::OfflineRead
         | CommandAuthority::AccountManagement
         | CommandAuthority::LocalBookkeeping
-        | CommandAuthority::SafetyControl => Ok(()),
+        | CommandAuthority::SafetyControl
+        | CommandAuthority::VerifiedBroker => Ok(()),
     }
 }
 

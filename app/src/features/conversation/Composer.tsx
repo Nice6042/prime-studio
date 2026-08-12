@@ -28,6 +28,7 @@ export function Composer({
   onAbort,
   onOpenUsage,
   onAttachmentsChange,
+  statusMessage,
 }: {
   readonly draft: string;
   readonly state: ComposerState;
@@ -37,6 +38,7 @@ export function Composer({
   readonly onAbort: () => void;
   readonly onOpenUsage: () => void;
   readonly onAttachmentsChange?: (attachments: readonly AttachmentMetadata[]) => void;
+  readonly statusMessage?: string;
 }) {
   const slashCommands = useMemo(() => filterSlashCommands(draft), [draft]);
   const disabledReason = state.kind === "unavailable" ? state.reason : state.kind === "read_only" ? "Archived conversations are read-only." : null;
@@ -104,6 +106,6 @@ export function Composer({
           : <button className="composer-send" type="button" aria-label="Send message" onClick={submit} disabled={!canSubmit || busy}><SendIcon /></button>}
       </div>
     </div>
-    <div className="composer-explanation" role="status">{disabledReason ?? (state.kind === "working" ? "Prime is working. Queue or steer this turn." : "")}</div>
+    <div className="composer-explanation" role="status">{disabledReason ?? statusMessage ?? (state.kind === "working" ? "Prime is working. Queue or steer this turn." : "")}</div>
   </div>;
 }
