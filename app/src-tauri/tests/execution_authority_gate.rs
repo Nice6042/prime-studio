@@ -9,7 +9,7 @@ use prime_studio_lib::authority::{
 };
 use serde_json::{json, Value};
 
-const EXPECTED_TAURI_COMMANDS: [&str; 46] = [
+const EXPECTED_TAURI_COMMANDS: [&str; 48] = [
     "start_session",
     "attach_session",
     "detach_session",
@@ -46,6 +46,8 @@ const EXPECTED_TAURI_COMMANDS: [&str; 46] = [
     "scheduler_projection",
     "harness_bootstrap",
     "harness_projection",
+    "harness_attach_session",
+    "harness_session_command",
     "get_layout_preferences",
     "set_layout_preferences",
     "set_app_setting",
@@ -190,6 +192,7 @@ fn native_scheduler_surface_registers_projection_only() {
 fn tauri_policy_keeps_only_offline_account_configuration_reads_and_owned_stop_paths_open() {
     use CommandAuthority::{
         AccountManagement, DynamicRawRpc, LocalBookkeeping, OfflineRead, SafetyControl,
+        VerifiedBroker,
     };
 
     let cases = [
@@ -213,6 +216,8 @@ fn tauri_policy_keeps_only_offline_account_configuration_reads_and_owned_stop_pa
         (TauriCommand::SchedulerProjection, OfflineRead),
         (TauriCommand::HarnessBootstrap, OfflineRead),
         (TauriCommand::HarnessProjection, OfflineRead),
+        (TauriCommand::HarnessAttachSession, VerifiedBroker),
+        (TauriCommand::HarnessSessionCommand, VerifiedBroker),
         (TauriCommand::GetLayoutPreferences, OfflineRead),
         (TauriCommand::ComputerUseReadiness, OfflineRead),
     ];

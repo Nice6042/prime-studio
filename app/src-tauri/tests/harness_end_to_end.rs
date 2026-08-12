@@ -63,7 +63,7 @@ fn node_executable() -> PathBuf {
             .unwrap()
             .trim()
             .to_owned();
-        return PathBuf::from(first);
+        PathBuf::from(first)
     }
     #[cfg(not(windows))]
     {

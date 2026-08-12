@@ -54,7 +54,11 @@ fn renderer_payload_cannot_supply_runtime_readiness() {
 
     assert!(matches!(
         authorize_tauri_invoke(&gate, "harness_bootstrap", &hostile_payload),
-        Err(AuthorityError::UnknownTauriCommand { .. })
+        Err(AuthorityError::MalformedTauriPayload)
+    ));
+    assert!(matches!(
+        authorize_tauri_invoke(&gate, "harness_projection", &hostile_payload),
+        Err(AuthorityError::MalformedTauriPayload)
     ));
 }
 

@@ -480,7 +480,9 @@ pub fn authorize_tauri_invoke(
                 .ok_or(AuthorityError::MalformedTauriPayload)?;
             authorize_raw_rpc(gate, raw_command)
         }
-        TauriCommand::BrowserSecurityStatus => {
+        TauriCommand::BrowserSecurityStatus
+        | TauriCommand::HarnessBootstrap
+        | TauriCommand::HarnessProjection => {
             let object = payload
                 .as_object()
                 .ok_or(AuthorityError::MalformedTauriPayload)?;
