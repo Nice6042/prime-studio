@@ -37,6 +37,7 @@ import { installWorkspacePreferences } from "./workspacePreferences";
 import { hasOpenStudioOverlay } from "../surfaceEscape";
 import { chatAttentionEvidence, deriveUnreadChatIds } from "../attention/attentionLedger";
 import { loadAttentionSnapshot, markAttentionSeen } from "../attention/attentionClient";
+import { LayoutPersistenceCoordinator } from "./layoutPersistence";
 
 let bootstrapPromise: ReturnType<typeof rpc.bootstrapHarness> | null = null;
 let catalogPromise: ReturnType<typeof loadProjectCatalog> | null = null;
@@ -92,6 +93,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const conversationDisplay = useStudioSelector((state) => state.conversationDisplay);
   const attention = useStudioSelector((state) => state.attention);
   const viewport = useViewportWidth();
+  const initialExpandedProjectIds = projectCatalog.projects.filter((project) => !project.archived).map((project) => project.id);
   const [layout, setLayout] = useState<LayoutPreferencesV1>({
     schemaVersion: 1,
     sidebarOpen: true,
@@ -100,7 +102,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     inspectorWidth: 384,
     editorOpen: false,
     editorWidth: 400,
-    expandedProjectIds: [],
+    expandedProjectIds: initialExpandedProjectIds,
   });
   const [query, setQuery] = useState("");
   const [settings, setSettings] = useState<AppSettings>({});
@@ -119,8 +121,15 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const [admissionPhase, setAdmissionPhase] = useState<"idle" | "submitting" | "aborting">("idle");
   const [admissionMessage, setAdmissionMessage] = useState("");
   const [expandedProjectIds, setExpandedProjectIds] = useState<ReadonlySet<string>>(
-    () => new Set(projectCatalog.projects.filter((project) => !project.archived).map((project) => project.id)),
+    () => new Set(initialExpandedProjectIds),
   );
+  const layoutCoordinator = useRef<LayoutPersistenceCoordinator | null>(null);
+  if (layoutCoordinator.current === null) {
+    layoutCoordinator.current = new LayoutPersistenceCoordinator(layout, rpc.setLayoutPreferences, (next) => {
+      setLayout(next);
+      setExpandedProjectIds(new Set(next.expandedProjectIds));
+    });
+  }
   const [catalogOperation, setCatalogOperation] = useState<WorkspaceOperationState>({ phase: "idle" });
   const [operationFeedback, setOperationFeedback] = useState<string | null>(null);
   const [loadedComposer, setLoadedComposer] = useState<Readonly<{ sessionId: string; projection: HarnessComposerProjection }> | null>(null);
@@ -162,8 +171,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     let active = true;
     void rpc.getLayoutPreferences().then((preferences) => {
       if (active) {
-        setLayout(preferences);
-        setExpandedProjectIds(new Set(preferences.expandedProjectIds));
+        layoutCoordinator.current?.adoptInitial(preferences);
       }
     });
     return () => { active = false; };
@@ -264,16 +272,11 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     return () => { active = false; };
   }, [store]);
 
-  const changeLayout = async (patch: Partial<LayoutPreferencesV1>): Promise<StudioOperationOutcome> => {
-    const next = { ...layout, ...patch };
-    setLayout(next);
-    try {
-      const persisted = await rpc.setLayoutPreferences(next);
-      setLayout(persisted);
-      return { status: "updated", revision: JSON.stringify(persisted) };
-    } catch {
-      return { status: "rejected", reason: "The layout changed for this session but could not be saved.", retryable: true };
-    }
+  const changeLayout = async (change: Partial<LayoutPreferencesV1> | ((current: LayoutPreferencesV1) => LayoutPreferencesV1)): Promise<StudioOperationOutcome> => {
+    const result = await layoutCoordinator.current!.update((current) => typeof change === "function" ? change(current) : { ...current, ...change });
+    return result.status === "updated"
+      ? { status: "updated", revision: JSON.stringify(result.value) }
+      : { status: "rejected", reason: result.reason, retryable: true };
   };
 
   const openPalette = () => {
@@ -461,13 +464,13 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
 
   const rendererExecutor = async (operation: StudioOperation): Promise<StudioOperationOutcome> => {
     switch (operation.action) {
-      case "layout.sidebar.toggle": return changeLayout({ sidebarOpen: !layout.sidebarOpen });
+      case "layout.sidebar.toggle": return changeLayout((current) => ({ ...current, sidebarOpen: !current.sidebarOpen }));
       case "layout.sidebar.resize": return changeLayout({ sidebarWidth: operation.payload.width });
       case "layout.sidebar.reset": return changeLayout({ sidebarWidth: 264 });
-      case "layout.inspector.toggle": return changeLayout({ inspectorOpen: !layout.inspectorOpen });
+      case "layout.inspector.toggle": return changeLayout((current) => ({ ...current, inspectorOpen: !current.inspectorOpen }));
       case "layout.inspector.resize": return changeLayout({ inspectorWidth: operation.payload.width });
       case "layout.inspector.reset": return changeLayout({ inspectorWidth: 384 });
-      case "layout.editor.toggle": return changeLayout({ editorOpen: !layout.editorOpen });
+      case "layout.editor.toggle": return changeLayout((current) => ({ ...current, editorOpen: !current.editorOpen }));
       case "layout.editor.resize": return changeLayout({ editorWidth: operation.payload.width });
       case "layout.editor.close": setActiveSheet(null); return changeLayout({ editorOpen: false });
       case "route.settings.open": store.dispatch({ type: "route/settings", section: operation.payload.section }); break;
@@ -483,10 +486,11 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         else return { status: "unavailable", reason: `Popover ${operation.payload.popoverId} is unavailable.` };
         break;
       case "catalog.project.toggle": {
-        const next = new Set(expandedProjectIds);
-        if (next.has(operation.payload.projectId)) next.delete(operation.payload.projectId); else next.add(operation.payload.projectId);
-        setExpandedProjectIds(next);
-        return changeLayout({ expandedProjectIds: [...next].sort() });
+        return changeLayout((current) => {
+          const next = new Set(current.expandedProjectIds);
+          if (next.has(operation.payload.projectId)) next.delete(operation.payload.projectId); else next.add(operation.payload.projectId);
+          return { ...current, expandedProjectIds: [...next].sort() };
+        });
       }
       case "catalog.chat.select": store.dispatch({ type: "project-chat/command", command: { type: "selection.select-chat", projectId: operation.payload.projectId, chatId: operation.payload.chatId } }); break;
       case "conversation.user-edit.start":
