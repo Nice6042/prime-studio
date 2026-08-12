@@ -51,7 +51,7 @@ export function WorkspaceShell({
       ) : <div className="studio-pane-divider" />)}
       <main className="studio-conversation" aria-label={conversationLabel}>{conversation}</main>
       {inspectorAttached && <>
-        {onInspectorPreferred ? <PaneSeparator label="Resize Harness inspector" value={layout.inspector.width} min={300} max={600} direction={-1} onChange={onInspectorPreferred} onReset={() => onInspectorPreferred(384)} /> : <div className="studio-pane-divider" />}
+        {onInspectorPreferred ? <PaneSeparator label="Resize Harness inspector" value={layout.inspector.width} min={280} max={520} direction={-1} onChange={onInspectorPreferred} onReset={() => onInspectorPreferred(384)} /> : <div className="studio-pane-divider" />}
         <aside className="studio-inspector" aria-label="Harness">{inspectorContent}</aside>
       </>}
       {editorAttached && <>
@@ -59,7 +59,7 @@ export function WorkspaceShell({
         <section className="studio-editor" aria-label="Editor">{editorContent}</section>
       </>}
       {layout.sidebar.mode === "sheet" && activeSheet === "sidebar" && <nav className="studio-sheet studio-sheet-left" aria-label="Projects and chats">{sidebarContent}</nav>}
-      {layout.inspector.mode === "sheet" && activeSheet === "inspector" && <aside className="studio-sheet studio-sheet-right" aria-label="Harness">{inspectorContent}</aside>}
+      {layout.inspector.mode === "sheet" && activeSheet === "inspector" && <aside className="studio-sheet studio-sheet-right studio-harness-sheet" aria-label="Harness" role="dialog" aria-modal="true">{inspectorContent}</aside>}
       {layout.editor.mode === "sheet" && activeSheet === "editor" && <section className="studio-sheet studio-sheet-right" aria-label="Editor">{editorContent}</section>}
     </div>
   );

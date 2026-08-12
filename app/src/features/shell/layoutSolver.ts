@@ -17,7 +17,7 @@ export const layoutBounds = Object.freeze({
   handle: 8,
   rail: 56,
   sidebar: { minimum: 210, maximum: 380, default: 264 },
-  inspector: { minimum: 300, maximum: 600, default: 384 },
+  inspector: { minimum: 280, maximum: 520, default: 384 },
   editor: { minimum: 280, maximum: 600, default: 400 },
   sheetBreakpoint: 760,
 });
@@ -33,7 +33,7 @@ function clamp(value: number, minimum: number, maximum: number, fallback: number
 export function solveLayout(input: LayoutInput): LayoutResult {
   const viewport = Math.max(0, finite(input.viewport, 0));
   const sidebarPreferred = clamp(input.sidebar.preferred, 210, 380, 264);
-  const inspectorPreferred = clamp(input.inspector.preferred, 300, 600, 384);
+  const inspectorPreferred = clamp(input.inspector.preferred, layoutBounds.inspector.minimum, layoutBounds.inspector.maximum, layoutBounds.inspector.default);
   const editorPreferred = clamp(input.editor.preferred, 280, Math.min(600, Math.max(280, viewport * 0.46)), 400);
 
   if (viewport < layoutBounds.sheetBreakpoint) {
