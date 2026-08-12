@@ -279,6 +279,7 @@ pub enum TauriCommand {
     HarnessAttachSession,
     HarnessSessionCommand,
     HarnessInspector,
+    HarnessChildDataPage,
     HarnessComposerProjection,
     HarnessArtifactOpen,
     HarnessRefreshSession,
@@ -302,7 +303,7 @@ pub enum TauriCommand {
     ComputerUseReadiness,
 }
 
-pub const ALL_TAURI_COMMANDS: [TauriCommand; 64] = [
+pub const ALL_TAURI_COMMANDS: [TauriCommand; 65] = [
     TauriCommand::StartSession,
     TauriCommand::AttachSession,
     TauriCommand::DetachSession,
@@ -346,6 +347,7 @@ pub const ALL_TAURI_COMMANDS: [TauriCommand; 64] = [
     TauriCommand::HarnessAttachSession,
     TauriCommand::HarnessSessionCommand,
     TauriCommand::HarnessInspector,
+    TauriCommand::HarnessChildDataPage,
     TauriCommand::HarnessComposerProjection,
     TauriCommand::HarnessArtifactOpen,
     TauriCommand::HarnessRefreshSession,
@@ -422,6 +424,7 @@ impl TauriCommand {
             Self::HarnessAttachSession => "harness_attach_session",
             Self::HarnessSessionCommand => "harness_session_command",
             Self::HarnessInspector => "harness_inspector",
+            Self::HarnessChildDataPage => "harness_child_data_page",
             Self::HarnessComposerProjection => "harness_composer_projection",
             Self::HarnessArtifactOpen => "harness_artifact_open",
             Self::HarnessRefreshSession => "harness_refresh_session",
@@ -484,6 +487,7 @@ impl TauriCommand {
             Self::HarnessAttachSession
             | Self::HarnessSessionCommand
             | Self::HarnessInspector
+            | Self::HarnessChildDataPage
             | Self::AttentionActivityEvidence
             | Self::HarnessComposerProjection
             | Self::HarnessArtifactOpen

@@ -57,14 +57,14 @@ test("archive route and parent conversation remain distinct from Harness child d
   await expect(harness.getByText("Verified child task details are unavailable.")).toBeVisible();
   const chatTab = harness.getByRole("tab", { name: "Chat" });
   await expect(chatTab).toHaveAttribute("aria-selected", "true");
-  await expect(harness.getByText("No verified child transcript entries are available.")).toBeVisible();
+  await expect(harness.getByRole("status", { name: "Child chat unavailable" })).toContainText("Deterministic fixtures do not supply authoritative child paging evidence.");
   await chatTab.focus();
   await chatTab.press("ArrowRight");
   await expect(harness.getByRole("tab", { name: "Activity" })).toHaveAttribute("aria-selected", "true");
-  await expect(harness.getByText("No verified child activity is available.")).toBeVisible();
+  await expect(harness.getByRole("status", { name: "Child activity unavailable" })).toContainText("Deterministic fixtures do not supply authoritative child paging evidence.");
   await harness.getByRole("tab", { name: "Activity" }).press("ArrowRight");
   await expect(harness.getByRole("tab", { name: "Files" })).toHaveAttribute("aria-selected", "true");
-  await expect(harness.getByText("No files touched yet.")).toBeVisible();
+  await expect(harness.getByRole("status", { name: "Child files unavailable" })).toContainText("Deterministic fixtures do not supply authoritative child paging evidence.");
   await activateWithKeyboard(harness.getByRole("button", { name: "Back to Harness" }));
   await expect(harness.getByRole("tab", { name: "Harness" })).toHaveAttribute("aria-selected", "true");
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-archive-parent-child-harness");

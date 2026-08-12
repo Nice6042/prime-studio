@@ -103,6 +103,9 @@ test("compiled sidecar serves discovery and bootstrap from the deterministic fak
   const inspector = await request("request_inspector_001", { type: "inspector", sessionId: "session-e2e" });
   assert.equal(inspector.payload.type, "inspector_result");
   assert.equal(typeof inspector.payload.detailsJson, "string");
+  const childPage = await request("request_child_page_001", { type: "child_data_page", sessionId: "session-e2e", childId: "child-runtime", tab: "chat", expectedCursor: { runtimeGeneration: "fake-generation-1", sequence: 9 }, pageCursor: null });
+  assert.equal(childPage.payload.type, "child_data_page_result");
+  assert.deepEqual(JSON.parse(String(childPage.payload.pageJson)), { status: "unavailable", tab: "chat", reason: "Deterministic fixtures do not supply authoritative child paging evidence." });
   const operation = await request("request_operation_001", {
     type: "studio_operation", sessionId: "session-e2e", operationId: "operation-fixture-1",
     action: "usage.current.refresh", payloadJson: '{"sessionId":"session-e2e"}', expectedCursor: null, idempotencyKey: null,

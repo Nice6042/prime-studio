@@ -54,8 +54,12 @@ test("generation is deterministic and bound to the source schema hash", async ()
   assert.match(first.rust, /^\/\/ Generated from harness-v1\.schema\.json; SHA-256: [a-f0-9]{64}/);
   assert.match(first.typescript, /export type StudioRequest/);
   assert.match(first.typescript, /export interface RootSessionSnapshot/);
+  assert.match(first.typescript, /type: "child_data_page"/);
+  assert.match(first.typescript, /type: "child_data_page_result"/);
   assert.match(first.rust, /pub enum StudioRequest/);
   assert.match(first.rust, /pub struct RootSessionSnapshot/);
+  assert.match(first.rust, /ChildDataPage/);
+  assert.match(first.rust, /ChildDataPageResult/);
 });
 
 test("checked-in generated files exactly match the schema", async () => {

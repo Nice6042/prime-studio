@@ -96,6 +96,37 @@ export interface PrimeHarnessInspectorDetails {
   }>;
 }
 
+export type PrimeHarnessChildPage =
+  | Readonly<{ status: "unavailable"; tab: "chat" | "activity" | "files"; reason: string }>
+  | Readonly<{
+      status: "available"; tab: "chat";
+      items: readonly Readonly<{ id: string; actor: string; occurredAtMs: number; text: string }>[];
+      previousCursor: string | null; omittedItems: number;
+    }>
+  | Readonly<{
+      status: "available"; tab: "activity";
+      items: readonly Readonly<{ id: string; occurredAtMs: number; label: string }>[];
+      previousCursor: string | null; omittedItems: number;
+    }>
+  | Readonly<{
+      status: "available"; tab: "files";
+      items: readonly Readonly<{ id: string; path: string; change: "added" | "modified" | "deleted" | "read" }>[];
+      previousCursor: string | null; omittedItems: number;
+    }>;
+
+interface ChildPageCursorBinding {
+  readonly rootSessionId: string;
+  readonly childId: string;
+  readonly tab: "chat" | "activity" | "files";
+  readonly runtimeGeneration: string;
+  readonly sequence: number;
+  readonly upstreamGeneration: string;
+  readonly upstreamSequence: number;
+  readonly childSessionId: string;
+  readonly snapshotDigest: string;
+  readonly windowEnd: number;
+}
+
 interface BoundConnection {
   connection: DaemonConnectionPort;
   sequence: number;
@@ -268,6 +299,9 @@ function contentText(value: unknown): string {
   if (!Array.isArray(value)) return "";
   return boundedString(value.map((block) => plain(block) && block.type === "text" && typeof block.text === "string" ? block.text : "").join(""), 131_072, true);
 }
+function childPageText(value: unknown): string {
+  return [...contentText(value)].slice(0, 1_024).join("");
+}
 function messageId(message: unknown, index: number): string {
   return stableId("message", `${index}:${JSON.stringify(message).slice(0, 16_384)}`);
 }
@@ -343,6 +377,8 @@ export class PrimeDaemonBridge {
   readonly #creations = new Map<string, Readonly<{ fingerprint: string; response: Extract<ScenarioResponse, { type: "resident_created" }> }>>();
   readonly #operationDispatchers = new Map<string, StudioHarnessOperationDispatcher>();
   readonly #workerRecovery = new Map<string, WorkerRecoveryObservation>();
+  readonly #childPageCursors = new Map<string, ChildPageCursorBinding>();
+  #childPageCursorSequence = 0;
   #workerRecoverySequence = 0;
   #hello: DaemonHelloLike | null = null;
 
@@ -614,33 +650,14 @@ export class PrimeDaemonBridge {
       for (const raw of initial.children.slice(0, 256)) {
         if (!plain(raw) || typeof raw.id !== "string") continue;
         const childId = boundedString(raw.id, 128);
-        const transcript: Array<{ id: string; actor: string; occurredAtMs: number; text: string }> = [];
         let error: { code: string; message: string; retryable: boolean } | null = raw.status === "error"
           ? { code: "child_failed", message: typeof raw.error === "string" ? boundedString(raw.error, 200) : "Child agent failed.", retryable: false }
           : null;
-        if (typeof raw.activeSessionId === "string") {
-          try {
-            const watcher = await this.#call(activeSessionId, "watchSession", raw.activeSessionId);
-            if (plain(watcher) && typeof watcher.getMessages === "function" && typeof watcher.close === "function") {
-              try {
-                const childMessages = await (watcher.getMessages as () => Promise<unknown[]>).call(watcher);
-                for (const [index, message] of childMessages.slice(-300).entries()) {
-                  if (!plain(message)) continue;
-                  transcript.push({ id: messageId(message, index), actor: typeof message.role === "string" ? message.role : "system", occurredAtMs: safeInteger(message.timestamp), text: contentText(message.content) });
-                }
-              } finally {
-                await (watcher.close as () => Promise<void>).call(watcher);
-              }
-            }
-          } catch {
-            error ??= { code: "child_transcript_unavailable", message: "Child transcript is unavailable from the installed Harness.", retryable: true };
-          }
-        }
         children[childId] = Object.freeze({
           summary: typeof raw.recap === "string" ? boundedString(raw.recap, 200) : typeof raw.label === "string" ? boundedString(raw.label, 200) : "Subagent",
           startedAtMs: null,
           context: typeof raw.tokenCount === "number" ? { usedTokens: safeInteger(raw.tokenCount), capacityTokens: 0 } : null,
-          transcript, activity: [], files: [], error,
+          transcript: [], activity: [], files: [], error,
         });
       }
     }
@@ -667,6 +684,63 @@ export class PrimeDaemonBridge {
       sources: Object.freeze(sources.slice(0, 512)), children: Object.freeze(children),
       composer: composerProjection(connection, initial, catalogRaw),
     });
+  }
+
+  async childPage(activeSessionId: string, childId: string, tab: "chat" | "activity" | "files", expectedCursor: Readonly<{ runtimeGeneration: string; sequence: number }>, pageCursor: string | null): Promise<PrimeHarnessChildPage> {
+    const boundedChildId = boundedString(childId, 128);
+    const bound = await this.#bound(activeSessionId);
+    if (!bound.initialized || bound.studioGeneration !== expectedCursor.runtimeGeneration || bound.sequence !== expectedCursor.sequence) throw new Error("stale child page cursor");
+    const initialRaw = await this.#call(activeSessionId, "getInitialSnapshot");
+    if (!plain(initialRaw)) throw new TypeError("daemon child snapshot is invalid");
+    const upstream = this.#upstreamCursor(initialRaw, await this.negotiate());
+    if (bound.publishedUpstreamGeneration !== upstream.generation || bound.publishedUpstreamSequence !== upstream.sequence) throw new Error("stale child page cursor");
+    const children = Array.isArray(initialRaw.children) ? initialRaw.children : [];
+    const matches = children.filter((value) => plain(value) && value.id === boundedChildId);
+    if (matches.length !== 1 || !plain(matches[0])) throw new Error("child is not bound to this root session");
+    const childSessionId = typeof matches[0].activeSessionId === "string" ? boundedString(matches[0].activeSessionId, 128) : null;
+    const watchSession = bound.connection.watchSession;
+    if (!childSessionId || typeof watchSession !== "function") return Object.freeze({ status: "unavailable", tab, reason: "The installed Harness does not expose child session paging." });
+    const watcher = await (watchSession as (id: string) => Promise<unknown>).call(bound.connection, childSessionId).catch(() => null);
+    if (!plain(watcher) || typeof watcher.getMessages !== "function" || typeof watcher.close !== "function") return Object.freeze({ status: "unavailable", tab, reason: "The installed Harness does not expose child session paging." });
+    let rawMessages: unknown;
+    try { rawMessages = await (watcher.getMessages as () => Promise<unknown>).call(watcher); }
+    finally { await (watcher.close as () => Promise<void>).call(watcher).catch(() => undefined); }
+    if (!Array.isArray(rawMessages)) return Object.freeze({ status: "unavailable", tab, reason: "The installed Harness did not provide authoritative child page evidence." });
+    const messages = rawMessages.slice(-4_096);
+    const chat = messages.flatMap((message, index) => plain(message) ? [{ id: messageId(message, index), actor: typeof message.role === "string" ? boundedString(message.role, 64) : "system", occurredAtMs: safeInteger(message.timestamp), text: childPageText(message.content) }] : []);
+    const activity = messages.flatMap((message, index) => {
+      if (!plain(message)) return [];
+      const label = message.role === "toolResult" && typeof message.toolName === "string" ? `Tool: ${boundedString(message.toolName, 200)}` : `${typeof message.role === "string" ? boundedString(message.role, 64) : "system"} message`;
+      return [{ id: messageId(message, index), occurredAtMs: safeInteger(message.timestamp), label }];
+    });
+    const files: Array<{ id: string; path: string; change: "read" }> = [];
+    for (const [messageIndex, message] of messages.entries()) {
+      if (!plain(message) || !Array.isArray(message.content)) continue;
+      for (const [blockIndex, block] of message.content.entries()) {
+        if (!plain(block) || block.type !== "toolCall") continue;
+        const input = plain(block.arguments) ? block.arguments : plain(block.input) ? block.input : {};
+        for (const candidate of [input.path, input.filePath, input.filename]) if (typeof candidate === "string") files.push({ id: stableId("child-file", `${messageIndex}:${blockIndex}:${candidate}`), path: boundedString(candidate, 4096), change: "read" });
+      }
+    }
+    const items = tab === "chat" ? chat : tab === "activity" ? activity : files;
+    const snapshotDigest = createHash("sha256").update(JSON.stringify(items)).digest("hex");
+    let windowEnd = items.length;
+    if (pageCursor !== null) {
+      const prior = this.#childPageCursors.get(pageCursor);
+      if (!prior) throw new Error("unknown or malformed child page cursor");
+      if (prior.rootSessionId !== activeSessionId || prior.childId !== boundedChildId || prior.tab !== tab) throw new Error("cross-child page cursor rejected");
+      if (prior.runtimeGeneration !== expectedCursor.runtimeGeneration || prior.sequence !== expectedCursor.sequence || prior.upstreamGeneration !== upstream.generation || prior.upstreamSequence !== upstream.sequence || prior.childSessionId !== childSessionId || prior.snapshotDigest !== snapshotDigest) throw new Error("stale child page cursor");
+      windowEnd = prior.windowEnd;
+    }
+    const windowStart = Math.max(0, windowEnd - 100);
+    const pageItems = Object.freeze(items.slice(windowStart, windowEnd));
+    let previousCursor: string | null = null;
+    if (windowStart > 0) {
+      previousCursor = createHash("sha256").update(`${activeSessionId}\0${boundedChildId}\0${tab}\0${++this.#childPageCursorSequence}`).digest("base64url");
+      this.#childPageCursors.set(previousCursor, Object.freeze({ rootSessionId: activeSessionId, childId: boundedChildId, tab, runtimeGeneration: expectedCursor.runtimeGeneration, sequence: expectedCursor.sequence, upstreamGeneration: upstream.generation, upstreamSequence: upstream.sequence, childSessionId, snapshotDigest, windowEnd: windowStart }));
+      while (this.#childPageCursors.size > 512) this.#childPageCursors.delete(this.#childPageCursors.keys().next().value!);
+    }
+    return Object.freeze({ status: "available", tab, items: pageItems, previousCursor, omittedItems: rawMessages.length - messages.length + windowStart } as PrimeHarnessChildPage);
   }
 
   async executeOperation(activeSessionId: string, operation: unknown): Promise<StudioHarnessOperationOutcome> {

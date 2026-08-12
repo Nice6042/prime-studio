@@ -207,6 +207,7 @@ export type StudioRequest =
   | { type: "retry_worker"; sessionId: string; observationId: string }
   | { type: "session_command"; sessionId: string; commandId: string; expectedCursor: HarnessCursor; kind: "prompt" | "steer" | "follow_up" | "abort"; text: string }
   | { type: "inspector"; sessionId: string }
+  | { type: "child_data_page"; sessionId: string; childId: string; tab: "chat" | "activity" | "files"; expectedCursor: HarnessCursor; pageCursor: string | null }
   | { type: "refresh_session"; sessionId: string; knownCursor: HarnessCursor }
   | { type: "studio_operation"; sessionId: string; operationId: string; action: HarnessStudioAction; payloadJson: string; expectedCursor: HarnessCursor | null; idempotencyKey: string | null };
 
@@ -219,6 +220,7 @@ export type StudioResponse =
   | { type: "resident_created"; creationId: string; snapshot: RootSessionSnapshot }
   | { type: "resident_branched"; creationId: string; sourceSessionId: string; entryId: string; snapshot: RootSessionSnapshot }
   | { type: "inspector_result"; detailsJson: string }
+  | { type: "child_data_page_result"; pageJson: string }
   | { type: "studio_operation_result"; operationId: string; status: "accepted" | "queued" | "updated" | "cancelled" | "unavailable" | "rejected" | "unknown_outcome"; commandId: string | null; position: number | null; revision: string | null; reason: string | null; retryable: boolean | null; snapshot: RootSessionSnapshot | null }
   | { type: "error"; code: string; message: string };
 
@@ -416,6 +418,13 @@ pub enum StudioRequest {
         text: String,
     },
     Inspector { #[serde(rename = "sessionId")] session_id: String },
+    ChildDataPage {
+        #[serde(rename = "sessionId")] session_id: String,
+        #[serde(rename = "childId")] child_id: String,
+        tab: ChildDataPageTab,
+        #[serde(rename = "expectedCursor")] expected_cursor: HarnessCursor,
+        #[serde(rename = "pageCursor")] page_cursor: Option<String>,
+    },
     RefreshSession { #[serde(rename = "sessionId")] session_id: String, #[serde(rename = "knownCursor")] known_cursor: HarnessCursor },
     StudioOperation {
         #[serde(rename = "sessionId")] session_id: String,
@@ -465,6 +474,10 @@ pub enum SessionCommandKind { Prompt, Steer, FollowUp, Abort }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
+pub enum ChildDataPageTab { Chat, Activity, Files }
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CommandOutcome { Accepted, Queued, Reconciled }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -495,6 +508,7 @@ pub enum StudioResponse {
         snapshot: Box<RootSessionSnapshot>,
     },
     InspectorResult { #[serde(rename = "detailsJson")] details_json: String },
+    ChildDataPageResult { #[serde(rename = "pageJson")] page_json: String },
     StudioOperationResult {
         #[serde(rename = "operationId")] operation_id: String, status: StudioOperationStatus,
         #[serde(rename = "commandId")] command_id: Option<String>, position: Option<u64>, revision: Option<String>,

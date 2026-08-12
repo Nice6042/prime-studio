@@ -11,7 +11,7 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: mocks.listen,
 }));
 
-import { attachHarnessSession, bootstrapHarness, decodeBootProjection, decodeHarnessProjectionEvent, executeHarnessStudioOperation, loadHarnessInspector, refreshHarnessSession, refreshHarnessSubscriptionsNow, registerHarnessSessionProjection, retryHarnessWorker, sendHarnessCommand, subscribeHarnessEvents } from "./client";
+import { attachHarnessSession, bootstrapHarness, decodeBootProjection, decodeHarnessProjectionEvent, executeHarnessStudioOperation, loadHarnessChildPage, loadHarnessInspector, refreshHarnessSession, refreshHarnessSubscriptionsNow, registerHarnessSessionProjection, retryHarnessWorker, sendHarnessCommand, subscribeHarnessEvents } from "./client";
 
 const unavailable = {
   compatibility: {
@@ -438,6 +438,14 @@ describe("Harness IPC client", () => {
         },
       }),
     ).rejects.toThrow("Harness projection unavailable");
+  });
+
+  it("loads a closed child page without admitting raw file paths to the renderer", async () => {
+    mocks.invoke.mockResolvedValueOnce(JSON.stringify({ status: "available", tab: "files", items: [{ id: "file-1", label: "report.md", candidateId: "candidate-1", change: "modified" }], previousCursor: "opaque-cursor", omittedItems: 2 }));
+    await expect(loadHarnessChildPage("root", "child-a", "files", { runtimeGeneration: "generation-1", sequence: 7 }, null)).resolves.toEqual({ status: "available", tab: "files", items: [{ id: "file-1", label: "report.md", candidateId: "candidate-1", change: "modified" }], previousCursor: "opaque-cursor", omittedItems: 2 });
+    expect(mocks.invoke).toHaveBeenLastCalledWith("harness_child_data_page", { request: { sessionId: "root", childId: "child-a", tab: "files", expectedCursor: { runtimeGeneration: "generation-1", sequence: 7 }, pageCursor: null } });
+    mocks.invoke.mockResolvedValueOnce(JSON.stringify({ status: "available", tab: "files", items: [{ id: "file-1", path: "C:\\private.txt", change: "read" }], previousCursor: null, omittedItems: 0 }));
+    await expect(loadHarnessChildPage("root", "child-a", "files", { runtimeGeneration: "generation-1", sequence: 7 }, null)).rejects.toThrow("Harness projection unavailable");
   });
 
   it("rejects mismatched command identity and malformed session command output", async () => {

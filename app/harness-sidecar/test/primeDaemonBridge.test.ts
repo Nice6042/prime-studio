@@ -524,6 +524,67 @@ test("inspector projects only explicit daemon context and output evidence", asyn
   assert.deepEqual(unavailable.outputs, []);
 });
 
+test("inspector never hydrates a child transcript through the parent projection", async () => {
+  const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
+  let childWatchCalls = 0;
+  const state = { activeSessionId: "root", cwd: "C:\\work", thinkingLevel: "high", serviceTier: "auto", availableThinkingLevels: [], isStreaming: false, isCompacting: false, isBashRunning: false, retryAttempt: 0, steeringMode: "all", followUpMode: "all", sessionId: "chat", leafId: null, autoCompactionEnabled: true, messageCount: 0, sessionActions: {}, compactionCount: 0, goal: {}, scopedModels: [], activeToolNames: [] };
+  const connection = {
+    async getInitialSnapshot() { return { state, messages: [], children: [{ id: "child-a", activeSessionId: "child-session-a", label: "Private task" }], lastEventCursor: { generation: "generation-1", sequence: 4 } }; },
+    async getState() { return state; }, async getMessages() { return []; }, async getQueue() { return {}; }, async getSessionContext() { return {}; }, async getModelCatalog() { return { models: [] }; }, async getResourceSnapshot() { return {}; }, async getSessionStats() { return { tokens: {} }; }, async getToolDefinition() { return undefined; },
+    async watchSession() { childWatchCalls += 1; throw new Error("parent inspector must not watch child"); },
+    async prompt() {}, async steer() {}, async followUp() {}, async abort() {}, async dispose() {},
+  };
+  const bridge = new PrimeDaemonBridge({
+    identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
+    client: { async connect() {}, async waitForHello() { return { type: "daemon_hello" as const, socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request() { return { type: "response", command: "list", success: true, data: { sessions: [{ activeSessionId: "root", isSessionActive: true, workerState: "ready" }] } }; }, close() {} },
+    attach: async () => connection,
+  });
+  await bridge.attach("root");
+  const details = await bridge.inspector("root");
+  assert.equal(childWatchCalls, 0);
+  assert.deepEqual(details.children["child-a"]?.transcript, []);
+});
+
+test("child pages are bounded and opaque cursors reject cross-child, malformed, and stale reuse", async () => {
+  const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
+  let rootSequence = 4;
+  const state = { activeSessionId: "root", cwd: "C:\\work", thinkingLevel: "high", serviceTier: "auto", availableThinkingLevels: [], isStreaming: false, isCompacting: false, isBashRunning: false, retryAttempt: 0, steeringMode: "all", followUpMode: "all", sessionId: "chat", leafId: null, autoCompactionEnabled: true, messageCount: 0, sessionActions: {}, compactionCount: 0, goal: {}, scopedModels: [], activeToolNames: [] };
+  const childMessages = Array.from({ length: 205 }, (_, index) => ({ role: index % 2 === 0 ? "assistant" : "user", content: `private-${index}`, timestamp: index + 1 }));
+  const watcher = { async getMessages() { return childMessages; }, async close() {} };
+  const connection = {
+    async getInitialSnapshot() { return { state, messages: [], children: [{ id: "child-a", activeSessionId: "child-session-a" }, { id: "child-b", activeSessionId: "child-session-b" }], lastEventCursor: { generation: "generation-1", sequence: rootSequence } }; },
+    async getState() { return state; }, async getMessages() { return []; }, async getQueue() { return {}; }, async getResourceSnapshot() { return {}; }, async getSessionStats() { return { tokens: {} }; }, async getToolDefinition() { return undefined; }, async watchSession() { return watcher; },
+    async prompt() {}, async steer() {}, async followUp() {}, async abort() {}, async dispose() {},
+  };
+  const bridge = new PrimeDaemonBridge({
+    identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
+    client: { async connect() {}, async waitForHello() { return { type: "daemon_hello" as const, socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request() { return { type: "response", command: "list", success: true, data: { sessions: [{ activeSessionId: "root", isSessionActive: true, workerState: "ready" }] } }; }, close() {} },
+    attach: async () => connection,
+  });
+  const snapshot = await bridge.attach("root");
+  const first = await bridge.childPage("root", "child-a", "chat", snapshot.cursor, null);
+  assert.equal(first.status, "available");
+  assert.equal(first.status === "available" ? first.items.length : -1, 100);
+  assert.equal(first.status === "available" && first.tab === "chat" ? first.items[0]?.text : "", "private-105");
+  assert.ok(first.status === "available" && first.previousCursor);
+  const cursor = first.status === "available" ? first.previousCursor : null;
+  await assert.rejects(() => bridge.childPage("root", "child-b", "chat", snapshot.cursor, cursor), /cross-child/i);
+  await assert.rejects(() => bridge.childPage("root", "child-a", "chat", snapshot.cursor, "not-a-minted-cursor"), /malformed|unknown/i);
+  rootSequence = 5;
+  await assert.rejects(() => bridge.childPage("root", "child-a", "chat", snapshot.cursor, cursor), /stale/i);
+});
+
+test("child page reports explicit unavailable when the verified daemon cannot watch the child", async () => {
+  const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
+  const state = { activeSessionId: "root", cwd: "C:\\work", thinkingLevel: "high", serviceTier: "auto", availableThinkingLevels: [], isStreaming: false, isCompacting: false, isBashRunning: false, retryAttempt: 0, steeringMode: "all", followUpMode: "all", sessionId: "chat", leafId: null, autoCompactionEnabled: true, messageCount: 0, sessionActions: {}, compactionCount: 0, goal: {}, scopedModels: [], activeToolNames: [] };
+  const connection = { async getInitialSnapshot() { return { state, messages: [], children: [{ id: "child-a", activeSessionId: "child-session-a" }], lastEventCursor: { generation: "generation-1", sequence: 4 } }; }, async getState() { return state; }, async getMessages() { return []; }, async getQueue() { return {}; }, async getResourceSnapshot() { return {}; }, async getSessionStats() { return { tokens: {} }; }, async getToolDefinition() { return undefined; }, async prompt() {}, async steer() {}, async followUp() {}, async abort() {}, async dispose() {} };
+  const bridge = new PrimeDaemonBridge({ identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] }, client: { async connect() {}, async waitForHello() { return { type: "daemon_hello" as const, socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request() { return { type: "response", command: "list", success: true, data: { sessions: [{ activeSessionId: "root", isSessionActive: true, workerState: "ready" }] } }; }, close() {} }, attach: async () => connection });
+  const snapshot = await bridge.attach("root");
+  await assert.doesNotReject(async () => {
+    assert.deepEqual(await bridge.childPage("root", "child-a", "files", snapshot.cursor, null), { status: "unavailable", tab: "files", reason: "The installed Harness does not expose child session paging." });
+  });
+});
+
 test("inspector projects bounded authoritative per-turn usage without recounting child context", async () => {
   const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
   const usage = (input: number, output: number, cacheRead: number, cacheWrite: number) => ({

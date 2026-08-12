@@ -7,8 +7,8 @@ use uuid::Uuid;
 
 use super::compatibility::decide_compatibility;
 use super::generated::{
-    CommandOutcome, HarnessCapability, HarnessCompatibility, HarnessCursor, HarnessEvent,
-    HarnessStudioAction, ParentMessage, RootSessionSnapshot, SessionCommandKind,
+    ChildDataPageTab, CommandOutcome, HarnessCapability, HarnessCompatibility, HarnessCursor,
+    HarnessEvent, HarnessStudioAction, ParentMessage, RootSessionSnapshot, SessionCommandKind,
     StudioOperationStatus, StudioRequest, StudioResponse, WorkerRecoveryStatus, WorkerRetryOutcome,
 };
 pub use super::projections::{BootProjection, ProjectionFreshness, RootSessionProjection};
@@ -141,6 +141,14 @@ pub struct WorkerRetryResult {
 
 pub struct InspectorRequest {
     pub session_id: String,
+}
+
+pub struct ChildDataPageRequest {
+    pub session_id: String,
+    pub child_id: String,
+    pub tab: ChildDataPageTab,
+    pub expected_cursor: HarnessCursor,
+    pub page_cursor: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -954,6 +962,65 @@ impl HarnessBroker {
         Ok(details_json)
     }
 
+    pub async fn child_data_page(
+        &mut self,
+        request: ChildDataPageRequest,
+    ) -> Result<String, HarnessError> {
+        if self.state != BrokerState::Live
+            || !valid_id(&request.session_id)
+            || !valid_id(&request.child_id)
+            || request
+                .page_cursor
+                .as_deref()
+                .is_some_and(|cursor| !valid_id(cursor))
+        {
+            return Err(HarnessError::OwnershipViolation);
+        }
+        let current = self
+            .committed
+            .get(&request.session_id)
+            .ok_or(HarnessError::OwnershipViolation)?;
+        if current.cursor != request.expected_cursor
+            || !current
+                .children
+                .iter()
+                .any(|child| child.id == request.child_id)
+        {
+            return Err(HarnessError::OwnershipViolation);
+        }
+        let sidecar = self.sidecar.clone().ok_or(HarnessError::StateViolation)?;
+        let response = sidecar
+            .request(
+                StudioRequest::ChildDataPage {
+                    session_id: request.session_id.clone(),
+                    child_id: request.child_id,
+                    tab: request.tab,
+                    expected_cursor: request.expected_cursor.clone(),
+                    page_cursor: request.page_cursor,
+                },
+                Instant::now() + Duration::from_secs(10),
+            )
+            .await?;
+        let StudioResponse::ChildDataPageResult { page_json } = response else {
+            return Err(HarnessError::ProtocolViolation);
+        };
+        if page_json.chars().count() > 131_072 {
+            return Err(HarnessError::ProtocolViolation);
+        }
+        let ownership = self
+            .ownership
+            .get(&request.session_id)
+            .ok_or(HarnessError::OwnershipViolation)?;
+        let (page_json, candidates) = sanitize_child_data_page(
+            &page_json,
+            &request.session_id,
+            &ownership.project_id,
+            &current.cursor,
+        )?;
+        self.artifact_candidates.extend(candidates);
+        Ok(page_json)
+    }
+
     pub fn activity_attention_evidence(&self, session_id: &str) -> Option<AttentionEvidence> {
         let current = self.committed.get(session_id)?;
         self.activity_attention
@@ -1538,6 +1605,53 @@ fn contains_renderer_path_authority(value: &serde_json::Value) -> bool {
     }
 }
 
+fn sanitize_child_data_page(
+    details_json: &str,
+    session_id: &str,
+    project_id: &str,
+    cursor: &HarnessCursor,
+) -> Result<(String, BTreeMap<String, ArtifactCandidate>), HarnessError> {
+    let mut page: serde_json::Value =
+        serde_json::from_str(details_json).map_err(|_| HarnessError::ProtocolViolation)?;
+    let root = page
+        .as_object_mut()
+        .ok_or(HarnessError::ProtocolViolation)?;
+    let status = root
+        .get("status")
+        .and_then(serde_json::Value::as_str)
+        .ok_or(HarnessError::ProtocolViolation)?;
+    let tab = root
+        .get("tab")
+        .and_then(serde_json::Value::as_str)
+        .ok_or(HarnessError::ProtocolViolation)?;
+    let mut candidates = BTreeMap::new();
+    if status == "available" && tab == "files" {
+        for item in root
+            .get_mut("items")
+            .and_then(serde_json::Value::as_array_mut)
+            .ok_or(HarnessError::ProtocolViolation)?
+        {
+            admit_inspector_candidate(
+                item.as_object_mut()
+                    .ok_or(HarnessError::ProtocolViolation)?,
+                &["path"],
+                session_id,
+                project_id,
+                cursor,
+                true,
+                &mut candidates,
+            )?;
+        }
+    } else if status != "available" && status != "unavailable" {
+        return Err(HarnessError::ProtocolViolation);
+    }
+    if contains_renderer_path_authority(&page) {
+        return Err(HarnessError::ProtocolViolation);
+    }
+    let json = serde_json::to_string(&page).map_err(|_| HarnessError::ProtocolViolation)?;
+    Ok((json, candidates))
+}
+
 fn sanitize_inspector_artifacts(
     details_json: &str,
     session_id: &str,
@@ -1879,6 +1993,19 @@ mod artifact_candidate_tests {
                 detail: None,
             },
         }
+    }
+
+    #[test]
+    fn child_file_pages_mint_candidates_and_strip_all_path_authority() {
+        let cursor = HarnessCursor {
+            runtime_generation: "generation-a".to_owned(),
+            sequence: 3,
+        };
+        let (json, candidates) = sanitize_child_data_page(r#"{"status":"available","tab":"files","items":[{"id":"file-1","path":"C:\\work\\private.txt","change":"modified"}],"previousCursor":null,"omittedItems":0}"#, "session-a", "project-a", &cursor).unwrap();
+        assert!(!json.contains("C:\\work"));
+        assert!(json.contains("candidateId"));
+        assert!(json.contains("private.txt"));
+        assert_eq!(candidates.len(), 1);
     }
 
     fn broker() -> HarnessBroker {

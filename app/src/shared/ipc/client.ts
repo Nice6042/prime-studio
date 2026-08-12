@@ -807,6 +807,33 @@ export async function loadHarnessInspector(sessionId: string): Promise<HarnessIn
   }
 }
 
+export type HarnessChildDataPage =
+  | Readonly<{ status: "unavailable"; tab: "chat" | "activity" | "files"; reason: string }>
+  | Readonly<{ status: "available"; tab: "chat"; items: readonly Readonly<{ id: string; actor: string; occurredAtMs: number; text: string }>[]; previousCursor: string | null; omittedItems: number }>
+  | Readonly<{ status: "available"; tab: "activity"; items: readonly Readonly<{ id: string; occurredAtMs: number; label: string }>[]; previousCursor: string | null; omittedItems: number }>
+  | Readonly<{ status: "available"; tab: "files"; items: readonly Readonly<{ id: string; label: string; candidateId: string; change: "added" | "modified" | "deleted" | "read" }>[]; previousCursor: string | null; omittedItems: number }>;
+
+function decodeHarnessChildDataPage(value: unknown): HarnessChildDataPage {
+  const base = recordWithOptional(value, ["status", "tab"], ["reason", "items", "previousCursor", "omittedItems"]);
+  const tab = oneOf(base.tab, new Set(["chat", "activity", "files"] as const));
+  if (base.status === "unavailable") {
+    const source = record(base, ["status", "tab", "reason"]);
+    return deepFreeze({ status: "unavailable", tab, reason: bounded(source.reason, 200) });
+  }
+  const source = record(base, ["status", "tab", "items", "previousCursor", "omittedItems"]);
+  if (source.status !== "available") return fail();
+  const previousCursor = source.previousCursor === null ? null : id(source.previousCursor);
+  const omittedItems = safeInteger(source.omittedItems);
+  if (tab === "chat") return deepFreeze({ status: "available", tab, previousCursor, omittedItems, items: array(source.items, 100).map((row) => { const item = record(row, ["id", "actor", "occurredAtMs", "text"]); return { id: id(item.id), actor: bounded(item.actor, 64), occurredAtMs: safeInteger(item.occurredAtMs), text: bounded(item.text, 131_072, true) }; }) });
+  if (tab === "activity") return deepFreeze({ status: "available", tab, previousCursor, omittedItems, items: array(source.items, 100).map((row) => { const item = record(row, ["id", "occurredAtMs", "label"]); return { id: id(item.id), occurredAtMs: safeInteger(item.occurredAtMs), label: bounded(item.label, 8_192) }; }) });
+  return deepFreeze({ status: "available", tab, previousCursor, omittedItems, items: array(source.items, 100).map((row) => { const item = record(row, ["id", "label", "candidateId", "change"]); return { id: id(item.id), label: bounded(item.label, 8_192), candidateId: id(item.candidateId), change: oneOf(item.change, new Set(["added", "modified", "deleted", "read"] as const)) }; }) });
+}
+
+export async function loadHarnessChildPage(sessionId: string, childId: string, tab: "chat" | "activity" | "files", expectedCursor: HarnessCursor, pageCursor: string | null): Promise<HarnessChildDataPage> {
+  const pageJson = bounded(await invoke("harness_child_data_page", { request: { sessionId: id(sessionId), childId: id(childId), tab, expectedCursor: cursor(expectedCursor), pageCursor: pageCursor === null ? null : id(pageCursor) } }), 131_072, true);
+  try { return decodeHarnessChildDataPage(JSON.parse(pageJson)); } catch (error) { if (error instanceof HarnessProjectionError) throw error; return fail(); }
+}
+
 export type HarnessStudioOperation = Extract<StudioOperation, { action: HarnessStudioAction }>;
 
 export interface HarnessStudioOperationRequest {

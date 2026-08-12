@@ -9,7 +9,7 @@ use prime_studio_lib::authority::{
 };
 use serde_json::{json, Value};
 
-const EXPECTED_TAURI_COMMANDS: [&str; 64] = [
+const EXPECTED_TAURI_COMMANDS: [&str; 65] = [
     "start_session",
     "attach_session",
     "detach_session",
@@ -53,6 +53,7 @@ const EXPECTED_TAURI_COMMANDS: [&str; 64] = [
     "harness_attach_session",
     "harness_session_command",
     "harness_inspector",
+    "harness_child_data_page",
     "harness_composer_projection",
     "harness_artifact_open",
     "harness_refresh_session",
@@ -239,6 +240,7 @@ fn tauri_policy_keeps_only_offline_account_configuration_reads_and_owned_stop_pa
         (TauriCommand::HarnessAttachSession, VerifiedBroker),
         (TauriCommand::HarnessSessionCommand, VerifiedBroker),
         (TauriCommand::HarnessInspector, VerifiedBroker),
+        (TauriCommand::HarnessChildDataPage, VerifiedBroker),
         (TauriCommand::HarnessComposerProjection, VerifiedBroker),
         (TauriCommand::HarnessArtifactOpen, VerifiedBroker),
         (TauriCommand::HarnessRefreshSession, VerifiedBroker),

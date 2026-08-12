@@ -57,7 +57,7 @@ test("Harness keeps child work, activity, and current-chat usage out of the pare
   await harness.getByRole("button", { name: /Verify runtime compatibility/ }).click();
   await expect(harness.getByRole("heading", { name: "Verify runtime compatibility" })).toBeVisible();
   await expect(harness.getByText("gpt-5.6-sol")).toBeVisible();
-  await expect(harness.getByText(/No verified child transcript entries are available/)).toBeVisible();
+  await expect(harness.getByRole("status", { name: "Child chat unavailable" })).toContainText("Deterministic fixtures do not supply authoritative child paging evidence.");
   await harness.getByRole("button", { name: "Back to Harness" }).click();
   await harness.getByRole("tab", { name: "Activity" }).click();
   await expect(harness.getByText("No activity matches this filter.")).toBeVisible();

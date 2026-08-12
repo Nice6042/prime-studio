@@ -531,6 +531,7 @@ fn validate_studio_response(response: &StudioResponse) -> bool {
                 && validate_root_snapshot(snapshot)
         }
         StudioResponse::InspectorResult { details_json } => valid_text(details_json),
+        StudioResponse::ChildDataPageResult { page_json } => valid_text(page_json),
         StudioResponse::StudioOperationResult {
             operation_id,
             command_id,

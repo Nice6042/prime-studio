@@ -278,6 +278,11 @@ export const test = base.extend<ShellFixtures>({
               sources: [{ id: "source-browser", label: "Harness contract", detail: "Verified fixture source", candidateId: "candidate-browser-source", kind: "file" }],
               children: {},
             });
+          case "harness_child_data_page": {
+            const request = args.request as { tab?: "chat" | "activity" | "files" } | undefined;
+            if (!request?.tab) throw new Error("Child page request invalid");
+            return JSON.stringify({ status: "unavailable", tab: request.tab, reason: "Deterministic fixtures do not supply authoritative child paging evidence." });
+          }
           case "harness_artifact_open": {
             const request = args.request as { sessionId?: string; candidateId?: string } | undefined;
             if (request?.sessionId !== "session-e2e" || !["candidate-browser-output", "candidate-browser-source"].includes(request?.candidateId ?? "")) {

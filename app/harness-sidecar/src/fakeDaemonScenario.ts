@@ -60,6 +60,7 @@ export type ScenarioRequest =
       text: string;
     }>
   | Readonly<{ type: "inspector"; sessionId: string }>
+  | Readonly<{ type: "child_data_page"; sessionId: string; childId: string; tab: "chat" | "activity" | "files"; expectedCursor: Readonly<{ runtimeGeneration: string; sequence: number }>; pageCursor: string | null }>
   | Readonly<{
       type: "studio_operation"; sessionId: string; operationId: string; action: StudioHarnessAction;
       payloadJson: string; expectedCursor: Readonly<{ runtimeGeneration: string; sequence: number }> | null;
@@ -74,6 +75,7 @@ export type ScenarioResponse =
   | Readonly<{ type: "resident_branched"; creationId: string; sourceSessionId: string; entryId: string; snapshot: FakeRootSessionSnapshot }>
   | Readonly<{ type: "worker_retry_result"; observationId: string; outcome: "recovered" | "terminal_failure"; snapshot: FakeRootSessionSnapshot }>
   | Readonly<{ type: "inspector_result"; detailsJson: string }>
+  | Readonly<{ type: "child_data_page_result"; pageJson: string }>
   | Readonly<{
       type: "studio_operation_result"; operationId: string;
       status: "accepted" | "queued" | "updated" | "cancelled" | "unavailable" | "rejected" | "unknown_outcome";
@@ -318,6 +320,9 @@ export class FakeDaemonController {
         children,
       };
       return deepFreeze({ type: "inspector_result", detailsJson: JSON.stringify(details) });
+    }
+    if (request.type === "child_data_page") {
+      return deepFreeze({ type: "child_data_page_result", pageJson: JSON.stringify({ status: "unavailable", tab: request.tab, reason: "Deterministic fixtures do not supply authoritative child paging evidence." }) });
     }
     if (request.type === "studio_operation") {
       let payload: unknown;

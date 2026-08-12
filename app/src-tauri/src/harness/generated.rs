@@ -1,4 +1,4 @@
-// Generated from harness-v1.schema.json; SHA-256: 10343e1dd40e7a2a229bbf41296f5f3e8f114e6123fd9e11f34817586f1d8e2c
+// Generated from harness-v1.schema.json; SHA-256: 5ddc9206d863f0042e9e0146dc65d1fb6f9f8c11055de36296b3356903ace9ca
 // Do not edit by hand. Run npm run generate:harness-contract.
 
 use std::collections::HashSet;
@@ -177,6 +177,13 @@ pub enum StudioRequest {
         text: String,
     },
     Inspector { #[serde(rename = "sessionId")] session_id: String },
+    ChildDataPage {
+        #[serde(rename = "sessionId")] session_id: String,
+        #[serde(rename = "childId")] child_id: String,
+        tab: ChildDataPageTab,
+        #[serde(rename = "expectedCursor")] expected_cursor: HarnessCursor,
+        #[serde(rename = "pageCursor")] page_cursor: Option<String>,
+    },
     RefreshSession { #[serde(rename = "sessionId")] session_id: String, #[serde(rename = "knownCursor")] known_cursor: HarnessCursor },
     StudioOperation {
         #[serde(rename = "sessionId")] session_id: String,
@@ -226,6 +233,10 @@ pub enum SessionCommandKind { Prompt, Steer, FollowUp, Abort }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
+pub enum ChildDataPageTab { Chat, Activity, Files }
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CommandOutcome { Accepted, Queued, Reconciled }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -256,6 +267,7 @@ pub enum StudioResponse {
         snapshot: Box<RootSessionSnapshot>,
     },
     InspectorResult { #[serde(rename = "detailsJson")] details_json: String },
+    ChildDataPageResult { #[serde(rename = "pageJson")] page_json: String },
     StudioOperationResult {
         #[serde(rename = "operationId")] operation_id: String, status: StudioOperationStatus,
         #[serde(rename = "commandId")] command_id: Option<String>, position: Option<u64>, revision: Option<String>,

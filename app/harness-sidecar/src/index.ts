@@ -85,6 +85,11 @@ function closedPayload(value: unknown): ScenarioRequest {
   if (payload.type === "inspector" && exactKeys(payload, ["type", "sessionId"]) && validId(payload.sessionId)) {
     return { type: "inspector", sessionId: payload.sessionId };
   }
+  if (payload.type === "child_data_page" && exactKeys(payload, ["type", "sessionId", "childId", "tab", "expectedCursor", "pageCursor"]) && validId(payload.sessionId) && validId(payload.childId) && (payload.tab === "chat" || payload.tab === "activity" || payload.tab === "files") && (payload.pageCursor === null || validId(payload.pageCursor))) {
+    const expectedCursor = closedCursor(payload.expectedCursor);
+    if (!expectedCursor) throw new Error("request payload is invalid");
+    return { type: "child_data_page", sessionId: payload.sessionId, childId: payload.childId, tab: payload.tab, expectedCursor, pageCursor: payload.pageCursor };
+  }
   if (payload.type === "studio_operation" && exactKeys(payload, ["type", "sessionId", "operationId", "action", "payloadJson", "expectedCursor", "idempotencyKey"]) && validId(payload.sessionId) && validId(payload.operationId) && typeof payload.action === "string" && studioHarnessActions.has(payload.action) && validText(payload.payloadJson) && (payload.idempotencyKey === null || validId(payload.idempotencyKey))) {
     return {
       type: "studio_operation", sessionId: payload.sessionId, operationId: payload.operationId,
@@ -147,6 +152,12 @@ async function main(): Promise<void> {
             const detailsJson = JSON.stringify(await bridge.inspector(request.payload.sessionId));
             if ([...detailsJson].length > 131_072) throw new Error("inspector response exceeds its bound");
             stdout.write(encodeFrame({ studioProtocol: 1, requestId: request.requestId, payload: { type: "inspector_result", detailsJson } }));
+            continue;
+          }
+          if (request.payload.type === "child_data_page") {
+            const pageJson = JSON.stringify(await bridge.childPage(request.payload.sessionId, request.payload.childId, request.payload.tab, request.payload.expectedCursor, request.payload.pageCursor));
+            if ([...pageJson].length > 131_072) throw new Error("child page response exceeds its bound");
+            stdout.write(encodeFrame({ studioProtocol: 1, requestId: request.requestId, payload: { type: "child_data_page_result", pageJson } }));
             continue;
           }
           if (request.payload.type === "studio_operation") {

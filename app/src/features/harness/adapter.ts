@@ -3,6 +3,7 @@ import type { ComposerRuntimeChoice, ThinkingLevel } from "../conversation/works
 import type { ArtifactOpenResult } from "../../entities/editor/types";
 import type { AttentionEvidence } from "../../attention/attentionLedger";
 import type { RootSessionProjection } from "../../entities/harness/types";
+import type { HarnessChildDataPage } from "../../shared/ipc/client";
 
 export type HarnessActivityKind = "agent" | "tool" | "file" | "system";
 
@@ -134,6 +135,7 @@ export interface HarnessInspectorAdapter {
     | Readonly<{ status: "available" }>
     | Readonly<{ status: "unavailable"; reason: string }>;
   load(sessionId: string): Promise<HarnessPanelDetails>;
+  loadChildPage?(sessionId: string, childId: string, tab: "chat" | "activity" | "files", pageCursor: string | null): Promise<HarnessChildDataPage>;
   /** Native broker evidence minted from the last hydrated Activity payload. */
   readonly loadActivityEvidence?: (sessionId: string) => Promise<AttentionEvidence | null>;
   /** Loads choices from one admitted session's verified daemon projection. */

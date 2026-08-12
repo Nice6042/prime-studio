@@ -320,6 +320,17 @@
       "type": "object", "additionalProperties": false, "required": ["type", "sessionId"],
       "properties": { "type": { "const": "inspector" }, "sessionId": { "$ref": "#/$defs/Id" } }
     },
+    "ChildDataPageTab": { "type": "string", "enum": ["chat", "activity", "files"] },
+    "ChildDataPageRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "sessionId", "childId", "tab", "expectedCursor", "pageCursor"],
+      "properties": {
+        "type": { "const": "child_data_page" }, "sessionId": { "$ref": "#/$defs/Id" },
+        "childId": { "$ref": "#/$defs/Id" }, "tab": { "$ref": "#/$defs/ChildDataPageTab" },
+        "expectedCursor": { "$ref": "#/$defs/HarnessCursor" },
+        "pageCursor": { "oneOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] }
+      }
+    },
     "RefreshSessionRequest": {
       "type": "object", "additionalProperties": false, "required": ["type", "sessionId", "knownCursor"],
       "properties": { "type": { "const": "refresh_session" }, "sessionId": { "$ref": "#/$defs/Id" }, "knownCursor": { "$ref": "#/$defs/HarnessCursor" } }
@@ -374,6 +385,7 @@
         { "$ref": "#/$defs/RetryWorkerRequest" },
         { "$ref": "#/$defs/SessionCommandRequest" },
         { "$ref": "#/$defs/InspectorRequest" },
+        { "$ref": "#/$defs/ChildDataPageRequest" },
         { "$ref": "#/$defs/RefreshSessionRequest" },
         { "$ref": "#/$defs/StudioOperationRequest" }
       ]
@@ -446,6 +458,10 @@
       "type": "object", "additionalProperties": false, "required": ["type", "detailsJson"],
       "properties": { "type": { "const": "inspector_result" }, "detailsJson": { "$ref": "#/$defs/Text" } }
     },
+    "ChildDataPageResponse": {
+      "type": "object", "additionalProperties": false, "required": ["type", "pageJson"],
+      "properties": { "type": { "const": "child_data_page_result" }, "pageJson": { "$ref": "#/$defs/Text" } }
+    },
     "StudioOperationResponse": {
       "type": "object", "additionalProperties": false,
       "required": ["type", "operationId", "status", "commandId", "position", "revision", "reason", "retryable", "snapshot"],
@@ -470,6 +486,7 @@
         { "$ref": "#/$defs/ResidentCreatedResponse" },
         { "$ref": "#/$defs/ResidentBranchedResponse" },
         { "$ref": "#/$defs/InspectorResponse" },
+        { "$ref": "#/$defs/ChildDataPageResponse" },
         { "$ref": "#/$defs/StudioOperationResponse" },
         { "$ref": "#/$defs/ProtocolErrorResponse" }
       ]

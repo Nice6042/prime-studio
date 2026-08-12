@@ -77,6 +77,13 @@ function adapter(commands: StudioOperation[] = []): HarnessInspectorAdapter {
   return {
     availability: { status: "available" },
     load: vi.fn(async () => details),
+    loadChildPage: vi.fn(async (_sessionId, childId, tab) => {
+      const child = details.children[childId];
+      if (!child) return { status: "unavailable" as const, tab, reason: "Child evidence unavailable." };
+      if (tab === "chat") return { status: "available" as const, tab, items: child.transcript, previousCursor: null, omittedItems: 0 };
+      if (tab === "activity") return { status: "available" as const, tab, items: child.activity, previousCursor: null, omittedItems: 0 };
+      return { status: "available" as const, tab, items: child.files, previousCursor: null, omittedItems: 0 };
+    }),
     execute: vi.fn(async (command) => {
       commands.push(command);
       return { status: "accepted" as const, commandId: `command-${commands.length}` };
@@ -192,6 +199,72 @@ describe("HarnessInspector", () => {
       { action: "editor.artifact.open", payload: { sessionId: "root-a", artifactId: "candidate-child-file" } },
       { action: "harness.child.stop", payload: { sessionId: "root-a", childId: "child-1" } },
     ]));
+  });
+
+  it("loads every child tab independently and pages older authoritative rows", async () => {
+    const source = adapter();
+    source.loadChildPage = vi.fn(async (_sessionId, _childId, tab, cursor) => {
+      if (tab === "chat") return { status: "available" as const, tab, items: [{ id: cursor ? "older" : "newer", actor: "Agent", occurredAtMs: 2, text: cursor ? "Older private row" : "Newest private row" }], previousCursor: cursor ? null : "opaque-previous", omittedItems: cursor ? 0 : 1 };
+      if (tab === "activity") return { status: "available" as const, tab, items: [{ id: "activity-page", occurredAtMs: 3, label: "Paged activity" }], previousCursor: null, omittedItems: 0 };
+      return { status: "available" as const, tab, items: [{ id: "file-page", label: "paged.txt", candidateId: "candidate-paged", change: "read" as const }], previousCursor: null, omittedItems: 0 };
+    });
+    const user = userEvent.setup();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={source} />);
+    await user.click(await screen.findByRole("button", { name: /Review protocol/ }));
+    expect(await screen.findByText("Newest private row")).toBeVisible();
+    expect(screen.queryByText("Task accepted.")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Load older child chat" }));
+    expect(await screen.findByText("Older private row")).toBeVisible();
+    await user.click(screen.getByRole("tab", { name: "Activity" }));
+    expect(await screen.findByText("Paged activity")).toBeVisible();
+    await user.click(screen.getByRole("tab", { name: "Files" }));
+    expect(await screen.findByRole("button", { name: "Open paged.txt" })).toBeVisible();
+    expect(source.loadChildPage).toHaveBeenNthCalledWith(1, "root-a", "child-1", "chat", null);
+    expect(source.loadChildPage).toHaveBeenNthCalledWith(2, "root-a", "child-1", "chat", "opaque-previous");
+  });
+
+  it("renders explicit child evidence unavailable instead of an empty-data claim", async () => {
+    const source = adapter();
+    source.loadChildPage = vi.fn(async () => ({ status: "unavailable" as const, tab: "chat" as const, reason: "Installed Harness omits child paging." }));
+    const user = userEvent.setup();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={source} />);
+    await user.click(await screen.findByRole("button", { name: /Review protocol/ }));
+    expect(await screen.findByRole("status", { name: "Child chat unavailable" })).toHaveTextContent("Installed Harness omits child paging.");
+  });
+
+  it("admits only one older-page request while that opaque cursor is in flight", async () => {
+    let releaseOlder!: () => void;
+    const older = new Promise<void>((resolve) => { releaseOlder = resolve; });
+    const source = adapter();
+    source.loadChildPage = vi.fn(async (_sessionId, _childId, _tab, cursor) => {
+      if (cursor) { await older; return { status: "available" as const, tab: "chat" as const, items: [], previousCursor: null, omittedItems: 0 }; }
+      return { status: "available" as const, tab: "chat" as const, items: [], previousCursor: "opaque-previous", omittedItems: 1 };
+    });
+    const user = userEvent.setup();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={source} />);
+    await user.click(await screen.findByRole("button", { name: /Review protocol/ }));
+    const olderButton = await screen.findByRole("button", { name: "Load older child chat" });
+    await user.dblClick(olderButton);
+    expect(source.loadChildPage).toHaveBeenCalledTimes(2);
+    releaseOlder();
+  });
+
+  it("loads the newly selected tab while the prior tab request is still pending", async () => {
+    let releaseChat!: () => void;
+    const pendingChat = new Promise<void>((resolve) => { releaseChat = resolve; });
+    const source = adapter();
+    source.loadChildPage = vi.fn(async (_sessionId, _childId, tab) => {
+      if (tab === "chat") { await pendingChat; return { status: "available" as const, tab, items: [{ id: "private-chat", actor: "Agent", occurredAtMs: 2, text: "Stale chat" }], previousCursor: null, omittedItems: 0 }; }
+      if (tab === "activity") return { status: "available" as const, tab, items: [{ id: "fresh-activity", occurredAtMs: 3, label: "Fresh activity" }], previousCursor: null, omittedItems: 0 };
+      return { status: "available" as const, tab, items: [], previousCursor: null, omittedItems: 0 };
+    });
+    const user = userEvent.setup();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={source} />);
+    await user.click(await screen.findByRole("button", { name: /Review protocol/ }));
+    await user.click(screen.getByRole("tab", { name: "Activity" }));
+    expect(await screen.findByText("Fresh activity")).toBeVisible();
+    releaseChat();
+    await waitFor(() => expect(screen.queryByText("Stale chat")).not.toBeInTheDocument());
   });
 
   it("shows truthful child failure and exposes typed retry", async () => {

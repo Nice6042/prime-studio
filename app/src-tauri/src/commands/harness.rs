@@ -5,12 +5,13 @@ use tauri::State;
 use crate::commands::editor::{ArtifactAdmission, ArtifactOpenResult};
 use crate::harness::activation::canonical_workspace_identity;
 use crate::harness::broker::{
-    AttachRequest, InspectorRequest, RefreshSessionRequest, ResidentBranchRequest,
-    ResidentCreateRequest, SessionCommandRequest, StudioOperationRequest, WorkerRetryRequest,
+    AttachRequest, ChildDataPageRequest, InspectorRequest, RefreshSessionRequest,
+    ResidentBranchRequest, ResidentCreateRequest, SessionCommandRequest, StudioOperationRequest,
+    WorkerRetryRequest,
 };
 use crate::harness::generated::{
-    CommandOutcome, HarnessCursor, HarnessStudioAction, ParentMessage, SessionCommandKind,
-    StudioOperationStatus, WorkerRetryOutcome,
+    ChildDataPageTab, CommandOutcome, HarnessCursor, HarnessStudioAction, ParentMessage,
+    SessionCommandKind, StudioOperationStatus, WorkerRetryOutcome,
 };
 use crate::harness::projections::{BootProjection, RootSessionProjection};
 use crate::project_catalog::{
@@ -59,6 +60,16 @@ pub(crate) struct HarnessWorkerRetryInput {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub(crate) struct HarnessInspectorInput {
     session_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub(crate) struct HarnessChildDataPageInput {
+    session_id: String,
+    child_id: String,
+    tab: ChildDataPageTab,
+    expected_cursor: HarnessCursor,
+    page_cursor: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -561,6 +572,32 @@ pub(crate) async fn harness_inspector(
     })
     .await
     .map_err(|_| "Harness inspector task failed".to_owned())?
+}
+
+#[tauri::command]
+pub(crate) async fn harness_child_data_page(
+    state: State<'_, crate::AppState>,
+    request: HarnessChildDataPageInput,
+) -> Result<String, String> {
+    let broker = state
+        .harness
+        .broker()
+        .ok_or_else(|| "Harness activation is unavailable".to_owned())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut broker = broker
+            .lock()
+            .map_err(|_| "Harness broker is unavailable".to_owned())?;
+        tauri::async_runtime::block_on(broker.child_data_page(ChildDataPageRequest {
+            session_id: request.session_id,
+            child_id: request.child_id,
+            tab: request.tab,
+            expected_cursor: request.expected_cursor,
+            page_cursor: request.page_cursor,
+        }))
+        .map_err(|error| format!("Harness child page failed: {}", error.code()))
+    })
+    .await
+    .map_err(|_| "Harness child page task failed".to_owned())?
 }
 
 fn inspector_projection(raw: String, composer_only: bool) -> Result<String, String> {

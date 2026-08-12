@@ -3,9 +3,11 @@ import type { RootSessionProjection } from "../../entities/harness/types";
 import {
   executeHarnessStudioOperation,
   loadHarnessInspector,
+  loadHarnessChildPage,
   retryHarnessWorker,
   type HarnessStudioOperation,
   type HarnessStudioOperationRequest,
+  type HarnessChildDataPage,
 } from "../../shared/ipc/client";
 import type { StudioStore } from "../../shared/state/store";
 import type { HarnessInspectorAdapter, HarnessPanelDetails } from "./adapter";
@@ -16,6 +18,7 @@ import { loadHarnessComposerProjection } from "./composerProjectionClient";
 
 interface ProductionHarnessPorts {
   load(sessionId: string): Promise<HarnessPanelDetails>;
+  loadChildPage?(sessionId: string, childId: string, tab: "chat" | "activity" | "files", expectedCursor: RootSessionProjection["cursor"], pageCursor: string | null): Promise<HarnessChildDataPage>;
   loadComposer?(sessionId: string): Promise<NonNullable<HarnessPanelDetails["composer"]>>;
   execute(request: HarnessStudioOperationRequest): Promise<Readonly<{ outcome: StudioOperationOutcome; session: RootSessionProjection | null }>>;
   openArtifact?(sessionId: string, candidateId: string): Promise<ArtifactOpenResult>;
@@ -27,6 +30,7 @@ const TERMINAL_RUNTIME_STATES = new Set<RootSessionProjection["state"]>(["discon
 
 const realPorts: ProductionHarnessPorts = {
   load: loadHarnessInspector,
+  loadChildPage: loadHarnessChildPage,
   loadComposer: loadHarnessComposerProjection,
   async execute(request) {
     let projected: RootSessionProjection | null = null;
@@ -77,6 +81,11 @@ export function createProductionHarnessInspectorAdapter(
     load: (sessionId: string) => store.getSnapshot().sessions[sessionId]
       ? ports.load(sessionId)
       : Promise.reject(new Error("The requested Harness session is not admitted by the native broker.")),
+    loadChildPage(sessionId: string, childId: string, tab: "chat" | "activity" | "files", pageCursor: string | null) {
+      const session = store.getSnapshot().sessions[sessionId];
+      if (!session || !session.children.some((child) => child.id === childId) || !ports.loadChildPage) return Promise.reject(new Error("The requested Harness child is not admitted by the native broker."));
+      return ports.loadChildPage(sessionId, childId, tab, session.cursor, pageCursor);
+    },
     loadActivityEvidence: (sessionId: string) => store.getSnapshot().sessions[sessionId] && ports.loadActivityEvidence
       ? ports.loadActivityEvidence(sessionId)
       : Promise.reject(new Error("Activity content evidence is unavailable for this Harness session.")),

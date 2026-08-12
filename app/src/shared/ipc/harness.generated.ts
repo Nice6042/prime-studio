@@ -1,4 +1,4 @@
-// Generated from harness-v1.schema.json; SHA-256: 10343e1dd40e7a2a229bbf41296f5f3e8f114e6123fd9e11f34817586f1d8e2c
+// Generated from harness-v1.schema.json; SHA-256: 5ddc9206d863f0042e9e0146dc65d1fb6f9f8c11055de36296b3356903ace9ca
 // Do not edit by hand. Run npm run generate:harness-contract.
 
 export const STUDIO_HARNESS_PROTOCOL = 1 as const;
@@ -131,6 +131,7 @@ export type StudioRequest =
   | { type: "retry_worker"; sessionId: string; observationId: string }
   | { type: "session_command"; sessionId: string; commandId: string; expectedCursor: HarnessCursor; kind: "prompt" | "steer" | "follow_up" | "abort"; text: string }
   | { type: "inspector"; sessionId: string }
+  | { type: "child_data_page"; sessionId: string; childId: string; tab: "chat" | "activity" | "files"; expectedCursor: HarnessCursor; pageCursor: string | null }
   | { type: "refresh_session"; sessionId: string; knownCursor: HarnessCursor }
   | { type: "studio_operation"; sessionId: string; operationId: string; action: HarnessStudioAction; payloadJson: string; expectedCursor: HarnessCursor | null; idempotencyKey: string | null };
 
@@ -143,6 +144,7 @@ export type StudioResponse =
   | { type: "resident_created"; creationId: string; snapshot: RootSessionSnapshot }
   | { type: "resident_branched"; creationId: string; sourceSessionId: string; entryId: string; snapshot: RootSessionSnapshot }
   | { type: "inspector_result"; detailsJson: string }
+  | { type: "child_data_page_result"; pageJson: string }
   | { type: "studio_operation_result"; operationId: string; status: "accepted" | "queued" | "updated" | "cancelled" | "unavailable" | "rejected" | "unknown_outcome"; commandId: string | null; position: number | null; revision: string | null; reason: string | null; retryable: boolean | null; snapshot: RootSessionSnapshot | null }
   | { type: "error"; code: string; message: string };
 

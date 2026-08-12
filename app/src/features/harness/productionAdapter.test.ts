@@ -60,6 +60,18 @@ describe("production Harness inspector adapter", () => {
     expect(load).toHaveBeenCalledOnce();
   });
 
+  it("binds child pages to the admitted root, child, and current cursor", async () => {
+    const store = boundStore();
+    const childSession = { ...session, children: [{ id: "child-a", status: "running" as const, task: "Private", provider: null, model: null, progress: null }] };
+    store.dispatch({ type: "harness/session-projected", session: childSession });
+    const loadChildPage = vi.fn(async () => ({ status: "unavailable" as const, tab: "chat" as const, reason: "fixture" }));
+    const adapter = createProductionHarnessInspectorAdapter(store, { load: vi.fn(), loadChildPage, execute: vi.fn() });
+    await expect(adapter.loadChildPage!(session.sessionId, "child-a", "chat", null)).resolves.toMatchObject({ status: "unavailable" });
+    expect(loadChildPage).toHaveBeenCalledWith(session.sessionId, "child-a", "chat", childSession.cursor, null);
+    await expect(adapter.loadChildPage!(session.sessionId, "child-b", "chat", null)).rejects.toThrow("not admitted");
+    expect(loadChildPage).toHaveBeenCalledOnce();
+  });
+
   it("rejects unbound, substituted, and ambiguous catalog identities without IPC", async () => {
     const store = boundStore();
     const execute = vi.fn();
