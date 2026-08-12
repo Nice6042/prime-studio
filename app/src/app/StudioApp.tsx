@@ -29,6 +29,8 @@ import { EditorPane } from "../features/editor/EditorPane";
 import type { StudioOperation, StudioOperationOutcome } from "../contracts/studioOperations";
 import { createStudioOperationDispatcher } from "../contracts/dispatcher/studioOperationDispatcher";
 import { useStudioSelector, useStudioStore } from "./AppProviders";
+import { installWorkspacePreferences } from "./workspacePreferences";
+import { hasOpenStudioOverlay } from "../surfaceEscape";
 
 let bootstrapPromise: ReturnType<typeof rpc.bootstrapHarness> | null = null;
 let catalogPromise: ReturnType<typeof loadProjectCatalog> | null = null;
@@ -89,6 +91,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const [accounts, setAccounts] = useState<readonly Account[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
+  const [createProjectOpener, setCreateProjectOpener] = useState<HTMLElement | null>(null);
   const [paletteOpener, setPaletteOpener] = useState<HTMLElement | null>(null);
   const [activeSheet, setActiveSheet] = useState<"sidebar" | "inspector" | "editor" | null>(null);
   const sheetOpener = useRef<HTMLElement | null>(null);
@@ -145,6 +148,11 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     void rpc.listAccounts().then((next) => { if (active) setAccounts(next); });
     return () => { active = false; };
   }, []);
+
+  useEffect(
+    () => installWorkspacePreferences(settings),
+    [settings.theme, settings.density, settings.reducedMotion],
+  );
 
   useEffect(() => {
     let active = true;
@@ -210,6 +218,11 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const openPalette = () => {
     setPaletteOpener(document.activeElement instanceof HTMLElement ? document.activeElement : null);
     setPaletteOpen(true);
+  };
+
+  const openCreateProject = () => {
+    setCreateProjectOpener(document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    setCreateProjectOpen(true);
   };
 
   const applyCatalog = async (command: Parameters<typeof applyProjectCatalogCommand>[1], label: string): Promise<StudioOperationOutcome> => {
@@ -307,7 +320,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       case "palette.open": openPalette(); break;
       case "palette.close": setPaletteOpen(false); break;
       case "surface.popover.toggle":
-        if (operation.payload.popoverId === "create-project") setCreateProjectOpen(true);
+        if (operation.payload.popoverId === "create-project") openCreateProject();
         else if (operation.payload.popoverId === null) setCreateProjectOpen(false);
         else return { status: "unavailable", reason: `Popover ${operation.payload.popoverId} is unavailable.` };
         break;
@@ -415,7 +428,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.isComposing || !event.ctrlKey || event.altKey || event.shiftKey) return;
+      if (event.isComposing || event.defaultPrevented || hasOpenStudioOverlay() || !event.ctrlKey || event.altKey || event.shiftKey) return;
       const key = event.key.toLocaleLowerCase();
       const command = key === "k" ? "palette.open" : key === "," ? "settings.open" : key === "b" ? "sidebar.toggle" : key === "j" ? "inspector.toggle" : key === "n" ? "chat.new" : null;
       if (!command) return;
@@ -427,12 +440,24 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   });
 
   const openSettings = () => { void dispatchOperation({ action: "route.settings.open", payload: {} }); };
+  const adapterConnected = harnessAdapter.availability.status === "available";
   const admissionConnected = Boolean(
     selectedSession
     && selectedSession.freshness === "live"
     && (compatibility.status === "ready" || compatibility.status === "degraded")
     && compatibility.capabilities.includes("session_input_admission"),
   );
+  const executeSettingOperation = (operation: StudioOperation, key: keyof AppSettings, value: string | null) => {
+    void harnessAdapter.execute(operation).then((outcome) => {
+      if (operationAccepted(outcome.status)) void rpc.setAppSetting(key, value).then(setSettings).catch(() => undefined);
+    }).catch(() => undefined);
+  };
+  const writeHarnessSetting = adapterConnected && harnessAdapter.settings?.harnessPolicy ? (key: keyof AppSettings, value: string | null) => {
+    executeSettingOperation({ action: "settings.harness-policy.set", payload: { key, value: value ?? "" } }, key, value);
+  } : undefined;
+  const writeToolSetting = adapterConnected && harnessAdapter.settings?.toolPolicy ? (key: keyof AppSettings, value: string | null) => {
+    executeSettingOperation({ action: "settings.tool.set-enabled", payload: { toolId: "configurable-tools", enabled: value === "enabled" } }, key, value);
+  } : undefined;
   const sidebarContent = layout.sidebarOpen
     ? <ProjectSidebar
         projects={projects}
@@ -490,9 +515,11 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         else void rpc.listAccounts().then(setAccounts).catch(() => setOperationFeedback("Account status could not be refreshed."));
       }}
       onSetting={(key, value) => { void dispatchOperation(value === null ? { action: "settings.preference.reset", payload: { key } } : { action: "settings.preference.set", payload: { key, value } }); }}
+      onHarnessSetting={writeHarnessSetting}
+      onToolSetting={writeToolSetting}
       onExportUsageCsv={rpc.exportAccountUsageCsv}
     />{paletteOpen && <CommandPalette admissionConnected={admissionConnected} onRun={runCommand} onClose={() => { void dispatchOperation({ action: "palette.close", payload: {} }); }} restoreFocusTo={paletteOpener} chats={paletteChats} messages={paletteMessages} onOpenChat={openCatalogChat} onOpenMessage={(chatId) => openCatalogChat(chatId)} />}
-    {createProjectOpen && <CreateProjectDialog onCancel={() => { void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} onCreate={(name, folderPath) => { createProject(name, folderPath); void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} />}</>;
+    {createProjectOpen && <CreateProjectDialog restoreFocusTo={createProjectOpener} onCancel={() => { void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} onCreate={(name, folderPath) => { createProject(name, folderPath); void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} />}</>;
   }
 
   const title = selectedChat?.title ?? "Prime Studio";
@@ -508,7 +535,6 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     phase: admissionPhase,
     admissionConnected,
   });
-  const adapterConnected = harnessAdapter.availability.status === "available";
   const hasCapability = (capability: string) => compatibility.status !== "unavailable" && compatibility.status !== "read_only" && compatibility.capabilities.includes(capability as typeof compatibility.capabilities[number]);
   const composerProjection = adapterConnected && hasCapability("model_catalog") ? harnessAdapter.composer : undefined;
   const supportsComposerCommand = (command: "model" | "effort" | "compact" | "fork" | "export") => Boolean(composerProjection?.supportedCommands.includes(command));
@@ -635,6 +661,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
           onSuggestionFill={navigation.selectedChatId ? (text) => { void dispatchOperation({ action: "conversation.suggestion.fill", payload: { chatId: navigation.selectedChatId!, text } }); } : undefined}
           onSelectUserVersion={navigation.selectedChatId ? (messageId, version) => { void dispatchOperation({ action: "conversation.user-version.select", payload: { chatId: navigation.selectedChatId!, messageId, version } }); } : undefined}
           onSelectAssistantVersion={navigation.selectedChatId ? (messageId, version) => { void dispatchOperation({ action: "conversation.assistant-version.select", payload: { chatId: navigation.selectedChatId!, messageId, version } }); } : undefined}
+          showSuggestions={settings.promptSuggestions !== "disabled"}
           onEditUserMessage={!archived && navigation.selectedChatId && adapterConnected && hasCapability("resident_sessions") ? (messageId, text) => {
             const chatId = navigation.selectedChatId!;
             void runAdapterOperation({ action: "conversation.user-version.create", payload: { chatId, messageId, text } }, "Edit", () => {
@@ -667,6 +694,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
           thinkingLevels={composerProjection?.thinkingLevels ?? []}
           slashCommands={slashCommands}
           sendShortcut={settings.sendShortcut === "ctrl-enter" ? "ctrl-enter" : "enter"}
+          showTokenEstimate={settings.tokenEstimate !== "disabled"}
           onSelectModel={navigation.selectedChatId && supportsComposerCommand("model") ? (modelId) => {
             void runAdapterOperation({ action: "composer.model.select", payload: { chatId: navigation.selectedChatId!, modelId } }, "Model change");
           } : undefined}
@@ -707,6 +735,6 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       thinking={composerProjection?.selectedThinking ?? undefined}
     />
     {paletteOpen && <CommandPalette admissionConnected={admissionConnected} onRun={runCommand} onClose={() => { void dispatchOperation({ action: "palette.close", payload: {} }); }} restoreFocusTo={paletteOpener} chats={paletteChats} messages={paletteMessages} onOpenChat={openCatalogChat} onOpenMessage={(chatId) => openCatalogChat(chatId)} />}
-    {createProjectOpen && <CreateProjectDialog onCancel={() => { void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} onCreate={(name, folderPath) => { createProject(name, folderPath); void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} />}
+    {createProjectOpen && <CreateProjectDialog restoreFocusTo={createProjectOpener} onCancel={() => { void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} onCreate={(name, folderPath) => { createProject(name, folderPath); void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} />}
   </div>;
 }

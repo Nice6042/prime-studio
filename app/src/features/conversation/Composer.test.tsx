@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { Composer } from "./Composer";
@@ -82,6 +83,43 @@ describe("Composer", () => {
 
     expect(screen.queryByText("Model unavailable")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Thinking/ })).not.toBeInTheDocument();
+  });
+
+  it("honors token-estimate visibility while keeping voice explicitly unavailable", () => {
+    render(<Composer
+      draft="A bounded draft"
+      state={{ kind: "idle", draft: "A bounded draft", canSend: true }}
+      showTokenEstimate={false}
+      onDraftChange={vi.fn()}
+      onSubmit={vi.fn()}
+      onAbort={vi.fn()}
+      onOpenUsage={vi.fn()}
+    />);
+
+    expect(screen.queryByTitle("Approximate draft tokens")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Voice input" })).toBeDisabled();
+  });
+
+  it("closes the thinking menu with Escape and restores its trigger", async () => {
+    render(<Composer
+      draft=""
+      state={{ kind: "idle", draft: "", canSend: false }}
+      thinking="low"
+      thinkingLevels={["low", "high"]}
+      onSelectThinking={vi.fn()}
+      onDraftChange={vi.fn()}
+      onSubmit={vi.fn()}
+      onAbort={vi.fn()}
+      onOpenUsage={vi.fn()}
+    />);
+    const trigger = screen.getByRole("button", { name: "Thinking low" });
+    await userEvent.click(trigger);
+    expect(screen.getByRole("menu", { name: "Thinking level" })).toBeVisible();
+
+    await userEvent.keyboard("{Escape}");
+
+    expect(screen.queryByRole("menu", { name: "Thinking level" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
 
   it("routes every enabled exact slash command and consumes the command draft", () => {

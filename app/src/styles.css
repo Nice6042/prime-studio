@@ -86,6 +86,24 @@
   --focus: 3px solid var(--coral);
 }
 
+:root[data-reduced-motion="true"] *,
+:root[data-reduced-motion="true"] *::before,
+:root[data-reduced-motion="true"] *::after {
+  scroll-behavior: auto !important;
+  animation-duration: .001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: .001ms !important;
+}
+
+:root[data-density="compact"] .project-primary-action,
+:root[data-density="compact"] .project-settings { min-block-size: 32px; padding-block: 4px; }
+:root[data-density="compact"] .chat-row { min-block-size: 27px; padding-block: 3px; }
+:root[data-density="compact"] .conversation-header { min-block-size: 40px; }
+:root[data-density="compact"] .composer-frame { min-block-size: 66px; padding-block: 7px 5px; }
+:root[data-density="compact"] .harness-agent-row { min-block-size: 46px; padding-block: 4px; }
+:root[data-density="compact"] .activity-row { padding-block: 4px; }
+:root[data-density="compact"] .studio-setting-row { min-height: 54px; padding-block: 8px; }
+
 * {
   box-sizing: border-box;
   scrollbar-color: var(--line-card) transparent;

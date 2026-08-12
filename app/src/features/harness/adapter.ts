@@ -88,6 +88,11 @@ export interface HarnessInspectorAdapter {
     | Readonly<{ status: "unavailable"; reason: string }>;
   load(sessionId: string): Promise<HarnessPanelDetails>;
   execute(operation: StudioOperation): Promise<StudioOperationOutcome>;
+  /** Explicit settings-operation authority; inspector availability alone is insufficient. */
+  readonly settings?: Readonly<{
+    harnessPolicy: boolean;
+    toolPolicy: boolean;
+  }>;
   readonly composer?: Readonly<{
     models: readonly ComposerRuntimeChoice[];
     selectedModel: string | null;

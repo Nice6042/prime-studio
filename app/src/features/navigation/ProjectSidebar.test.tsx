@@ -63,4 +63,20 @@ describe("ProjectSidebar", () => {
     expect(onNewProject).toHaveBeenCalledWith("Studio source", "C:\\src\\prime-studio");
     expect(dialog).not.toBeInTheDocument();
   });
+
+  it("traps project-dialog focus, makes its background inert, and restores the trigger on Escape", async () => {
+    render(<ProjectSidebar projects={projects} onSelectChat={() => undefined} onToggleProject={() => undefined}
+      onNewChat={() => undefined} onOpenSettings={() => undefined} onNewProject={() => undefined} />);
+    const opener = screen.getByRole("button", { name: "New project" });
+    await userEvent.click(opener);
+
+    const dialog = screen.getByRole("dialog", { name: "Create project" });
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(screen.getByRole("button", { name: "New chat" }).closest("[inert]")).not.toBeNull();
+    expect(screen.getByRole("textbox", { name: "Project name" })).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+
+    expect(screen.queryByRole("dialog", { name: "Create project" })).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
+  });
 });

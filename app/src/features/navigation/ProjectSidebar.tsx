@@ -2,18 +2,28 @@ import { useEffect, useRef, useState } from "react";
 
 import type { NavigationProject } from "./navigationSelectors";
 import { controlBinding } from "../conversation/controlBinding";
+import { useModalSurfaceFocus } from "../../modalSurface";
+import { useTopmostSurfaceEscape } from "../../surfaceEscape";
 import "./navigation.css";
 
-export function CreateProjectDialog({ onCreate, onCancel }: {
+export function CreateProjectDialog({ onCreate, onCancel, restoreFocusTo }: {
   readonly onCreate: (name: string, folderPath: string) => void;
   readonly onCancel: () => void;
+  readonly restoreFocusTo?: HTMLElement | null;
 }) {
   const [projectName, setProjectName] = useState("");
   const [folderPath, setFolderPath] = useState("");
-  return <div className="project-dialog-backdrop" role="presentation">
-    <section className="project-dialog" role="dialog" aria-modal="true" aria-label="Create project">
+  const backdropRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
+  const initialFocusRef = useRef<HTMLInputElement>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(restoreFocusTo ?? null);
+  restoreFocusRef.current = restoreFocusTo ?? null;
+  useTopmostSurfaceEscape(backdropRef, onCancel);
+  const keepFocusInside = useModalSurfaceFocus(backdropRef, dialogRef, initialFocusRef, restoreFocusRef);
+  return <div ref={backdropRef} data-studio-overlay="dialog" className="project-dialog-backdrop" role="presentation">
+    <section ref={dialogRef} className="project-dialog" role="dialog" aria-modal="true" aria-label="Create project" tabIndex={-1} onKeyDown={keepFocusInside}>
       <h2>Create project</h2>
-      <label>Project name<input autoFocus aria-label="Project name" value={projectName} maxLength={160} onChange={(event) => setProjectName(event.currentTarget.value)} /></label>
+      <label>Project name<input ref={initialFocusRef} aria-label="Project name" value={projectName} maxLength={160} onChange={(event) => setProjectName(event.currentTarget.value)} /></label>
       <label>Folder path<input aria-label="Folder path" value={folderPath} maxLength={4096} onChange={(event) => setFolderPath(event.currentTarget.value)} placeholder="C:\\path\\to\\project" /></label>
       <div className="project-dialog-actions">
         <button type="button" onClick={onCancel}>Cancel</button>
@@ -77,6 +87,7 @@ export function ProjectSidebar({
   const [search, setSearch] = useState(query);
   const [creatingProject, setCreatingProject] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const newProjectRef = useRef<HTMLButtonElement>(null);
   useEffect(() => setSearch(query), [query]);
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
@@ -127,7 +138,7 @@ export function ProjectSidebar({
           <NavigationIcon kind="chat" /><span className="chat-title">{chat.title}</span>{chat.unread && <span className="chat-unread" aria-hidden="true" />}
         </button>)}
       </div>
-      <div className="project-section-heading"><span>Projects</span>{onNewProject && <button type="button" {...controlBinding("sidebar-new-project", "catalog.project.create")} aria-label="New project" onClick={() => setCreatingProject(true)}><NavigationIcon kind="add" /></button>}</div>
+      <div className="project-section-heading"><span>Projects</span>{onNewProject && <button ref={newProjectRef} type="button" {...controlBinding("sidebar-new-project", "catalog.project.create")} aria-label="New project" onClick={() => setCreatingProject(true)}><NavigationIcon kind="add" /></button>}</div>
       {projects.map((project) => <section className="project-group" key={project.id}>
         <button
           type="button"
@@ -174,6 +185,6 @@ export function ProjectSidebar({
         {onOpenWorkspaceMenu && <button type="button" {...controlBinding("sidebar-workspace-menu", "workspace.switch")} aria-label="Workspace menu" onClick={onOpenWorkspaceMenu}><NavigationIcon kind="more" /></button>}
       </div>
     </footer>
-    {creatingProject && <CreateProjectDialog onCancel={() => setCreatingProject(false)} onCreate={(name, path) => { onNewProject?.(name, path); setCreatingProject(false); }} />}
+    {creatingProject && <CreateProjectDialog restoreFocusTo={newProjectRef.current} onCancel={() => setCreatingProject(false)} onCreate={(name, path) => { onNewProject?.(name, path); setCreatingProject(false); }} />}
   </div>;
 }

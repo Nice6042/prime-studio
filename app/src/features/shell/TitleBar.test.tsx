@@ -26,4 +26,16 @@ describe("TitleBar", () => {
       expect(button).toHaveTextContent("");
     }
   });
+
+  it("gives Escape to the open menu and restores its trigger", async () => {
+    render(<TitleBar title="Harness architecture" onOperation={vi.fn()} />);
+    const trigger = screen.getByRole("button", { name: "File" });
+    await userEvent.click(trigger);
+    expect(screen.getByRole("menu", { name: "File menu" })).toBeVisible();
+
+    await userEvent.keyboard("{Escape}");
+
+    expect(screen.queryByRole("menu", { name: "File menu" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
 });

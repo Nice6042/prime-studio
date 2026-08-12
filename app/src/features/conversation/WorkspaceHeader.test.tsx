@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -46,5 +46,22 @@ describe("WorkspaceHeader", () => {
 
     expect(onMove).toHaveBeenCalledWith("project-beta");
     expect(move).not.toBeInTheDocument();
+  });
+
+  it("closes only the topmost chat surface on Escape and restores its opener", async () => {
+    render(<WorkspaceHeader {...shared} moveTargets={[{ id: "project-alpha", name: "Alpha" }]} onMove={() => undefined} />);
+    const options = screen.getByRole("button", { name: "Chat options" });
+    await userEvent.click(options);
+    expect(screen.getByRole("menu", { name: "Chat options" })).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("menu", { name: "Chat options" })).not.toBeInTheDocument();
+    expect(options).toHaveFocus();
+
+    await userEvent.click(options);
+    await userEvent.click(screen.getByRole("menuitem", { name: "Move to project" }));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Destination project" })).toHaveFocus());
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Move chat" })).not.toBeInTheDocument();
+    expect(options).toHaveFocus();
   });
 });

@@ -66,6 +66,7 @@ export function ParentConversation({
   onReviewEditedFiles,
   onOpenEditedFile,
   onSuggestionFill,
+  showSuggestions = true,
 }: {
   readonly title: string;
   readonly session: RootSessionProjection | null;
@@ -82,6 +83,7 @@ export function ParentConversation({
   readonly onReviewEditedFiles?: (messageId: string) => void;
   readonly onOpenEditedFile?: (messageId: string, path: string) => void;
   readonly onSuggestionFill?: (text: string) => void;
+  readonly showSuggestions?: boolean;
 }) {
   const transcript = useMemo(() => session ? reduceParentTranscript(createEmptyParentTranscript(), { type: "snapshot", cursor: session.cursor, messages: session.parentMessages, omittedBefore: 0 }) : createEmptyParentTranscript(), [session]);
   const latestAssistant = [...transcript.messages].reverse().find((message) => message.kind === "assistant");
@@ -105,7 +107,7 @@ export function ParentConversation({
       {transcript.messages.length === 0 && <div className="conversation-empty">
         <PrimeMark /><h1>Start a conversation</h1>
         <p>Prime Assistant runs on the Prime Harness — it can fan out subagents, run tools, and keep big data out of context.</p>
-        <div className="conversation-suggestions">{suggestions.map(([label, prompt], index) => <button key={label} type="button" {...controlBinding(`suggestion-${index}`, "conversation.suggestion.fill")} onClick={() => onSuggestionFill?.(prompt)}>{label}</button>)}</div>
+        {showSuggestions && <div className="conversation-suggestions">{suggestions.map(([label, prompt], index) => <button key={label} type="button" {...controlBinding(`suggestion-${index}`, "conversation.suggestion.fill")} onClick={() => onSuggestionFill?.(prompt)}>{label}</button>)}</div>}
         {!session && <small>Start a conversation when the verified Harness is available.</small>}
       </div>}
       <div className="parent-reading-column">

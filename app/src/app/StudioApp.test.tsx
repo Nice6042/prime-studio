@@ -228,6 +228,57 @@ describe("Studio application state", () => {
     expect(screen.getByRole("main", { name: "Harness architecture" })).toBeVisible();
   });
 
+  it("applies persisted workspace preferences before the settings route is opened", async () => {
+    const settingsSpy = vi.spyOn(rpc, "getAppSettings").mockResolvedValue({
+      theme: "light",
+      density: "compact",
+      reducedMotion: "enabled",
+      promptSuggestions: "disabled",
+      tokenEstimate: "disabled",
+    });
+    const store = createStudioStore(initialStudioState({ chats: [chat] }));
+    store.dispatch({ type: "chat/open", chatId: chat.id });
+
+    render(<AppProviders store={store}><StudioApp /></AppProviders>);
+
+    await waitFor(() => expect(document.documentElement).toHaveAttribute("data-theme", "light"));
+    expect(document.documentElement).toHaveAttribute("data-density", "compact");
+    expect(document.documentElement).toHaveAttribute("data-reduced-motion", "true");
+    expect(screen.queryByRole("button", { name: "Explore this codebase" })).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Approximate draft tokens")).not.toBeInTheDocument();
+    settingsSpy.mockRestore();
+  });
+
+  it("routes Harness-owned settings through the verified adapter before persistence", async () => {
+    const operations: StudioOperation[] = [];
+    const store = createStudioStore(initialStudioState({
+      chats: [chat],
+      compatibility: { status: "ready", profile: "verified", capabilities: ["attach_snapshot", "event_sequence"] },
+    }));
+    store.dispatch({ type: "route/settings", section: "harness" });
+    const adapter = { ...conversationAdapter(operations), settings: { harnessPolicy: true, toolPolicy: true } };
+    render(<AppProviders store={store}><StudioApp harnessAdapter={adapter} /></AppProviders>);
+
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Maximum concurrent agents" }), { target: { value: "8" } });
+
+    await waitFor(() => expect(operations).toContainEqual({
+      action: "settings.harness-policy.set",
+      payload: { key: "maxConcurrentAgents", value: "8" },
+    }));
+  });
+
+  it("does not treat general inspector availability as verified settings authority", () => {
+    const store = createStudioStore(initialStudioState({
+      chats: [chat],
+      compatibility: { status: "ready", profile: "verified", capabilities: ["attach_snapshot", "event_sequence"] },
+    }));
+    store.dispatch({ type: "route/settings", section: "harness" });
+    render(<AppProviders store={store}><StudioApp harnessAdapter={conversationAdapter([])} /></AppProviders>);
+
+    expect(screen.getByRole("spinbutton", { name: "Maximum concurrent agents" })).toBeDisabled();
+    expect(screen.getByText(/verified settings adapter/i)).toBeVisible();
+  });
+
   it("wires Settings usage export to the native user-selected save boundary", async () => {
     const exportSpy = vi.spyOn(rpc, "exportAccountUsageCsv").mockResolvedValue({ status: "cancelled" });
     const store = createStudioStore(initialStudioState({ chats: [chat] }));
@@ -257,6 +308,18 @@ describe("Studio application state", () => {
     await userEvent.type(screen.getByRole("combobox", { name: "Search commands, chats, and messages" }), "account usage");
     await userEvent.click(screen.getByRole("option", { name: /Open account usage/ }));
     expect(screen.getByRole("heading", { name: "Usage", level: 1 })).toBeVisible();
+  });
+
+  it("does not dispatch global shortcuts through the topmost title menu", async () => {
+    const store = createStudioStore(initialStudioState({ chats: [chat] }));
+    store.dispatch({ type: "chat/open", chatId: chat.id });
+    render(<AppProviders store={store}><StudioApp /></AppProviders>);
+    await userEvent.click(screen.getByRole("button", { name: "File" }));
+
+    await userEvent.keyboard("{Control>},{/Control}");
+
+    expect(screen.getByRole("menu", { name: "File menu" })).toBeVisible();
+    expect(store.getSnapshot().navigation.route).toBe("workspace");
   });
 
   it("routes immutable edits, branches, regeneration, and Harness slash commands through the verified adapter", async () => {

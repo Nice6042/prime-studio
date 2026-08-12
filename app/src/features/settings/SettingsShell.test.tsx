@@ -29,6 +29,17 @@ describe("SettingsShell", () => {
     expect(screen.getAllByText(/verified Harness connection/i).length).toBeGreaterThan(0);
   });
 
+  it("keeps Harness and tool policy controls unavailable without a verified operation adapter", () => {
+    const ready: HarnessCompatibility = { status: "ready", profile: "verified", capabilities: ["attach_snapshot", "event_sequence"] };
+    const { rerender } = render(<SettingsShell section="harness" onBack={() => undefined} onSection={() => undefined} compatibility={ready} onSetting={vi.fn()} />);
+    expect(screen.getByRole("spinbutton", { name: "Maximum concurrent agents" })).toBeDisabled();
+    expect(screen.getByText(/verified settings adapter/i)).toBeVisible();
+
+    rerender(<SettingsShell section="tools" onBack={() => undefined} onSection={() => undefined} compatibility={ready} onSetting={vi.fn()} />);
+    expect(screen.getByRole("switch", { name: "Enable configurable tools" })).toBeDisabled();
+    expect(screen.getByText(/verified settings adapter/i)).toBeVisible();
+  });
+
   it("routes account-wide usage independently from current-chat usage", async () => {
     render(<SettingsShell section="usage" onBack={() => undefined} onSection={() => undefined} compatibility={unavailable} />);
     expect(screen.getByRole("heading", { name: "Usage", level: 1 })).toBeVisible();

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboa
 
 import { createControlBinding } from "../../contracts/studioOperations";
 import type { StudioCommandId } from "../../entities/commands/commandRegistry";
+import { useModalSurfaceFocus } from "../../modalSurface";
+import { useTopmostSurfaceEscape } from "../../surfaceEscape";
 import { searchPaletteIndex, type PaletteChat, type PaletteMessage, type PaletteResult } from "./searchIndex";
 import "./commandPalette.css";
 
@@ -24,13 +26,18 @@ export function CommandPalette({ admissionConnected, onRun, onClose, restoreFocu
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(restoreFocusTo ?? null);
+  restoreFocusRef.current = restoreFocusTo ?? null;
   const results = useMemo(() => searchPaletteIndex(query, { admissionConnected }, chats, messages), [admissionConnected, chats, messages, query]);
   const groups = useMemo(() => (["Actions", "Chats", "Messages"] as const).map((name) => ({ name, rows: results.filter((result) => result.group === name) })).filter((group) => group.rows.length > 0), [results]);
   const enabledIndexes = useMemo(() => results.flatMap((result, index) => result.enabled ? [index] : []), [results]);
   const selectedIndex = results[active]?.enabled ? active : (enabledIndexes[0] ?? -1);
   const current = selectedIndex >= 0 ? results[selectedIndex] : undefined;
 
-  useEffect(() => { inputRef.current?.focus(); return () => { if (restoreFocusTo?.isConnected && !restoreFocusTo.hasAttribute("disabled")) restoreFocusTo.focus(); }; }, [restoreFocusTo]);
+  useTopmostSurfaceEscape(backdropRef, onClose);
+  const keepFocusInside = useModalSurfaceFocus(backdropRef, dialogRef, inputRef, restoreFocusRef);
   useEffect(() => setActive(0), [query]);
 
   const execute = (result: PaletteResult | undefined) => {
@@ -43,14 +50,13 @@ export function CommandPalette({ admissionConnected, onRun, onClose, restoreFocu
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing) return;
-    if (event.key === "Escape") { event.preventDefault(); onClose(); }
-    else if (event.key === "ArrowDown") { event.preventDefault(); if (enabledIndexes.length > 0) setActive(enabledIndexes[(enabledIndexes.indexOf(selectedIndex) + 1) % enabledIndexes.length]); }
+    if (event.key === "ArrowDown") { event.preventDefault(); if (enabledIndexes.length > 0) setActive(enabledIndexes[(enabledIndexes.indexOf(selectedIndex) + 1) % enabledIndexes.length]); }
     else if (event.key === "ArrowUp") { event.preventDefault(); if (enabledIndexes.length > 0) setActive(enabledIndexes[(enabledIndexes.indexOf(selectedIndex) - 1 + enabledIndexes.length) % enabledIndexes.length]); }
     else if (event.key === "Enter") { event.preventDefault(); execute(current); }
   };
 
-  return <div className="command-palette-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}>
-    <section className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette">
+  return <div ref={backdropRef} data-studio-overlay="dialog" className="command-palette-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}>
+    <section ref={dialogRef} className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette" tabIndex={-1} onKeyDown={keepFocusInside}>
       <div className="command-palette-search"><svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" /><path d="m16 16 5 5" /></svg><input ref={inputRef} role="combobox" aria-label="Search commands, chats, and messages" aria-controls="studio-command-results" aria-expanded="true" aria-activedescendant={current ? `palette-${current.id}` : undefined} data-control-id={controls.query.controlId} data-action={controls.query.action} value={query} onChange={(event) => setQuery(event.currentTarget.value.slice(0, 200))} onKeyDown={onKeyDown} placeholder="Search actions, chats, and messages" /><kbd>Esc</kbd></div>
       <div id="studio-command-results" className="command-palette-results" role="listbox" aria-label="Search results">
         {results.length === 0 && <p className="command-palette-empty">No results</p>}

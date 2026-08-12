@@ -51,6 +51,13 @@ describe("ParentConversation", () => {
     expect(screen.getByText("Archived chat. This conversation is read-only.")).toBeVisible();
   });
 
+  it("removes project suggestions when the persisted preference is disabled", () => {
+    render(<ParentConversation title="New chat" session={null} archived={false} showSuggestions={false} />);
+
+    expect(screen.queryByRole("button", { name: "Explore this codebase" })).not.toBeInTheDocument();
+    expect(screen.getByText("Start a conversation when the verified Harness is available.")).toBeVisible();
+  });
+
   it("opens and renders exact display-only Canvas revisions without exposing activity", async () => {
     const onOpenCanvas = vi.fn();
     const { rerender } = render(<ParentConversation title="Harness architecture" session={session} archived={false} onOpenCanvas={onOpenCanvas} />);
