@@ -85,10 +85,11 @@ export function WorkspaceHeader({
         </div>}
       </div>
       <span className="conversation-header-spacer" />
-      <button type="button" className="conversation-header-action" {...controlBinding("chat-pin-toggle", "catalog.chat.pin-toggle")} aria-label={chat.pinned ? "Unpin chat" : "Pin chat"} aria-pressed={chat.pinned} disabled={busy} onClick={() => onSetPinned(!chat.pinned)}><HeaderIcon kind="pin" /></button>
+      <button type="button" className="conversation-header-action conversation-pin-action" {...controlBinding("chat-pin-toggle", "catalog.chat.pin-toggle")} aria-label={chat.pinned ? "Unpin chat" : "Pin chat"} aria-pressed={chat.pinned} disabled={busy} onClick={() => onSetPinned(!chat.pinned)}><HeaderIcon kind="pin" /></button>
       <div className="conversation-header-popover-root">
         <button type="button" className="conversation-header-action" aria-label="Chat options" aria-haspopup="menu" aria-expanded={menu === "actions"} disabled={busy} onClick={() => setMenu((value) => value === "actions" ? null : "actions")}><HeaderIcon kind="more" /></button>
         {menu === "actions" && <div className="conversation-popover conversation-action-menu" role="menu" aria-label="Chat options">
+          <button type="button" role="menuitem" {...controlBinding("chat-pin-menu-toggle", "catalog.chat.pin-toggle")} onClick={() => run(() => onSetPinned(!chat.pinned))}>{chat.pinned ? "Unpin chat" : "Pin chat"}</button>
           <button type="button" role="menuitem" {...controlBinding("chat-rename", "catalog.chat.rename")} onClick={() => { setMenu(null); setRenaming(true); }}>Rename</button>
           <button type="button" role="menuitem" {...controlBinding("chat-duplicate", "catalog.chat.duplicate")} onClick={() => run(onDuplicate)}>Duplicate</button>
           <button type="button" role="menuitem" {...controlBinding("chat-move", "catalog.chat.move")} disabled={moveTargets.length === 0} title={moveTargets.length === 0 ? "No other active projects" : undefined} onClick={() => { setMenu(null); setMoving(true); }}>Move to project</button>

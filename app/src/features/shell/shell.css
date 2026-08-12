@@ -75,3 +75,15 @@
 .studio-context-meter b { display: block; block-size: 100%; background: #8e85f0; }
 .studio-statusbar .is-streaming { color: #7ee2b8; }
 .studio-status-error { color: #e2b34e; }
+
+@media (max-width: 640px) {
+  .studio-titlebar { gap: 6px; padding-inline: 8px; overflow: hidden; }
+  .studio-titlebar > strong { flex: none; max-inline-size: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .studio-title-menus, .studio-title-current { display: none; }
+  .studio-titlebar-actions { display: flex; min-inline-size: 0; overflow: hidden; }
+  .studio-window-controls { flex: none; margin-inline-start: auto; margin-inline-end: -8px; }
+  .studio-window-controls > button { min-inline-size: 36px; }
+  .studio-statusbar { min-block-size: 24px; overflow-x: auto; overflow-y: hidden; white-space: nowrap; scrollbar-width: thin; }
+  .studio-statusbar > * { flex: none; }
+  .studio-statusbar-spacer { display: none; }
+}

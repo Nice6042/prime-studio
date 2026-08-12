@@ -13,12 +13,23 @@ const shared = {
   onSetPinned: () => undefined,
   onRename: () => undefined,
   onDuplicate: () => undefined,
+  onMove: () => undefined,
   onArchive: () => undefined,
   onDelete: () => undefined,
   onOpenInspector: () => undefined,
 };
 
 describe("WorkspaceHeader", () => {
+  it("keeps pinning available from the compact-safe chat menu", async () => {
+    const onSetPinned = vi.fn();
+    render(<WorkspaceHeader {...shared} onSetPinned={onSetPinned} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Chat options" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Pin chat" }));
+
+    expect(onSetPinned).toHaveBeenCalledWith(true);
+  });
+
   it("requires an explicit destination before moving a chat", async () => {
     const onMove = vi.fn();
     render(<WorkspaceHeader {...shared} moveTargets={[

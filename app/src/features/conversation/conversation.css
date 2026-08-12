@@ -135,10 +135,12 @@
 .composer-attachment > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-attachment button { border: 0; color: var(--muted, #9f9f9f); background: transparent; font-size: 10px; }
 @media (max-width: 760px) {
-  .conversation-header { gap: 3px; min-inline-size: 0; padding-inline: 6px; overflow: hidden; }
+  .conversation-header { gap: 6px; min-inline-size: 0; min-block-size: 48px; padding-inline: 6px; overflow: hidden; }
   .conversation-breadcrumb-project, .conversation-breadcrumb-chevron { display: none; }
-  .conversation-chat-switcher { max-inline-size: calc(100vw - 112px); }
-  .conversation-header-action { flex: none; }
+  .conversation-chat-switcher { flex: 1 1 auto; max-inline-size: none; min-inline-size: 0; }
+  .conversation-header-spacer { display: none; }
+  .conversation-header-action { flex: none; inline-size: 36px; block-size: 36px; padding: 9px; }
+  .conversation-pin-action { display: none; }
   .parent-reading-column { inline-size: min(100% - 20px, 760px); padding-block-start: 26px; }
   .parent-user-bubble { max-inline-size: 88%; }
   .composer-dock { inset-inline: 6px; }
