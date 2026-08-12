@@ -143,6 +143,7 @@ export type ProjectChatRejectionReason =
   | "chat-project-mismatch"
   | "chat-archived"
   | "chat-already-bound"
+  | "session-already-bound"
   | "state-limit-exceeded"
   | "personal-project-immutable";
 
