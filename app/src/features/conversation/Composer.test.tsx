@@ -176,6 +176,22 @@ describe("Composer", () => {
     expect(onSlashCommand).toHaveBeenCalledWith("compact");
   });
 
+  it("shows the active keyboard slash choice with its selected state", () => {
+    render(<Composer
+      draft="/co"
+      state={{ kind: "idle", draft: "/co", canSend: true }}
+      slashCommands={deriveSlashCommands({ model: false, effort: false, compact: true, fork: false, new: false, usage: false, export: false })}
+      onDraftChange={vi.fn()}
+      onSubmit={vi.fn()}
+      onAbort={vi.fn()}
+      onOpenUsage={vi.fn()}
+      onSlashCommand={vi.fn()}
+    />);
+
+    const option = screen.getByRole("option", { name: /\/compact/i });
+    expect(option).toHaveAttribute("aria-selected", "true");
+  });
+
   it("offers the verified model catalog with accessible selection", async () => {
     const onSelectModel = vi.fn();
     render(<Composer
@@ -199,5 +215,35 @@ describe("Composer", () => {
     expect(onSelectModel).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("menuitemradio", { name: "Model A" }));
     expect(onSelectModel).toHaveBeenCalledWith("model-a");
+  });
+
+  it("uses menu-button keyboard navigation and restores focus when the model catalog closes", async () => {
+    render(<Composer
+      draft=""
+      state={{ kind: "idle", draft: "", canSend: false }}
+      models={[
+        { id: "model-a", label: "Model A", enabled: true },
+        { id: "model-b", label: "Model B", enabled: false, disabledReason: "Not admitted" },
+        { id: "model-c", label: "Model C", enabled: true },
+      ]}
+      selectedModel="model-a"
+      onSelectModel={vi.fn()}
+      onDraftChange={vi.fn()}
+      onSubmit={vi.fn()}
+      onAbort={vi.fn()}
+      onOpenUsage={vi.fn()}
+    />);
+
+    const trigger = screen.getByRole("button", { name: "Choose model Model A" });
+    await userEvent.click(trigger);
+    expect(screen.getByRole("menuitemradio", { name: "Model A" })).toHaveFocus();
+    await userEvent.keyboard("{ArrowDown}");
+    expect(screen.getByRole("menuitemradio", { name: "Model C" })).toHaveFocus();
+    await userEvent.keyboard("{Home}");
+    expect(screen.getByRole("menuitemradio", { name: "Model A" })).toHaveFocus();
+    await userEvent.keyboard("{End}");
+    expect(screen.getByRole("menuitemradio", { name: "Model C" })).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    expect(trigger).toHaveFocus();
   });
 });

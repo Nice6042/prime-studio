@@ -145,4 +145,19 @@ describe("ParentConversation", () => {
     expect(screen.getByText("2 additional steps are not shown in this bounded view.")).toBeVisible();
   });
 
+  it("disables edited-file controls when no identity-bound artifact callback exists", async () => {
+    render(<ParentConversation title="No artifact authority" session={session} archived={false} presentations={{
+      a1: { editedFiles: [{ path: "app/src/runtime.ts", additions: 1, deletions: 0 }] },
+    }} />);
+
+    const review = screen.getByRole("button", { name: "Review edited files" });
+    const open = screen.getByRole("button", { name: "Open app/src/runtime.ts" });
+    expect(review).toBeDisabled();
+    expect(open).toBeDisabled();
+    expect(review.title).toMatch(/identity-bound/i);
+    expect(open.title).toMatch(/identity-bound/i);
+    await userEvent.click(review);
+    await userEvent.click(open);
+  });
+
 });
