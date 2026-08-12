@@ -1,9 +1,9 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
 import { decideCompatibility } from "./compatibility.js";
-import type { FakeRootSessionSnapshot, ParentMessage, ScenarioRequest, ScenarioResponse, WorkerRecoveryProjection } from "./fakeDaemonScenario.js";
+import type { FakeRootSessionSnapshot, ParentHistoryPage, ParentMessage, ScenarioRequest, ScenarioResponse, WorkerRecoveryProjection } from "./fakeDaemonScenario.js";
 import { discoverRuntime, type RuntimeIdentity } from "./runtimeDiscovery.js";
 import { loadReviewedPrimeAdapter } from "./reviewedPrimeAdapter.js";
 import { parseStudioHarnessOperation, StudioHarnessOperationDispatcher, type StudioHarnessOperationOutcome } from "./studioHarnessOperations.js";
@@ -142,6 +142,14 @@ interface BoundConnection {
 
 interface WorkerRecoveryObservation {
   readonly projection: WorkerRecoveryProjection;
+}
+
+interface ParentHistoryCursorRecord {
+  readonly sessionId: string;
+  readonly runtimeGeneration: string;
+  readonly snapshotSequence: number;
+  readonly sourceDigest: string;
+  readonly beforeExclusive: number;
 }
 
 interface DaemonSnapshotBarrier {
@@ -303,6 +311,7 @@ function childPageText(value: unknown): string {
   return [...contentText(value)].slice(0, 1_024).join("");
 }
 function messageId(message: unknown, index: number): string {
+  if (plain(message) && typeof message.id === "string" && /^[!-~]{1,128}$/u.test(message.id)) return message.id;
   return stableId("message", `${index}:${JSON.stringify(message).slice(0, 16_384)}`);
 }
 function sessionTreeMessageIds(value: unknown): Map<string, string[]> {
@@ -379,6 +388,8 @@ export class PrimeDaemonBridge {
   readonly #workerRecovery = new Map<string, WorkerRecoveryObservation>();
   readonly #childPageCursors = new Map<string, ChildPageCursorBinding>();
   #childPageCursorSequence = 0;
+  readonly #parentHistoryCursors = new Map<string, ParentHistoryCursorRecord>();
+  readonly #parentHistorySecret = randomBytes(32);
   #workerRecoverySequence = 0;
   #hello: DaemonHelloLike | null = null;
 
@@ -844,6 +855,7 @@ export class PrimeDaemonBridge {
       }
       return { type: "snapshot_result", snapshot };
     }
+    if (request.type === "conversation_history_page") return this.#pageParentHistory(request.sessionId, request.expectedCursor, request.before);
     if (request.type !== "session_command") return { type: "error", code: "unsupported_command", message: "Use the dedicated Studio operation route" };
     await this.negotiate();
     const fingerprint = JSON.stringify(request);
@@ -871,6 +883,85 @@ export class PrimeDaemonBridge {
     const response = Object.freeze({ type: "command_result" as const, commandId: request.commandId, outcome: request.kind === "follow_up" ? "queued" as const : "accepted" as const, snapshot });
     this.#commands.set(request.commandId, { fingerprint, response });
     return response;
+  }
+
+  async #pageParentHistory(
+    activeSessionId: string,
+    expectedCursor: Readonly<{ runtimeGeneration: string; sequence: number }>,
+    before: string | null,
+  ): Promise<ScenarioResponse> {
+    const cursorRecord = before === null ? null : this.#parentHistoryCursors.get(before);
+    if (before !== null && (!cursorRecord || cursorRecord.sessionId !== activeSessionId)) {
+      return { type: "error", code: "invalid_history_cursor", message: "History cursor is not owned by this session snapshot" };
+    }
+    const bound = await this.#bound(activeSessionId);
+    if (expectedCursor.runtimeGeneration !== bound.studioGeneration || expectedCursor.sequence !== bound.sequence) {
+      return { type: "error", code: "stale_cursor", message: "Session cursor does not match" };
+    }
+    if (cursorRecord && (cursorRecord.runtimeGeneration !== expectedCursor.runtimeGeneration || cursorRecord.snapshotSequence !== expectedCursor.sequence)) {
+      return { type: "error", code: "stale_cursor", message: "History cursor belongs to a different session snapshot" };
+    }
+    const barrier = await this.#mutationBarrier(activeSessionId, bound);
+    if (!barrier) return { type: "error", code: "stale_cursor", message: "Daemon session advanced; refresh before paging" };
+    try {
+      if (!Array.isArray(barrier.source.messages)) {
+        return { type: "error", code: "history_unavailable", message: "The installed Harness did not provide an atomic history snapshot" };
+      }
+      const rawMessages = barrier.source.messages;
+      const streaming = plain(barrier.source.streamingMessage) ? barrier.source.streamingMessage : null;
+      const historyMessages = [...rawMessages, ...(streaming ? [streaming] : [])];
+      const sourceBytes = Buffer.byteLength(JSON.stringify(historyMessages), "utf8");
+      if (historyMessages.length > 4_096 || sourceBytes > 8 * 1024 * 1024) {
+        return { type: "error", code: "history_unavailable", message: "The installed Harness history exceeds the verified paging proof bounds" };
+      }
+      const completedToolCalls = new Set(rawMessages.flatMap((raw) => plain(raw) && raw.role === "toolResult" && typeof raw.toolCallId === "string" ? [raw.toolCallId] : []));
+      const upstreamMessageIds = sessionTreeMessageIds(barrier.source.sessionTree);
+      const projected: ParentMessage[] = [];
+      for (const [index, raw] of historyMessages.entries()) {
+        if (!plain(raw) || raw.channel !== undefined && raw.channel !== "parent") continue;
+        const signature = JSON.stringify(raw).slice(0, 16_384);
+        const id = upstreamMessageIds.get(signature)?.shift() ?? messageId(raw, index);
+        const emittedAtMs = safeInteger(raw.timestamp);
+        if (raw.role === "user") projected.push({ channel: "parent", kind: "user", id, text: contentText(raw.content), emittedAtMs });
+        else if (raw.role === "assistant") projected.push({ channel: "parent", kind: "assistant", id, blocks: messageBlocks(raw, completedToolCalls, raw === streaming), streaming: raw === streaming, emittedAtMs });
+        else projected.push({ channel: "parent", kind: "notice", id, text: contentText(raw.content), emittedAtMs });
+      }
+      const sourceDigest = createHash("sha256").update(JSON.stringify(projected)).digest("hex");
+      if (cursorRecord && cursorRecord.sourceDigest !== sourceDigest) {
+        return { type: "error", code: "stale_cursor", message: "History source changed after the cursor was issued" };
+      }
+      // The resident snapshot already carries its bounded newest parent window. An
+      // initial request therefore starts immediately before that exact window;
+      // subsequent requests advance only through opaque cursors issued below.
+      const residentCount = Math.min(projected.length, bound.lastSnapshot?.parentMessages.length ?? 0);
+      const end = cursorRecord?.beforeExclusive ?? projected.length - residentCount;
+      if (!Number.isSafeInteger(end) || end < 0 || end > projected.length) {
+        return { type: "error", code: "invalid_history_cursor", message: "History cursor window is invalid" };
+      }
+      const selected: ParentMessage[] = [];
+      let selectedBytes = 2;
+      for (let index = end - 1; index >= 0 && selected.length < 100; index -= 1) {
+        const candidate = projected[index]!;
+        const candidateBytes = Buffer.byteLength(JSON.stringify(candidate), "utf8") + (selected.length > 0 ? 1 : 0);
+        if (selectedBytes + candidateBytes > 1024 * 1024) break;
+        selected.unshift(candidate);
+        selectedBytes += candidateBytes;
+      }
+      const start = end - selected.length;
+      const olderCursor = start > 0 ? `history-${createHash("sha256").update(this.#parentHistorySecret).update(JSON.stringify({ activeSessionId, expectedCursor, sourceDigest, start })).digest("hex")}` : null;
+      if (olderCursor) {
+        if (this.#parentHistoryCursors.size >= 1_024) this.#parentHistoryCursors.clear();
+        this.#parentHistoryCursors.set(olderCursor, { sessionId: activeSessionId, runtimeGeneration: expectedCursor.runtimeGeneration, snapshotSequence: expectedCursor.sequence, sourceDigest, beforeExclusive: start });
+      }
+      const page: ParentHistoryPage = Object.freeze({
+        sessionId: activeSessionId, snapshotCursor: { ...expectedCursor }, messages: Object.freeze(selected), totalMessages: projected.length,
+        omittedBefore: start, omittedAfter: projected.length - end, olderCursor,
+        truncatedByBytes: selected.length < Math.min(100, end),
+      });
+      return { type: "conversation_history_page_result", page };
+    } finally {
+      await barrier.close();
+    }
   }
 
   async snapshot(activeSessionId: string, minimumSequence = 0, allowGenerationChange = true): Promise<FakeRootSessionSnapshot> {

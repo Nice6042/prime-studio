@@ -1,4 +1,4 @@
-// Generated from harness-v1.schema.json; SHA-256: 5ddc9206d863f0042e9e0146dc65d1fb6f9f8c11055de36296b3356903ace9ca
+// Generated from harness-v1.schema.json; SHA-256: c6bfc00124f4eeb97b83f5321e359064a7dd95fbdbbf8411225e8c5c6007378a
 // Do not edit by hand. Run npm run generate:harness-contract.
 
 export const STUDIO_HARNESS_PROTOCOL = 1 as const;
@@ -115,6 +115,17 @@ export interface RootSessionSnapshot {
   workerRecovery: WorkerRecoveryProjection;
 }
 
+export interface ParentHistoryPage {
+  sessionId: string;
+  snapshotCursor: HarnessCursor;
+  messages: readonly ParentMessage[];
+  totalMessages: number;
+  omittedBefore: number;
+  omittedAfter: number;
+  olderCursor: string | null;
+  truncatedByBytes: boolean;
+}
+
 export type HarnessStudioAction =
   | "conversation.user-version.create" | "conversation.response.regenerate" | "conversation.branch.create" | "conversation.files.review" | "conversation.archive-fork" | "conversation.history.page"
   | "composer.model.select" | "composer.thinking.select" | "composer.slash.execute"
@@ -133,6 +144,7 @@ export type StudioRequest =
   | { type: "inspector"; sessionId: string }
   | { type: "child_data_page"; sessionId: string; childId: string; tab: "chat" | "activity" | "files"; expectedCursor: HarnessCursor; pageCursor: string | null }
   | { type: "refresh_session"; sessionId: string; knownCursor: HarnessCursor }
+  | { type: "conversation_history_page"; sessionId: string; expectedCursor: HarnessCursor; before: string | null }
   | { type: "studio_operation"; sessionId: string; operationId: string; action: HarnessStudioAction; payloadJson: string; expectedCursor: HarnessCursor | null; idempotencyKey: string | null };
 
 export type StudioResponse =
@@ -145,6 +157,7 @@ export type StudioResponse =
   | { type: "resident_branched"; creationId: string; sourceSessionId: string; entryId: string; snapshot: RootSessionSnapshot }
   | { type: "inspector_result"; detailsJson: string }
   | { type: "child_data_page_result"; pageJson: string }
+  | { type: "conversation_history_page_result"; page: ParentHistoryPage }
   | { type: "studio_operation_result"; operationId: string; status: "accepted" | "queued" | "updated" | "cancelled" | "unavailable" | "rejected" | "unknown_outcome"; commandId: string | null; position: number | null; revision: string | null; reason: string | null; retryable: boolean | null; snapshot: RootSessionSnapshot | null }
   | { type: "error"; code: string; message: string };
 

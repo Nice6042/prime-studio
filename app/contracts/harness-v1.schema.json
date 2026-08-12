@@ -274,6 +274,20 @@
         "workerRecovery": { "$ref": "#/$defs/WorkerRecoveryProjection" }
       }
     },
+    "ParentHistoryPage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sessionId", "snapshotCursor", "messages", "totalMessages", "omittedBefore", "omittedAfter", "olderCursor", "truncatedByBytes"],
+      "properties": {
+        "sessionId": { "$ref": "#/$defs/Id" },
+        "snapshotCursor": { "$ref": "#/$defs/HarnessCursor" },
+        "messages": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/ParentMessage" } },
+        "totalMessages": { "$ref": "#/$defs/SafeInteger" },
+        "omittedBefore": { "$ref": "#/$defs/SafeInteger" },
+        "omittedAfter": { "$ref": "#/$defs/SafeInteger" },
+        "olderCursor": { "oneOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] },
+        "truncatedByBytes": { "type": "boolean" }
+      }
+    },
     "WorkerRecoveryProjection": {
       "type": "object", "additionalProperties": false,
       "required": ["status", "closureReason", "observationId", "automaticRetryCount", "detail"],
@@ -335,6 +349,16 @@
       "type": "object", "additionalProperties": false, "required": ["type", "sessionId", "knownCursor"],
       "properties": { "type": { "const": "refresh_session" }, "sessionId": { "$ref": "#/$defs/Id" }, "knownCursor": { "$ref": "#/$defs/HarnessCursor" } }
     },
+    "PageParentHistoryRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "sessionId", "expectedCursor", "before"],
+      "properties": {
+        "type": { "const": "conversation_history_page" },
+        "sessionId": { "$ref": "#/$defs/Id" },
+        "expectedCursor": { "$ref": "#/$defs/HarnessCursor" },
+        "before": { "oneOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] }
+      }
+    },
     "HarnessStudioAction": {
       "type": "string", "enum": [
         "conversation.user-version.create", "conversation.response.regenerate", "conversation.branch.create", "conversation.files.review", "conversation.archive-fork", "conversation.history.page",
@@ -387,6 +411,7 @@
         { "$ref": "#/$defs/InspectorRequest" },
         { "$ref": "#/$defs/ChildDataPageRequest" },
         { "$ref": "#/$defs/RefreshSessionRequest" },
+        { "$ref": "#/$defs/PageParentHistoryRequest" },
         { "$ref": "#/$defs/StudioOperationRequest" }
       ]
     },
@@ -462,6 +487,10 @@
       "type": "object", "additionalProperties": false, "required": ["type", "pageJson"],
       "properties": { "type": { "const": "child_data_page_result" }, "pageJson": { "$ref": "#/$defs/Text" } }
     },
+    "ParentHistoryPageResponse": {
+      "type": "object", "additionalProperties": false, "required": ["type", "page"],
+      "properties": { "type": { "const": "conversation_history_page_result" }, "page": { "$ref": "#/$defs/ParentHistoryPage" } }
+    },
     "StudioOperationResponse": {
       "type": "object", "additionalProperties": false,
       "required": ["type", "operationId", "status", "commandId", "position", "revision", "reason", "retryable", "snapshot"],
@@ -487,6 +516,7 @@
         { "$ref": "#/$defs/ResidentBranchedResponse" },
         { "$ref": "#/$defs/InspectorResponse" },
         { "$ref": "#/$defs/ChildDataPageResponse" },
+        { "$ref": "#/$defs/ParentHistoryPageResponse" },
         { "$ref": "#/$defs/StudioOperationResponse" },
         { "$ref": "#/$defs/ProtocolErrorResponse" }
       ]

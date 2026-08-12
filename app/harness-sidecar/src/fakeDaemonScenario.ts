@@ -36,6 +36,17 @@ export interface FakeRootSessionSnapshot {
   readonly workerRecovery: WorkerRecoveryProjection;
 }
 
+export interface ParentHistoryPage {
+  readonly sessionId: string;
+  readonly snapshotCursor: Readonly<{ runtimeGeneration: string; sequence: number }>;
+  readonly messages: readonly ParentMessage[];
+  readonly totalMessages: number;
+  readonly omittedBefore: number;
+  readonly omittedAfter: number;
+  readonly olderCursor: string | null;
+  readonly truncatedByBytes: boolean;
+}
+
 export interface FakeDaemonScenario {
   readonly schemaVersion: 1;
   readonly name: string;
@@ -51,6 +62,7 @@ export type ScenarioRequest =
   | Readonly<{ type: "attach_session"; sessionId: string }>
   | Readonly<{ type: "retry_worker"; sessionId: string; observationId: string }>
   | Readonly<{ type: "refresh_session"; sessionId: string; knownCursor: Readonly<{ runtimeGeneration: string; sequence: number }> }>
+  | Readonly<{ type: "conversation_history_page"; sessionId: string; expectedCursor: Readonly<{ runtimeGeneration: string; sequence: number }>; before: string | null }>
   | Readonly<{
       type: "session_command";
       sessionId: string;
@@ -76,6 +88,7 @@ export type ScenarioResponse =
   | Readonly<{ type: "worker_retry_result"; observationId: string; outcome: "recovered" | "terminal_failure"; snapshot: FakeRootSessionSnapshot }>
   | Readonly<{ type: "inspector_result"; detailsJson: string }>
   | Readonly<{ type: "child_data_page_result"; pageJson: string }>
+  | Readonly<{ type: "conversation_history_page_result"; page: ParentHistoryPage }>
   | Readonly<{
       type: "studio_operation_result"; operationId: string;
       status: "accepted" | "queued" | "updated" | "cancelled" | "unavailable" | "rejected" | "unknown_outcome";
@@ -304,6 +317,17 @@ export class FakeDaemonController {
       const snapshot = request.knownCursor.sequence === current.cursor.sequence ? this.#advance(current, {}) : current;
       this.#sessions.set(request.sessionId, snapshot);
       return deepFreeze({ type: "snapshot_result", snapshot });
+    }
+    if (request.type === "conversation_history_page") {
+      if (request.expectedCursor.runtimeGeneration !== current.cursor.runtimeGeneration || request.expectedCursor.sequence !== current.cursor.sequence) {
+        return deepFreeze({ type: "error", code: "stale_cursor", message: "Session cursor does not match" });
+      }
+      if (request.before !== null) return deepFreeze({ type: "error", code: "invalid_history_cursor", message: "History cursor is not owned by this snapshot" });
+      const messages = current.parentMessages.slice(-100);
+      return deepFreeze({ type: "conversation_history_page_result", page: {
+        sessionId: current.sessionId, snapshotCursor: current.cursor, messages, totalMessages: current.parentMessages.length,
+        omittedBefore: current.parentMessages.length - messages.length, omittedAfter: 0, olderCursor: null, truncatedByBytes: false,
+      } });
     }
     if (request.type === "inspector") {
       const observedAtMs = 1_775_995_200_000 + current.cursor.sequence * 1_000;

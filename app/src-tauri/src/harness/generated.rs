@@ -1,4 +1,4 @@
-// Generated from harness-v1.schema.json; SHA-256: 5ddc9206d863f0042e9e0146dc65d1fb6f9f8c11055de36296b3356903ace9ca
+// Generated from harness-v1.schema.json; SHA-256: c6bfc00124f4eeb97b83f5321e359064a7dd95fbdbbf8411225e8c5c6007378a
 // Do not edit by hand. Run npm run generate:harness-contract.
 
 use std::collections::HashSet;
@@ -151,6 +151,14 @@ pub struct RootSessionSnapshot {
     pub worker_recovery: WorkerRecoveryProjection,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct ParentHistoryPage {
+    pub session_id: String, pub snapshot_cursor: HarnessCursor, pub messages: Vec<ParentMessage>,
+    pub total_messages: u64, pub omitted_before: u64, pub omitted_after: u64,
+    pub older_cursor: Option<String>, pub truncated_by_bytes: bool,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RootSessionState { Idle, Working, Blocked, Failed, Disconnected, Stopped }
@@ -185,6 +193,12 @@ pub enum StudioRequest {
         #[serde(rename = "pageCursor")] page_cursor: Option<String>,
     },
     RefreshSession { #[serde(rename = "sessionId")] session_id: String, #[serde(rename = "knownCursor")] known_cursor: HarnessCursor },
+    #[serde(rename = "conversation_history_page")]
+    PageParentHistory {
+        #[serde(rename = "sessionId")] session_id: String,
+        #[serde(rename = "expectedCursor")] expected_cursor: HarnessCursor,
+        before: Option<String>,
+    },
     StudioOperation {
         #[serde(rename = "sessionId")] session_id: String,
         #[serde(rename = "operationId")] operation_id: String,
@@ -268,6 +282,8 @@ pub enum StudioResponse {
     },
     InspectorResult { #[serde(rename = "detailsJson")] details_json: String },
     ChildDataPageResult { #[serde(rename = "pageJson")] page_json: String },
+    #[serde(rename = "conversation_history_page_result")]
+    ParentHistoryPageResult { page: ParentHistoryPage },
     StudioOperationResult {
         #[serde(rename = "operationId")] operation_id: String, status: StudioOperationStatus,
         #[serde(rename = "commandId")] command_id: Option<String>, position: Option<u64>, revision: Option<String>,

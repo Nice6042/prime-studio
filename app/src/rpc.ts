@@ -36,6 +36,7 @@ import type { ArtifactOpenResult, ArtifactRef, ArtifactSaveCopyRequest, Artifact
 export {
   attachHarnessSession,
   bootstrapHarness,
+  pageHarnessConversationHistory,
   sendHarnessCommand,
   subscribeHarnessEvents,
 } from "./shared/ipc/client";

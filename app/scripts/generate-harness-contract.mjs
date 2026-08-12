@@ -191,6 +191,17 @@ export interface RootSessionSnapshot {
   workerRecovery: WorkerRecoveryProjection;
 }
 
+export interface ParentHistoryPage {
+  sessionId: string;
+  snapshotCursor: HarnessCursor;
+  messages: readonly ParentMessage[];
+  totalMessages: number;
+  omittedBefore: number;
+  omittedAfter: number;
+  olderCursor: string | null;
+  truncatedByBytes: boolean;
+}
+
 export type HarnessStudioAction =
   | "conversation.user-version.create" | "conversation.response.regenerate" | "conversation.branch.create" | "conversation.files.review" | "conversation.archive-fork" | "conversation.history.page"
   | "composer.model.select" | "composer.thinking.select" | "composer.slash.execute"
@@ -209,6 +220,7 @@ export type StudioRequest =
   | { type: "inspector"; sessionId: string }
   | { type: "child_data_page"; sessionId: string; childId: string; tab: "chat" | "activity" | "files"; expectedCursor: HarnessCursor; pageCursor: string | null }
   | { type: "refresh_session"; sessionId: string; knownCursor: HarnessCursor }
+  | { type: "conversation_history_page"; sessionId: string; expectedCursor: HarnessCursor; before: string | null }
   | { type: "studio_operation"; sessionId: string; operationId: string; action: HarnessStudioAction; payloadJson: string; expectedCursor: HarnessCursor | null; idempotencyKey: string | null };
 
 export type StudioResponse =
@@ -221,6 +233,7 @@ export type StudioResponse =
   | { type: "resident_branched"; creationId: string; sourceSessionId: string; entryId: string; snapshot: RootSessionSnapshot }
   | { type: "inspector_result"; detailsJson: string }
   | { type: "child_data_page_result"; pageJson: string }
+  | { type: "conversation_history_page_result"; page: ParentHistoryPage }
   | { type: "studio_operation_result"; operationId: string; status: "accepted" | "queued" | "updated" | "cancelled" | "unavailable" | "rejected" | "unknown_outcome"; commandId: string | null; position: number | null; revision: string | null; reason: string | null; retryable: boolean | null; snapshot: RootSessionSnapshot | null }
   | { type: "error"; code: string; message: string };
 
@@ -392,6 +405,14 @@ pub struct RootSessionSnapshot {
     pub worker_recovery: WorkerRecoveryProjection,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct ParentHistoryPage {
+    pub session_id: String, pub snapshot_cursor: HarnessCursor, pub messages: Vec<ParentMessage>,
+    pub total_messages: u64, pub omitted_before: u64, pub omitted_after: u64,
+    pub older_cursor: Option<String>, pub truncated_by_bytes: bool,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RootSessionState { Idle, Working, Blocked, Failed, Disconnected, Stopped }
@@ -426,6 +447,12 @@ pub enum StudioRequest {
         #[serde(rename = "pageCursor")] page_cursor: Option<String>,
     },
     RefreshSession { #[serde(rename = "sessionId")] session_id: String, #[serde(rename = "knownCursor")] known_cursor: HarnessCursor },
+    #[serde(rename = "conversation_history_page")]
+    PageParentHistory {
+        #[serde(rename = "sessionId")] session_id: String,
+        #[serde(rename = "expectedCursor")] expected_cursor: HarnessCursor,
+        before: Option<String>,
+    },
     StudioOperation {
         #[serde(rename = "sessionId")] session_id: String,
         #[serde(rename = "operationId")] operation_id: String,
@@ -509,6 +536,8 @@ pub enum StudioResponse {
     },
     InspectorResult { #[serde(rename = "detailsJson")] details_json: String },
     ChildDataPageResult { #[serde(rename = "pageJson")] page_json: String },
+    #[serde(rename = "conversation_history_page_result")]
+    ParentHistoryPageResult { page: ParentHistoryPage },
     StudioOperationResult {
         #[serde(rename = "operationId")] operation_id: String, status: StudioOperationStatus,
         #[serde(rename = "commandId")] command_id: Option<String>, position: Option<u64>, revision: Option<String>,

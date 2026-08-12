@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { RootSessionProjection } from "../../entities/harness/types";
+import type { ParentHistoryState } from "../../shared/state/store";
 import { createEmptyParentTranscript, reduceParentTranscript } from "../../entities/messages/parentTranscriptReducer";
 import { MessageActions } from "./MessageActions";
 import { TurnActivity } from "./TurnActivity";
@@ -73,6 +74,8 @@ export function ParentConversation({
   onReviewEditedFiles,
   onOpenEditedFile,
   onSuggestionFill,
+  history,
+  onLoadOlder,
   showSuggestions = true,
 }: {
   readonly title: string;
@@ -90,14 +93,52 @@ export function ParentConversation({
   readonly onReviewEditedFiles?: (messageId: string) => void;
   readonly onOpenEditedFile?: (messageId: string, path: string) => void;
   readonly onSuggestionFill?: (text: string) => void;
+  readonly history?: ParentHistoryState;
+  readonly onLoadOlder?: () => void;
   readonly showSuggestions?: boolean;
 }) {
-  const transcript = useMemo(() => session ? reduceParentTranscript(createEmptyParentTranscript(), { type: "snapshot", cursor: session.cursor, messages: session.parentMessages, omittedBefore: 0 }) : createEmptyParentTranscript(), [session]);
+  const exactHistory = session && history && history.sessionId === session.sessionId
+    && history.snapshotCursor.runtimeGeneration === session.cursor.runtimeGeneration
+    && history.snapshotCursor.sequence === session.cursor.sequence ? history : undefined;
+  const transcript = useMemo(() => {
+    if (!session) return createEmptyParentTranscript();
+    const live = reduceParentTranscript(createEmptyParentTranscript(), { type: "snapshot", cursor: session.cursor, messages: session.parentMessages, omittedBefore: 0 });
+    if (!exactHistory?.messages.length) return live;
+    const older = reduceParentTranscript(createEmptyParentTranscript(), { type: "snapshot", cursor: session.cursor, messages: exactHistory.messages, omittedBefore: exactHistory.omittedBefore ?? 0 });
+    return { cursor: live.cursor, messages: [...older.messages, ...live.messages], omittedBefore: older.omittedBefore, payloadClipped: older.payloadClipped || live.payloadClipped };
+  }, [exactHistory, session]);
   const latestAssistant = [...transcript.messages].reverse().find((message) => message.kind === "assistant");
   const previousStreaming = useRef(latestAssistant?.kind === "assistant" ? latestAssistant.streaming : false);
   const [announcement, setAnnouncement] = useState("");
   const [editing, setEditing] = useState<Readonly<{ id: string; text: string }> | null>(null);
   const [expandedWork, setExpandedWork] = useState<ReadonlySet<string>>(() => new Set());
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const pendingHistoryAnchor = useRef<Readonly<{ scrollHeight: number; scrollTop: number; knownIds: ReadonlySet<string> }> | null>(null);
+
+  const requestOlder = () => {
+    if (!onLoadOlder || !transcriptRef.current) return;
+    pendingHistoryAnchor.current = {
+      scrollHeight: transcriptRef.current.scrollHeight,
+      scrollTop: transcriptRef.current.scrollTop,
+      knownIds: new Set(transcript.messages.map((message) => message.id)),
+    };
+    onLoadOlder();
+  };
+
+  useLayoutEffect(() => {
+    const pending = pendingHistoryAnchor.current;
+    const surface = transcriptRef.current;
+    if (!pending || !surface) return;
+    const inserted = transcript.messages.find((message) => !pending.knownIds.has(message.id));
+    if (!inserted) {
+      if (exactHistory?.status === "unavailable" || exactHistory?.status === "available") pendingHistoryAnchor.current = null;
+      return;
+    }
+    surface.scrollTop = pending.scrollTop + Math.max(0, surface.scrollHeight - pending.scrollHeight);
+    const target = Array.from(surface.querySelectorAll<HTMLElement>("[data-parent-message-id]")).find((element) => element.dataset.parentMessageId === inserted.id);
+    target?.focus({ preventScroll: true });
+    pendingHistoryAnchor.current = null;
+  }, [exactHistory?.status, transcript.messages]);
 
   useEffect(() => {
     const streaming = latestAssistant?.kind === "assistant" ? latestAssistant.streaming : false;
@@ -107,7 +148,7 @@ export function ParentConversation({
 
   return <section className="parent-conversation" aria-label={title}>
     <div className="sr-only" role="status" aria-live="polite">{announcement}</div>
-    <div className="parent-transcript" role="log" aria-label={`${title} conversation`} aria-live="off" tabIndex={0}>
+    <div ref={transcriptRef} className="parent-transcript" role="log" aria-label={`${title} conversation`} aria-live="off" tabIndex={0}>
       {archived && <p className="conversation-notice">Archived chat. This conversation is read-only.</p>}
       {transcript.payloadClipped && <p className="conversation-notice">Large content was clipped in this view; the source session is unchanged.</p>}
       {transcript.messages.length === 0 && <div className="conversation-empty">
@@ -117,14 +158,22 @@ export function ParentConversation({
         {!session && <small>Start a conversation when the verified Harness is available.</small>}
       </div>}
       <div className="parent-reading-column">
+        {exactHistory && onLoadOlder && <div className="conversation-history-control">
+          {(exactHistory.status === "idle" || exactHistory.status === "available" && exactHistory.olderCursor) && <button type="button" {...controlBinding("conversation-history-load-older", "conversation.history.page")} onClick={requestOlder}>Load earlier messages</button>}
+          {exactHistory.status === "loading" && <button type="button" {...controlBinding("conversation-history-load-older", "conversation.history.page")} disabled aria-busy="true">Loading earlier messages…</button>}
+          {exactHistory.status === "available" && exactHistory.olderCursor === null && exactHistory.omittedBefore === 0 && <p>Beginning of conversation · {exactHistory.totalMessages} messages</p>}
+          {exactHistory.status === "available" && exactHistory.reason && <p tabIndex={0}>{exactHistory.reason}</p>}
+          {exactHistory.status === "available" && exactHistory.truncatedByBytes && exactHistory.olderCursor && <p>Page stopped at the verified byte bound; more messages remain available.</p>}
+          {exactHistory.status === "unavailable" && <p tabIndex={0}>{exactHistory.reason}</p>}
+        </div>}
         {transcript.messages.map((message) => {
-          if (message.kind === "notice") return <p className="conversation-notice" key={message.id}>{message.text}</p>;
+          if (message.kind === "notice") return <p className="conversation-notice" key={message.id} data-parent-message-id={message.id} tabIndex={-1}>{message.text}</p>;
           const presentation = presentations[message.id] ?? {};
           if (message.kind === "user") {
             const versions = presentation.userVersions ?? [{ text: message.text }];
             const selected = Math.min(versions.length - 1, Math.max(0, presentation.selectedUserVersion ?? 0));
             const text = versions[selected]?.text ?? message.text;
-            return <article className="parent-turn parent-user-turn" key={message.id}>
+            return <article className="parent-turn parent-user-turn" key={message.id} data-parent-message-id={message.id} tabIndex={-1}>
               <time>{timeLabel(message.emittedAtMs)}</time>
               {editing?.id === message.id ? <div className="parent-user-edit"><textarea aria-label="Edit message text" value={editing.text} onChange={(event) => setEditing({ id: message.id, text: event.currentTarget.value.slice(0, 64 * 1024) })} /><span><button type="button" onClick={() => setEditing(null)}>Cancel</button><button type="button" className="primary" aria-label="Send edited message" disabled={!editing.text.trim()} onClick={() => { onEditUserMessage?.(message.id, editing.text.trim()); setEditing(null); }}>Send</button></span></div> : <div className="parent-user-bubble"><p>{text}</p></div>}
               {editing?.id !== message.id && <div className="parent-message-actions">
@@ -141,7 +190,7 @@ export function ParentConversation({
           const text = displayRevision?.content ?? versions[selected]?.text ?? sourceText;
           const workExpanded = expandedWork.has(message.id);
           const workSteps = presentation.workSteps?.slice(0, 64) ?? [];
-          return <article className="parent-turn parent-assistant-turn" key={message.id} aria-busy={message.streaming}>
+          return <article className="parent-turn parent-assistant-turn" key={message.id} data-parent-message-id={message.id} tabIndex={-1} aria-busy={message.streaming}>
             <TurnActivity blocks={message.blocks} />
             <header className="parent-assistant-header"><PrimeMark /><strong>Prime Assistant</strong><time>{message.streaming ? "streaming…" : timeLabel(message.emittedAtMs)}</time></header>
             <div className="parent-assistant-body">

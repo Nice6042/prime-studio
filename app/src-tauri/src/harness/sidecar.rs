@@ -532,6 +532,32 @@ fn validate_studio_response(response: &StudioResponse) -> bool {
         }
         StudioResponse::InspectorResult { details_json } => valid_text(details_json),
         StudioResponse::ChildDataPageResult { page_json } => valid_text(page_json),
+        StudioResponse::ParentHistoryPageResult { page } => {
+            let accounted = page
+                .omitted_before
+                .checked_add(page.messages.len() as u64)
+                .and_then(|value| value.checked_add(page.omitted_after));
+            valid_id(&page.session_id)
+                && page.snapshot_cursor.sequence <= MAX_SAFE_INTEGER
+                && valid_id(&page.snapshot_cursor.runtime_generation)
+                && page.messages.len() <= 100
+                && page.messages.iter().all(valid_parent_message)
+                && page.messages.iter().enumerate().all(|(index, message)| {
+                    let id = parent_message_id(message);
+                    !page.messages[..index]
+                        .iter()
+                        .any(|previous| parent_message_id(previous) == id)
+                })
+                && page.total_messages <= 4_096
+                && page.omitted_before <= MAX_SAFE_INTEGER
+                && page.omitted_after <= MAX_SAFE_INTEGER
+                && accounted == Some(page.total_messages)
+                && page
+                    .older_cursor
+                    .as_ref()
+                    .is_none_or(|value| valid_id(value))
+                && (page.omitted_before == 0) == page.older_cursor.is_none()
+        }
         StudioResponse::StudioOperationResult {
             operation_id,
             command_id,
@@ -677,6 +703,14 @@ fn valid_parent_message(message: &ParentMessage) -> bool {
     }
 }
 
+fn parent_message_id(message: &ParentMessage) -> &str {
+    match message {
+        ParentMessage::User { id, .. }
+        | ParentMessage::Assistant { id, .. }
+        | ParentMessage::Notice { id, .. } => id,
+    }
+}
+
 fn valid_message_block(block: &MessageBlock) -> bool {
     match block {
         MessageBlock::Text { text } | MessageBlock::Thinking { text, .. } => valid_text(text),
@@ -762,5 +796,51 @@ fn read_diagnostics(mut reader: impl Read, diagnostics: Arc<Mutex<VecDeque<Strin
             }
             lines.push_back("[REDACTED_SIDECAR_DIAGNOSTIC]".to_owned());
         }
+    }
+}
+
+#[cfg(test)]
+mod history_response_tests {
+    use super::*;
+    use crate::harness::generated::{HarnessCursor, ParentChannel, ParentHistoryPage};
+
+    fn response(page: ParentHistoryPage) -> StudioResponse {
+        StudioResponse::ParentHistoryPageResult { page }
+    }
+
+    #[test]
+    fn parent_history_response_validation_is_bounded_and_overflow_safe() {
+        let valid = ParentHistoryPage {
+            session_id: "session-1".to_owned(),
+            snapshot_cursor: HarnessCursor {
+                runtime_generation: "generation-1".to_owned(),
+                sequence: 1,
+            },
+            messages: vec![ParentMessage::User {
+                channel: ParentChannel::Parent,
+                id: "message-1".to_owned(),
+                text: "Earlier".to_owned(),
+                emitted_at_ms: 0,
+            }],
+            total_messages: 1,
+            omitted_before: 0,
+            omitted_after: 0,
+            older_cursor: None,
+            truncated_by_bytes: false,
+        };
+        assert!(validate_studio_response(&response(valid.clone())));
+        assert!(!validate_studio_response(&response(ParentHistoryPage {
+            total_messages: 4_097,
+            omitted_before: 4_097,
+            messages: Vec::new(),
+            ..valid.clone()
+        })));
+        assert!(!validate_studio_response(&response(ParentHistoryPage {
+            total_messages: MAX_SAFE_INTEGER,
+            omitted_before: MAX_SAFE_INTEGER,
+            omitted_after: MAX_SAFE_INTEGER,
+            messages: Vec::new(),
+            ..valid
+        })));
     }
 }

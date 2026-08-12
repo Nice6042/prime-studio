@@ -112,6 +112,64 @@ describe("Studio application state", () => {
     expect(stale.async.bootstrap).toEqual({ generation: 2, status: "loading" });
   });
 
+  it("admits bounded immutable history pages only for the exact bound session snapshot", () => {
+    const initial = initialStudioState({ projectCatalog: catalogBoundToRootSession(), sessions: [rootSession] });
+    const loading = reduceStudio(initial, {
+      type: "conversation/history-requested", chatId: chat.id, sessionId: rootSession.sessionId,
+      expectedCursor: rootSession.cursor, before: null,
+    });
+    expect(loading.conversationHistory[chat.id]?.status).toBe("loading");
+
+    const loaded = reduceStudio(loading, {
+      type: "conversation/history-page-loaded", chatId: chat.id,
+      page: {
+        sessionId: rootSession.sessionId, snapshotCursor: rootSession.cursor,
+        messages: [{ channel: "parent", kind: "user", id: "older-1", text: "Earlier", emittedAtMs: 0 }],
+        totalMessages: 3, omittedBefore: 0, omittedAfter: 2, olderCursor: null, truncatedByBytes: false,
+      },
+    });
+    expect(loaded.conversationHistory[chat.id]).toMatchObject({ status: "available", totalMessages: 3, omittedBefore: 0 });
+    expect(loaded.conversationHistory[chat.id]?.messages.map((message) => message.id)).toEqual(["older-1"]);
+    expect(Object.isFrozen(loaded.conversationHistory[chat.id]?.messages)).toBe(true);
+
+    const stale = reduceStudio(loading, {
+      type: "conversation/history-page-loaded", chatId: chat.id,
+      page: { ...loaded.conversationHistory[chat.id]!, snapshotCursor: { ...rootSession.cursor, sequence: 1 }, status: undefined, reason: undefined, requestedBefore: undefined },
+    } as never);
+    expect(stale).toBe(loading);
+
+    const advanced = reduceStudio(loaded, {
+      type: "harness/session-projected", session: { ...rootSession, cursor: { ...rootSession.cursor, sequence: 3 } },
+    });
+    expect(advanced.conversationHistory[chat.id]).toBeUndefined();
+  });
+
+  it("prepends opaque pages in exact chronology and stops at the 300-row renderer bound", () => {
+    let state = initialStudioState({ projectCatalog: catalogBoundToRootSession(), sessions: [rootSession] });
+    const pageRows = (from: number) => Array.from({ length: 100 }, (_, offset) => ({
+      channel: "parent" as const, kind: "user" as const, id: `older-${from + offset}`, text: `Earlier ${from + offset}`, emittedAtMs: from + offset,
+    }));
+    const pages = [
+      { messages: pageRows(200), omittedBefore: 200, omittedAfter: 2, olderCursor: "cursor-2" },
+      { messages: pageRows(100), omittedBefore: 100, omittedAfter: 102, olderCursor: "cursor-1" },
+      { messages: pageRows(0), omittedBefore: 0, omittedAfter: 202, olderCursor: null },
+    ] as const;
+    let before: string | null = null;
+    for (const page of pages) {
+      state = reduceStudio(state, { type: "conversation/history-requested", chatId: chat.id, sessionId: rootSession.sessionId, expectedCursor: rootSession.cursor, before });
+      state = reduceStudio(state, { type: "conversation/history-page-loaded", chatId: chat.id, page: {
+        sessionId: rootSession.sessionId, snapshotCursor: rootSession.cursor, totalMessages: 302,
+        truncatedByBytes: false, ...page,
+      } });
+      before = page.olderCursor;
+    }
+    expect(state.conversationHistory[chat.id]?.messages).toHaveLength(300);
+    expect(state.conversationHistory[chat.id]?.messages[0]?.id).toBe("older-0");
+    expect(state.conversationHistory[chat.id]?.messages[299]?.id).toBe("older-299");
+    const bounded = reduceStudio(state, { type: "conversation/history-requested", chatId: chat.id, sessionId: rootSession.sessionId, expectedCursor: rootSession.cursor, before: null });
+    expect(bounded).toBe(state);
+  });
+
   it("notifies subscribers only when state changes", () => {
     const store = createStudioStore(initialStudioState({ chats: [chat] }));
     let notifications = 0;
@@ -205,6 +263,30 @@ describe("Studio application state", () => {
 
     expect(screen.getByText(/account-1 · verified-model · thinking low/)).toBeVisible();
   });
+
+  it("mounts load-older through the exact native paging authority and never reports a rejected call as success", async () => {
+    const store = createStudioStore(initialStudioState({
+      projectCatalog: catalogBoundToRootSession(), sessions: [rootSession],
+      compatibility: { status: "ready", profile: "verified", capabilities: ["attach_snapshot", "event_sequence"] },
+    }));
+    const page = vi.spyOn(rpc, "pageHarnessConversationHistory").mockResolvedValueOnce({
+      sessionId: rootSession.sessionId, snapshotCursor: rootSession.cursor,
+      messages: [{ channel: "parent", kind: "user", id: "older-1", text: "Earlier production turn", emittedAtMs: 0 }],
+      totalMessages: 3, omittedBefore: 0, omittedAfter: 2, olderCursor: null, truncatedByBytes: false,
+    }).mockRejectedValueOnce(new Error("history_unavailable"));
+    render(<AppProviders store={store}><StudioApp harnessAdapter={conversationAdapter([])} /></AppProviders>);
+
+    await userEvent.click(screen.getByRole("button", { name: "Load earlier messages" }));
+    await waitFor(() => expect(page).toHaveBeenCalledWith(rootSession.sessionId, rootSession.cursor, null));
+    expect(await screen.findByText("Earlier production turn")).toBeVisible();
+    expect(screen.getByText("Beginning of conversation · 3 messages")).toBeVisible();
+
+    store.dispatch({ type: "harness/session-projected", session: { ...rootSession, cursor: { ...rootSession.cursor, sequence: 3 } } });
+    await userEvent.click(await screen.findByRole("button", { name: "Load earlier messages" }));
+    expect(await screen.findByText(/could not prove an atomic older-history page/i)).toBeVisible();
+    expect(store.getSnapshot().conversationHistory[chat.id]?.status).toBe("unavailable");
+    page.mockRestore();
+  }, 20_000);
 
   it("hydrates composer choices from the selected admitted session", async () => {
     const store = createStudioStore(initialStudioState({

@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type { BootProjection, HarnessProjectionEvent, RootSessionProjection } from "../../entities/harness/types";
-import type { ChildAgentSummary, ContextSource, CurrentChatUsage, HarnessCapability, HarnessCompatibility, HarnessCursor, HarnessUnavailableReason, MessageBlock, ParentMessage, QueueItem, RuntimeIdentity, ToolDefinition, HarnessStudioAction, WorkerRecoveryProjection } from "./harness.generated";
+import type { ChildAgentSummary, ContextSource, CurrentChatUsage, HarnessCapability, HarnessCompatibility, HarnessCursor, HarnessUnavailableReason, MessageBlock, ParentHistoryPage, ParentMessage, QueueItem, RuntimeIdentity, ToolDefinition, HarnessStudioAction, WorkerRecoveryProjection } from "./harness.generated";
 import type { StudioOperation, StudioOperationOutcome } from "../../contracts/studioOperations";
 
 const MAX_TRANSPORT_BYTES = 4 * 1024 * 1024;
@@ -453,6 +453,45 @@ export async function refreshHarnessSession(sessionId: string, knownCursor: Harn
       && projection.cursor.sequence !== exactCursor.sequence + 1)
   ) fail();
   return deepFreeze(projection);
+}
+
+function parentHistoryPage(value: unknown): ParentHistoryPage {
+  const source = record(detach(value), ["sessionId", "snapshotCursor", "messages", "totalMessages", "omittedBefore", "omittedAfter", "olderCursor", "truncatedByBytes"]);
+  const messages = array(source.messages, 100).map(message);
+  const totalMessages = safeInteger(source.totalMessages);
+  const omittedBefore = safeInteger(source.omittedBefore);
+  const omittedAfter = safeInteger(source.omittedAfter);
+  if (totalMessages > 4_096 || omittedBefore + messages.length + omittedAfter !== totalMessages) fail();
+  if (new Set(messages.map((entry) => entry.id)).size !== messages.length) fail();
+  return deepFreeze({
+    sessionId: id(source.sessionId),
+    snapshotCursor: cursor(source.snapshotCursor),
+    messages,
+    totalMessages,
+    omittedBefore,
+    omittedAfter,
+    olderCursor: source.olderCursor === null ? null : id(source.olderCursor),
+    truncatedByBytes: boolean(source.truncatedByBytes),
+  });
+}
+
+export async function pageHarnessConversationHistory(
+  sessionId: string,
+  expectedCursor: HarnessCursor,
+  before: string | null,
+): Promise<ParentHistoryPage> {
+  const exactSessionId = id(sessionId);
+  const exactCursor = cursor(expectedCursor);
+  const exactBefore = before === null ? null : id(before);
+  const page = parentHistoryPage(await invoke("harness_conversation_history_page", {
+    request: { sessionId: exactSessionId, expectedCursor: exactCursor, before: exactBefore },
+  }));
+  if (
+    page.sessionId !== exactSessionId
+    || page.snapshotCursor.runtimeGeneration !== exactCursor.runtimeGeneration
+    || page.snapshotCursor.sequence !== exactCursor.sequence
+  ) fail();
+  return page;
 }
 
 function commandRequest(value: HarnessSessionCommandRequest): HarnessSessionCommandRequest {

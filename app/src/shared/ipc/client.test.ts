@@ -11,7 +11,7 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: mocks.listen,
 }));
 
-import { attachHarnessSession, bootstrapHarness, decodeBootProjection, decodeHarnessProjectionEvent, executeHarnessStudioOperation, loadHarnessChildPage, loadHarnessInspector, refreshHarnessSession, refreshHarnessSubscriptionsNow, registerHarnessSessionProjection, retryHarnessWorker, sendHarnessCommand, subscribeHarnessEvents } from "./client";
+import { attachHarnessSession, bootstrapHarness, decodeBootProjection, decodeHarnessProjectionEvent, executeHarnessStudioOperation, loadHarnessChildPage, loadHarnessInspector, pageHarnessConversationHistory, refreshHarnessSession, refreshHarnessSubscriptionsNow, registerHarnessSessionProjection, retryHarnessWorker, sendHarnessCommand, subscribeHarnessEvents } from "./client";
 
 const unavailable = {
   compatibility: {
@@ -55,6 +55,39 @@ describe("Harness IPC client", () => {
       return () => undefined;
     });
     mocks.eventCallback = null;
+  });
+
+  it("strictly decodes an exact parent history page and rejects hostile chronology", async () => {
+    const page = {
+      sessionId: "root",
+      snapshotCursor: { runtimeGeneration: "generation", sequence: 1 },
+      messages: [{ channel: "parent", kind: "user", id: "older-1", text: "Earlier", emittedAtMs: 0 }],
+      totalMessages: 2,
+      omittedBefore: 0,
+      omittedAfter: 1,
+      olderCursor: null,
+      truncatedByBytes: false,
+    };
+    mocks.invoke.mockResolvedValueOnce(page);
+    const result = await pageHarnessConversationHistory("root", session.cursor, null);
+    expect(result).toEqual(page);
+    expect(Object.isFrozen(result)).toBe(true);
+    expect(Object.isFrozen(result.messages)).toBe(true);
+    expect(mocks.invoke).toHaveBeenCalledWith("harness_conversation_history_page", {
+      request: { sessionId: "root", expectedCursor: session.cursor, before: null },
+    });
+
+    for (const hostile of [
+      { ...page, extra: true },
+      { ...page, sessionId: "crossed" },
+      { ...page, snapshotCursor: { ...page.snapshotCursor, sequence: 2 } },
+      { ...page, totalMessages: 99 },
+      { ...page, messages: [{ channel: "child", kind: "user", id: "private", text: "no", emittedAtMs: 0 }] },
+      { ...page, olderCursor: " ".repeat(2) },
+    ]) {
+      mocks.invoke.mockResolvedValueOnce(hostile);
+      await expect(pageHarnessConversationHistory("root", session.cursor, null)).rejects.toThrow("Harness projection unavailable");
+    }
   });
 
   it("strictly decodes and deeply freezes an unavailable bootstrap", async () => {

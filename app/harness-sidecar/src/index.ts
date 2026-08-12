@@ -82,6 +82,11 @@ function closedPayload(value: unknown): ScenarioRequest {
     if (!knownCursor) throw new Error("request payload is invalid");
     return { type: "refresh_session", sessionId: payload.sessionId, knownCursor };
   }
+  if (payload.type === "conversation_history_page" && exactKeys(payload, ["type", "sessionId", "expectedCursor", "before"]) && validId(payload.sessionId) && (payload.before === null || validId(payload.before))) {
+    const expectedCursor = closedCursor(payload.expectedCursor);
+    if (!expectedCursor) throw new Error("request payload is invalid");
+    return { type: "conversation_history_page", sessionId: payload.sessionId, expectedCursor, before: payload.before };
+  }
   if (payload.type === "inspector" && exactKeys(payload, ["type", "sessionId"]) && validId(payload.sessionId)) {
     return { type: "inspector", sessionId: payload.sessionId };
   }

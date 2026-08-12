@@ -43,6 +43,11 @@
 @media (max-width: 720px) { .resident-binding-recovery { align-items: stretch; flex-direction: column; } .resident-binding-recovery-actions { flex-wrap: wrap; } }
 .parent-transcript { min-block-size: 0; overflow: auto; scrollbar-gutter: stable; outline: none; }
 .parent-reading-column { inline-size: min(100% - 52px, 780px); margin-inline: auto; padding: 18px 0 152px; }
+.conversation-history-control { display: grid; justify-items: center; gap: 7px; margin-block: 0 22px; color: #8a8a94; font-size: 11.5px; text-align: center; }
+.conversation-history-control button { min-block-size: 30px; padding: 5px 12px; border: 1px solid rgb(255 255 255 / 10%); border-radius: 999px; color: #c9c9d1; background: #17171c; font: inherit; }
+.conversation-history-control button:hover:not(:disabled), .conversation-history-control button:focus-visible { border-color: rgb(142 133 240 / 55%); color: #ececf1; background: #1e1e25; }
+.conversation-history-control button:disabled { opacity: .62; }
+.conversation-history-control p { max-inline-size: 560px; margin: 0; }
 .parent-turn { position: relative; margin-block: 0 20px; font: 13.5px/1.6 "Segoe UI Variable", "Segoe UI", sans-serif; }
 .parent-turn p { margin: 0 0 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .parent-user-turn { display: grid; justify-items: end; }

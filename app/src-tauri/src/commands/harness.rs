@@ -5,12 +5,14 @@ use tauri::State;
 use crate::commands::editor::{ArtifactAdmission, ArtifactOpenResult};
 use crate::harness::activation::canonical_workspace_identity;
 use crate::harness::broker::{
-    AttachRequest, ChildDataPageRequest, InspectorRequest, RefreshSessionRequest,
+    AttachRequest, ChildDataPageRequest, InspectorRequest, ParentHistoryPageRequest,
+    RefreshSessionRequest,
     ResidentBranchRequest, ResidentCreateRequest, SessionCommandRequest, StudioOperationRequest,
     WorkerRetryRequest,
 };
 use crate::harness::generated::{
-    ChildDataPageTab, CommandOutcome, HarnessCursor, HarnessStudioAction, ParentMessage,
+    ChildDataPageTab, CommandOutcome, HarnessCursor, HarnessStudioAction, ParentHistoryPage,
+    ParentMessage,
     SessionCommandKind, StudioOperationStatus, WorkerRetryOutcome,
 };
 use crate::harness::projections::{BootProjection, RootSessionProjection};
@@ -84,6 +86,14 @@ pub(crate) struct HarnessArtifactOpenInput {
 pub(crate) struct HarnessRefreshSessionInput {
     session_id: String,
     known_cursor: HarnessCursor,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub(crate) struct HarnessParentHistoryPageInput {
+    session_id: String,
+    expected_cursor: HarnessCursor,
+    before: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -777,6 +787,30 @@ pub(crate) async fn harness_refresh_session(
     })
     .await
     .map_err(|_| "Harness refresh task failed".to_owned())?
+}
+
+#[tauri::command]
+pub(crate) async fn harness_conversation_history_page(
+    state: State<'_, crate::AppState>,
+    request: HarnessParentHistoryPageInput,
+) -> Result<ParentHistoryPage, String> {
+    let broker = state
+        .harness
+        .broker()
+        .ok_or_else(|| "Harness activation is unavailable".to_owned())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut broker = broker
+            .lock()
+            .map_err(|_| "Harness broker is unavailable".to_owned())?;
+        tauri::async_runtime::block_on(broker.page_parent_history(ParentHistoryPageRequest {
+            session_id: request.session_id,
+            expected_cursor: request.expected_cursor,
+            before: request.before,
+        }))
+        .map_err(|error| format!("Harness history page failed: {}", error.code()))
+    })
+    .await
+    .map_err(|_| "Harness history page task failed".to_owned())?
 }
 
 #[tauri::command]

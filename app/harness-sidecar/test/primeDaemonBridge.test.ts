@@ -161,6 +161,64 @@ test("each published snapshot advances exactly one Studio revision even without 
   assert.deepEqual([first.cursor.sequence, second.cursor.sequence, third.cursor.sequence], [9, 10, 11]);
 });
 
+test("parent history pages are bounded, parent-only, and cursor-bound to one exact snapshot", async () => {
+  const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
+  let upstreamSequence = 7;
+  const messages = [
+    ...Array.from({ length: 405 }, (_, index) => ({ channel: "parent", role: "user", id: `entry-${index}`, content: `message ${index}`, timestamp: index })),
+    { channel: "child", role: "user", id: "private-child", content: "never project", timestamp: 999 },
+  ];
+  const state = { activeSessionId: "root-a", cwd: "C:\\work", isStreaming: false, isCompacting: false, isBashRunning: false, sessionId: "chat-a", activeToolNames: [] };
+  const connection = (sessionId: string) => ({
+    async getInitialSnapshot() { return { state: { ...state, activeSessionId: sessionId, sessionId: `chat-${sessionId}` }, messages, streamingMessage: { channel: "parent", role: "assistant", id: "streaming-parent", content: "in flight", timestamp: 1_000 }, children: [], lastEventCursor: { generation: "generation-1", sequence: upstreamSequence } }; },
+    async getState() { return state; }, async getMessages() { return messages; }, async getQueue() { return {}; },
+    async getResourceSnapshot() { return {}; }, async getSessionStats() { return { tokens: {}, cost: 0 }; }, async getToolDefinition() { return undefined; },
+    async prompt() {}, async steer() {}, async followUp() {}, async abort() {}, async dispose() {},
+  });
+  const bridge = new PrimeDaemonBridge({
+    identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
+    client: { async connect() {}, async waitForHello() { return { type: "daemon_hello", socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request(command: { type: string }) { return { type: "response", command: command.type, success: true, data: { sessions: ["root-a", "root-b"].map((activeSessionId) => ({ activeSessionId, isSessionActive: true, workerState: "ready" })) } }; }, close() {} },
+    attach: async (_client, sessionId) => connection(sessionId),
+  });
+
+  const snapshot = await bridge.attach("root-a");
+  const firstOmitted = await bridge.handle({ type: "conversation_history_page", sessionId: "root-a", expectedCursor: snapshot.cursor, before: null } as never);
+  assert.equal(firstOmitted.type, "conversation_history_page_result");
+  if (firstOmitted.type !== "conversation_history_page_result") return;
+  assert.equal(firstOmitted.page.totalMessages, 406);
+  assert.equal(firstOmitted.page.messages.length, 100);
+  assert.equal(firstOmitted.page.messages[0]?.id, "entry-6");
+  assert.equal(firstOmitted.page.messages[99]?.id, "entry-105");
+  assert.equal(firstOmitted.page.omittedBefore, 6);
+  assert.equal(firstOmitted.page.omittedAfter, 300);
+  assert.match(firstOmitted.page.olderCursor ?? "", /^[!-~]{1,128}$/u);
+  assert.equal(firstOmitted.page.messages.some((message) => message.id === "private-child"), false);
+
+  const older = await bridge.handle({ type: "conversation_history_page", sessionId: "root-a", expectedCursor: snapshot.cursor, before: firstOmitted.page.olderCursor } as never);
+  assert.equal(older.type === "conversation_history_page_result" ? older.page.messages[0]?.id : "", "entry-0");
+  assert.equal(older.type === "conversation_history_page_result" ? older.page.omittedBefore : -1, 0);
+  assert.equal(older.type === "conversation_history_page_result" ? older.page.omittedAfter : -1, 400);
+
+  const crossed = await bridge.handle({ type: "conversation_history_page", sessionId: "root-b", expectedCursor: snapshot.cursor, before: firstOmitted.page.olderCursor } as never);
+  assert.equal(crossed.type === "error" ? crossed.code : "", "invalid_history_cursor");
+  upstreamSequence += 1;
+  const stale = await bridge.handle({ type: "conversation_history_page", sessionId: "root-a", expectedCursor: snapshot.cursor, before: firstOmitted.page.olderCursor } as never);
+  assert.equal(stale.type === "error" ? stale.code : "", "stale_cursor");
+});
+
+test("parent history is explicitly unavailable without an atomic bounded source window", async () => {
+  const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
+  const state = { activeSessionId: "root", cwd: "C:\\work", isStreaming: false, isCompacting: false, isBashRunning: false, sessionId: "chat", activeToolNames: [] };
+  const bridge = new PrimeDaemonBridge({
+    identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
+    client: { async connect() {}, async waitForHello() { return { type: "daemon_hello", socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request(command: { type: string }) { return { type: "response", command: command.type, success: true, data: { sessions: [{ activeSessionId: "root", isSessionActive: true, workerState: "ready" }] } }; }, close() {} },
+    attach: async () => ({ async getInitialSnapshot() { return { state, children: [], lastEventCursor: { generation: "generation-1", sequence: 1 } }; }, async getState() { return state; }, async getMessages() { return []; }, async getQueue() { return {}; }, async getResourceSnapshot() { return {}; }, async getSessionStats() { return { tokens: {}, cost: 0 }; }, async getToolDefinition() { return undefined; }, async prompt() {}, async steer() {}, async followUp() {}, async abort() {}, async dispose() {} }),
+  });
+  const snapshot = await bridge.attach("root");
+  const result = await bridge.handle({ type: "conversation_history_page", sessionId: "root", expectedCursor: snapshot.cursor, before: null } as never);
+  assert.equal(result.type === "error" ? result.code : "", "history_unavailable");
+});
+
 test("mutation admission uses a fresh daemon attach barrier rather than the connection snapshot cache", async () => {
   const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
   let upstreamSequence = 4;

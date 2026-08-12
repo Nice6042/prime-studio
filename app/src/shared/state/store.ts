@@ -1,4 +1,4 @@
-import type { HarnessCompatibility } from "../ipc/harness.generated";
+import type { HarnessCompatibility, HarnessCursor, ParentHistoryPage, ParentMessage } from "../ipc/harness.generated";
 import { reconcileAttentionSnapshot, type AttentionSnapshot, type AttentionState } from "../../attention/attentionLedger";
 import type { BootProjection, RootSessionProjection } from "../../entities/harness/types";
 import {
@@ -36,8 +36,23 @@ export interface StudioAppState {
   readonly drafts: Readonly<Record<string, string>>;
   readonly attachments: Readonly<Record<string, readonly DraftAttachment[]>>;
   readonly conversationDisplay: Readonly<Record<string, ConversationDisplay>>;
+  readonly conversationHistory: Readonly<Record<string, ParentHistoryState>>;
   readonly async: Readonly<Record<string, AsyncState>>;
   readonly attention: AttentionState;
+}
+
+export interface ParentHistoryState {
+  readonly status: "idle" | "loading" | "available" | "unavailable";
+  readonly sessionId: string;
+  readonly snapshotCursor: HarnessCursor;
+  readonly messages: readonly ParentMessage[];
+  readonly requestedBefore?: string | null;
+  readonly totalMessages?: number;
+  readonly omittedBefore?: number;
+  readonly omittedAfter?: number;
+  readonly olderCursor?: string | null;
+  readonly truncatedByBytes?: boolean;
+  readonly reason?: string;
 }
 
 export interface DraftAttachment {
@@ -55,6 +70,20 @@ function studioChatIdForSession(catalog: ProjectChatState, session: RootSessionP
     && (chat.binding.agentId === null || chat.binding.agentId === session.chatId)
   );
   return matches.length === 1 ? matches[0]!.id : null;
+}
+
+function sessionForStudioChat(state: StudioAppState, chatId: string): RootSessionProjection | null {
+  const chat = state.projectCatalog.projects.flatMap((project) => project.chats).find((candidate) =>
+    candidate.id === chatId && !candidate.archived && candidate.binding,
+  );
+  if (!chat?.binding) return null;
+  const session = state.sessions[chat.binding.sessionId];
+  if (!session || session.accountId !== chat.binding.accountId || chat.binding.agentId !== null && session.chatId !== chat.binding.agentId) return null;
+  return session;
+}
+
+function sameCursor(left: HarnessCursor, right: HarnessCursor): boolean {
+  return left.runtimeGeneration === right.runtimeGeneration && left.sequence === right.sequence;
 }
 
 function reconcileSessionDisplays(
@@ -77,6 +106,9 @@ export type StudioIntent =
   | Readonly<{ type: "attachments/change"; chatId: string; attachments: readonly DraftAttachment[] }>
   | Readonly<{ type: "conversation/version-appended"; chatId: string; messageId: string; kind: DisplayMessageKind; text: string }>
   | Readonly<{ type: "conversation/version-selected"; chatId: string; messageId: string; kind: DisplayMessageKind; version: number }>
+  | Readonly<{ type: "conversation/history-requested"; chatId: string; sessionId: string; expectedCursor: HarnessCursor; before: string | null }>
+  | Readonly<{ type: "conversation/history-page-loaded"; chatId: string; page: ParentHistoryPage }>
+  | Readonly<{ type: "conversation/history-unavailable"; chatId: string; sessionId: string; expectedCursor: HarnessCursor; reason: string }>
   | Readonly<{ type: "harness/bootstrap-loaded"; projection: BootProjection }>
   | Readonly<{ type: "harness/session-projected"; session: RootSessionProjection }>
   | Readonly<{ type: "project-catalog/loaded"; snapshot: Readonly<{ revision: number; state: ProjectChatState }> }>
@@ -122,6 +154,7 @@ export function initialStudioState(input: {
     drafts: Object.freeze({}),
     attachments: Object.freeze({}),
     conversationDisplay,
+    conversationHistory: Object.freeze({}),
     async: Object.freeze({}),
     attention: { status: "loading" },
   };
@@ -155,6 +188,7 @@ export function reduceStudio(state: StudioAppState, intent: StudioIntent): Studi
       const drafts = Object.freeze(Object.fromEntries(Object.entries(state.drafts).filter(([chatId]) => Boolean(chats[chatId]))));
       const attachments = Object.freeze(Object.fromEntries(Object.entries(state.attachments).filter(([chatId]) => Boolean(chats[chatId]))));
       const conversationDisplay = Object.freeze(Object.fromEntries(Object.entries(state.conversationDisplay).filter(([chatId]) => Boolean(chats[chatId]))));
+      const conversationHistory = Object.freeze(Object.fromEntries(Object.entries(state.conversationHistory).filter(([chatId]) => Boolean(chats[chatId]))));
       return {
         ...state,
         projectCatalog: result.state,
@@ -162,6 +196,7 @@ export function reduceStudio(state: StudioAppState, intent: StudioIntent): Studi
         drafts,
         attachments,
         conversationDisplay,
+        conversationHistory,
         navigation: { route: "workspace", settingsSection: null, selectedChatId },
       };
     }
@@ -198,12 +233,68 @@ export function reduceStudio(state: StudioAppState, intent: StudioIntent): Studi
       if (next === current) return state;
       return { ...state, conversationDisplay: Object.freeze({ ...state.conversationDisplay, [intent.chatId]: next }) };
     }
+    case "conversation/history-requested": {
+      const session = sessionForStudioChat(state, intent.chatId);
+      if (!session || session.sessionId !== intent.sessionId || !sameCursor(session.cursor, intent.expectedCursor)) return state;
+      const current = state.conversationHistory[intent.chatId];
+      if (current && (!sameCursor(current.snapshotCursor, intent.expectedCursor) || current.sessionId !== intent.sessionId)) {
+        if (intent.before !== null) return state;
+      } else if (current) {
+        if (current.status === "loading" || current.messages.length >= 300) return state;
+        const expectedBefore = current.status === "available" ? current.olderCursor ?? null : null;
+        if (intent.before !== expectedBefore) return state;
+      } else if (intent.before !== null) return state;
+      const next: ParentHistoryState = Object.freeze({
+        ...(current && sameCursor(current.snapshotCursor, intent.expectedCursor) ? current : {}),
+        status: "loading",
+        sessionId: intent.sessionId,
+        snapshotCursor: Object.freeze({ ...intent.expectedCursor }),
+        messages: current && sameCursor(current.snapshotCursor, intent.expectedCursor) ? current.messages : Object.freeze([]),
+        requestedBefore: intent.before,
+        reason: undefined,
+      });
+      return { ...state, conversationHistory: Object.freeze({ ...state.conversationHistory, [intent.chatId]: next }) };
+    }
+    case "conversation/history-page-loaded": {
+      const current = state.conversationHistory[intent.chatId];
+      const session = sessionForStudioChat(state, intent.chatId);
+      const page = intent.page;
+      if (!current || current.status !== "loading" || !session || page.sessionId !== current.sessionId || session.sessionId !== page.sessionId
+        || !sameCursor(current.snapshotCursor, page.snapshotCursor) || !sameCursor(session.cursor, page.snapshotCursor)) return state;
+      if (!Number.isSafeInteger(page.totalMessages) || !Number.isSafeInteger(page.omittedBefore) || !Number.isSafeInteger(page.omittedAfter)
+        || page.totalMessages < 0 || page.totalMessages > 4_096 || page.omittedBefore < 0 || page.omittedAfter < 0
+        || page.messages.length > 100 || page.omittedBefore + page.messages.length + page.omittedAfter !== page.totalMessages
+        || page.omittedAfter !== session.parentMessages.length + current.messages.length
+        || (page.omittedBefore === 0) !== (page.olderCursor === null)) return state;
+      const residentIds = new Set([...session.parentMessages, ...current.messages].map((message) => message.id));
+      const incomingIds = page.messages.map((message) => message.id);
+      if (page.messages.some((message) => message.channel !== "parent" || residentIds.has(message.id)) || new Set(incomingIds).size !== incomingIds.length) return state;
+      const messages = Object.freeze([...page.messages.map((message) => Object.freeze({ ...message })), ...current.messages]);
+      if (messages.length > 300) return state;
+      const bounded = messages.length === 300 && page.olderCursor !== null;
+      const next: ParentHistoryState = Object.freeze({
+        status: "available", sessionId: page.sessionId, snapshotCursor: Object.freeze({ ...page.snapshotCursor }), messages,
+        totalMessages: page.totalMessages, omittedBefore: page.omittedBefore, omittedAfter: page.omittedAfter,
+        olderCursor: bounded ? null : page.olderCursor, truncatedByBytes: page.truncatedByBytes,
+        reason: bounded ? "Older messages remain upstream; this view retains at most 300 loaded history messages." : undefined,
+      });
+      return { ...state, conversationHistory: Object.freeze({ ...state.conversationHistory, [intent.chatId]: next }) };
+    }
+    case "conversation/history-unavailable": {
+      const current = state.conversationHistory[intent.chatId];
+      const session = sessionForStudioChat(state, intent.chatId);
+      if (!current || current.status !== "loading" || !session || current.sessionId !== intent.sessionId
+        || session.sessionId !== intent.sessionId || !sameCursor(current.snapshotCursor, intent.expectedCursor) || !sameCursor(session.cursor, intent.expectedCursor)) return state;
+      const next: ParentHistoryState = Object.freeze({ ...current, status: "unavailable", requestedBefore: undefined, reason: intent.reason.slice(0, 512) });
+      return { ...state, conversationHistory: Object.freeze({ ...state.conversationHistory, [intent.chatId]: next }) };
+    }
     case "harness/bootstrap-loaded": {
       const sessions = normalizeSessions(intent.projection.sessions);
       return {
         ...state,
         compatibility: intent.projection.compatibility,
         sessions,
+        conversationHistory: Object.freeze({}),
         conversationDisplay: reconcileSessionDisplays(state.conversationDisplay, state.projectCatalog, sessions),
       };
     }
@@ -215,6 +306,9 @@ export function reduceStudio(state: StudioAppState, intent: StudioIntent): Studi
         ...state,
         sessions: Object.freeze({ ...state.sessions, [intent.session.sessionId]: intent.session }),
         conversationDisplay: Object.freeze({ ...state.conversationDisplay, [studioChatId]: display }),
+        conversationHistory: state.sessions[intent.session.sessionId] && sameCursor(state.sessions[intent.session.sessionId]!.cursor, intent.session.cursor)
+          ? state.conversationHistory
+          : Object.freeze(Object.fromEntries(Object.entries(state.conversationHistory).filter(([chatId]) => chatId !== studioChatId))),
       };
     }
     case "project-catalog/loaded": {
@@ -235,6 +329,7 @@ export function reduceStudio(state: StudioAppState, intent: StudioIntent): Studi
         catalogRevision: intent.snapshot.revision,
         chats,
         conversationDisplay: reconcileSessionDisplays(state.conversationDisplay, projectCatalog, state.sessions),
+        conversationHistory: Object.freeze({}),
         navigation: { route: "workspace", settingsSection: null, selectedChatId },
       };
     }

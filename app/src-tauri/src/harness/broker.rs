@@ -8,7 +8,8 @@ use uuid::Uuid;
 use super::compatibility::decide_compatibility;
 use super::generated::{
     ChildDataPageTab, CommandOutcome, HarnessCapability, HarnessCompatibility, HarnessCursor,
-    HarnessEvent, HarnessStudioAction, ParentMessage, RootSessionSnapshot, SessionCommandKind,
+    HarnessEvent, HarnessStudioAction, ParentHistoryPage, ParentMessage, RootSessionSnapshot,
+    SessionCommandKind,
     StudioOperationStatus, StudioRequest, StudioResponse, WorkerRecoveryStatus, WorkerRetryOutcome,
 };
 pub use super::projections::{BootProjection, ProjectionFreshness, RootSessionProjection};
@@ -179,6 +180,12 @@ type SanitizedInspectorArtifacts = (
 pub struct RefreshSessionRequest {
     pub session_id: String,
     pub known_cursor: HarnessCursor,
+}
+
+pub struct ParentHistoryPageRequest {
+    pub session_id: String,
+    pub expected_cursor: HarnessCursor,
+    pub before: Option<String>,
 }
 
 pub struct StudioOperationRequest {
@@ -1106,6 +1113,47 @@ impl HarnessBroker {
         self.apply_event(admission)?;
         self.project(&request.session_id)
             .ok_or(HarnessError::OwnershipViolation)
+    }
+
+    pub async fn page_parent_history(
+        &mut self,
+        request: ParentHistoryPageRequest,
+    ) -> Result<ParentHistoryPage, HarnessError> {
+        if self.state != BrokerState::Live
+            || !valid_id(&request.session_id)
+            || request
+                .before
+                .as_ref()
+                .is_some_and(|value| !valid_id(value))
+        {
+            return Err(HarnessError::ProtocolViolation);
+        }
+        let current = self
+            .committed
+            .get(&request.session_id)
+            .ok_or(HarnessError::OwnershipViolation)?;
+        if current.cursor != request.expected_cursor {
+            return Err(HarnessError::ChronologyViolation);
+        }
+        let sidecar = self.sidecar.clone().ok_or(HarnessError::StateViolation)?;
+        let response = sidecar
+            .request(
+                StudioRequest::PageParentHistory {
+                    session_id: request.session_id.clone(),
+                    expected_cursor: request.expected_cursor.clone(),
+                    before: request.before,
+                },
+                Instant::now() + Duration::from_secs(10),
+            )
+            .await?;
+        let StudioResponse::ParentHistoryPageResult { page } = response else {
+            return Err(HarnessError::ProtocolViolation);
+        };
+        if page.session_id != request.session_id || page.snapshot_cursor != request.expected_cursor
+        {
+            return Err(HarnessError::ChronologyViolation);
+        }
+        Ok(page)
     }
 
     pub async fn execute_operation(

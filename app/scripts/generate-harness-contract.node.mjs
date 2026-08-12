@@ -60,6 +60,26 @@ test("generation is deterministic and bound to the source schema hash", async ()
   assert.match(first.rust, /pub struct RootSessionSnapshot/);
   assert.match(first.rust, /ChildDataPage/);
   assert.match(first.rust, /ChildDataPageResult/);
+  assert.match(first.typescript, /export interface ParentHistoryPage/);
+  assert.match(first.typescript, /type: "conversation_history_page"/);
+  assert.match(first.typescript, /type: "conversation_history_page_result"/);
+  assert.match(first.rust, /pub struct ParentHistoryPage/);
+  assert.match(first.rust, /PageParentHistory/);
+  assert.match(first.rust, /ParentHistoryPageResult/);
+});
+
+test("parent history paging is closed and bounded by opaque cursor", async () => {
+  const schema = await loadHarnessSchema(schemaUrl);
+  const request = schema.$defs.PageParentHistoryRequest;
+  const page = schema.$defs.ParentHistoryPage;
+
+  assert.deepEqual(request.required, ["type", "sessionId", "expectedCursor", "before"]);
+  assert.equal(request.additionalProperties, false);
+  assert.equal(request.properties.before.oneOf[0].$ref, "#/$defs/Id");
+  assert.deepEqual(page.required, ["sessionId", "snapshotCursor", "messages", "totalMessages", "omittedBefore", "omittedAfter", "olderCursor", "truncatedByBytes"]);
+  assert.equal(page.additionalProperties, false);
+  assert.equal(page.properties.messages.maxItems, 100);
+  assert.equal(page.properties.messages.items.$ref, "#/$defs/ParentMessage");
 });
 
 test("checked-in generated files exactly match the schema", async () => {

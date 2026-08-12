@@ -93,6 +93,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const drafts = useStudioSelector((state) => state.drafts);
   const attachments = useStudioSelector((state) => state.attachments);
   const conversationDisplay = useStudioSelector((state) => state.conversationDisplay);
+  const conversationHistory = useStudioSelector((state) => state.conversationHistory);
   const attention = useStudioSelector((state) => state.attention);
   const viewport = useViewportWidth();
   const initialExpandedProjectIds = projectCatalog.projects.filter((project) => !project.archived).map((project) => project.id);
@@ -868,6 +869,24 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       setAdmissionMessage(error instanceof Error ? error.message : `${label} failed.`);
     }
   };
+  const loadOlderHistory = async () => {
+    const chatId = navigation.selectedChatId;
+    const session = selectedSession;
+    if (!chatId || !session) return;
+    const current = conversationHistory[chatId];
+    const before = current?.status === "available" ? current.olderCursor ?? null : null;
+    store.dispatch({ type: "conversation/history-requested", chatId, sessionId: session.sessionId, expectedCursor: session.cursor, before });
+    if (store.getSnapshot().conversationHistory[chatId]?.status !== "loading") return;
+    try {
+      const page = await rpc.pageHarnessConversationHistory(session.sessionId, session.cursor, before);
+      store.dispatch({ type: "conversation/history-page-loaded", chatId, page });
+    } catch {
+      store.dispatch({
+        type: "conversation/history-unavailable", chatId, sessionId: session.sessionId, expectedCursor: session.cursor,
+        reason: "The verified Harness could not prove an atomic older-history page for this snapshot.",
+      });
+    }
+  };
   const openCurrentUsage = () => {
     if (!layout.inspectorOpen) void dispatchOperation({ action: "layout.inspector.toggle", payload: {} });
     setInspectorRouteRequest((current) => ({ id: (current?.id ?? 0) + 1, route: "usage" }));
@@ -962,6 +981,10 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
           archived={archived}
           displayRevisions={navigation.selectedChatId ? displayRevisions[navigation.selectedChatId] : undefined}
           presentations={navigation.selectedChatId && conversationDisplay[navigation.selectedChatId] ? projectConversationPresentations(conversationDisplay[navigation.selectedChatId]!) : undefined}
+          history={selectedSession ? conversationHistory[navigation.selectedChatId ?? ""] ?? {
+            status: "idle", sessionId: selectedSession.sessionId, snapshotCursor: selectedSession.cursor, messages: [],
+          } : undefined}
+          onLoadOlder={selectedSession ? () => { void loadOlderHistory(); } : undefined}
           onOpenCanvas={navigation.selectedChatId ? (messageId, content) => {
             const existing = displayRevisions[navigation.selectedChatId!]?.[messageId];
             setCanvas({ chatId: navigation.selectedChatId!, messageId, displayRevision: existing?.revision ?? 1, content });

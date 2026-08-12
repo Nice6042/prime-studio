@@ -283,6 +283,7 @@ pub enum TauriCommand {
     HarnessComposerProjection,
     HarnessArtifactOpen,
     HarnessRefreshSession,
+    HarnessConversationHistoryPage,
     HarnessStudioOperation,
     HarnessCreateResidentChat,
     HarnessBranchResidentChat,
@@ -351,6 +352,7 @@ pub const ALL_TAURI_COMMANDS: [TauriCommand; 65] = [
     TauriCommand::HarnessComposerProjection,
     TauriCommand::HarnessArtifactOpen,
     TauriCommand::HarnessRefreshSession,
+    TauriCommand::HarnessConversationHistoryPage,
     TauriCommand::HarnessStudioOperation,
     TauriCommand::HarnessCreateResidentChat,
     TauriCommand::HarnessBranchResidentChat,
@@ -428,6 +430,7 @@ impl TauriCommand {
             Self::HarnessComposerProjection => "harness_composer_projection",
             Self::HarnessArtifactOpen => "harness_artifact_open",
             Self::HarnessRefreshSession => "harness_refresh_session",
+            Self::HarnessConversationHistoryPage => "harness_conversation_history_page",
             Self::HarnessStudioOperation => "harness_studio_operation",
             Self::HarnessCreateResidentChat => "harness_create_resident_chat",
             Self::HarnessBranchResidentChat => "harness_branch_resident_chat",
@@ -492,6 +495,7 @@ impl TauriCommand {
             | Self::HarnessComposerProjection
             | Self::HarnessArtifactOpen
             | Self::HarnessRefreshSession
+            | Self::HarnessConversationHistoryPage
             | Self::HarnessStudioOperation
             | Self::HarnessCreateResidentChat => CommandAuthority::VerifiedBroker,
             Self::HarnessBranchResidentChat => CommandAuthority::VerifiedBroker,

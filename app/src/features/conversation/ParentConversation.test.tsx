@@ -193,4 +193,51 @@ describe("ParentConversation", () => {
     expect(screen.queryByText(/history page cursor/i)).not.toBeInTheDocument();
   });
 
+  it("loads older parent turns with bounded chronology, focus, and scroll anchoring", async () => {
+    const onLoadOlder = vi.fn();
+    const { rerender } = render(<ParentConversation title="History" session={session} archived={false}
+      history={{ status: "idle", sessionId: session.sessionId, snapshotCursor: session.cursor, messages: [] }}
+      onLoadOlder={onLoadOlder} />);
+    const log = screen.getByRole("log", { name: "History conversation" });
+    let height = 500;
+    Object.defineProperty(log, "scrollHeight", { configurable: true, get: () => height });
+    Object.defineProperty(log, "clientHeight", { configurable: true, value: 200 });
+    log.scrollTop = 90;
+
+    await userEvent.click(screen.getByRole("button", { name: "Load earlier messages" }));
+    expect(onLoadOlder).toHaveBeenCalledTimes(1);
+    height = 700;
+    rerender(<ParentConversation title="History" session={session} archived={false}
+      history={{ status: "available", sessionId: session.sessionId, snapshotCursor: session.cursor,
+        messages: [{ channel: "parent", kind: "user", id: "older-1", text: "Earlier prompt", emittedAtMs: 0 }],
+        totalMessages: 3, omittedBefore: 0, omittedAfter: 2, olderCursor: null, truncatedByBytes: false }}
+      onLoadOlder={onLoadOlder} />);
+
+    expect(log.scrollTop).toBe(290);
+    const earlier = screen.getByText("Earlier prompt").closest("article");
+    expect(earlier).toHaveFocus();
+    expect(screen.getByText("Beginning of conversation · 3 messages")).toBeVisible();
+  });
+
+  it("keeps load-older keyboard accessible and states explicit unavailability", async () => {
+    const onLoadOlder = vi.fn();
+    const { rerender } = render(<ParentConversation title="History" session={session} archived={false}
+      history={{ status: "idle", sessionId: session.sessionId, snapshotCursor: session.cursor, messages: [] }}
+      onLoadOlder={onLoadOlder} />);
+    const button = screen.getByRole("button", { name: "Load earlier messages" });
+    expect(button).toHaveAttribute("data-control-id", "conversation-history-load-older");
+    expect(button).toHaveAttribute("data-studio-action", "conversation.history.page");
+    button.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(onLoadOlder).toHaveBeenCalledTimes(1);
+
+    rerender(<ParentConversation title="History" session={session} archived={false}
+      history={{ status: "unavailable", sessionId: session.sessionId, snapshotCursor: session.cursor, messages: [], reason: "The verified Harness could not prove an atomic older-history page for this snapshot." }}
+      onLoadOlder={onLoadOlder} />);
+    const reason = screen.getByText(/could not prove an atomic older-history page/i);
+    expect(reason).toHaveAttribute("tabindex", "0");
+    reason.focus();
+    expect(reason).toHaveFocus();
+  });
+
 });
