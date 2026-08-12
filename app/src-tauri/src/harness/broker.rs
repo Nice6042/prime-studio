@@ -149,6 +149,12 @@ struct ArtifactCandidate {
     writable: bool,
 }
 
+type SanitizedInspectorArtifacts = (
+    String,
+    BTreeMap<String, ArtifactCandidate>,
+    Option<AttentionEvidence>,
+);
+
 pub struct RefreshSessionRequest {
     pub session_id: String,
     pub known_cursor: HarnessCursor,
@@ -1445,14 +1451,7 @@ fn sanitize_inspector_artifacts(
     session_id: &str,
     project_id: &str,
     cursor: &HarnessCursor,
-) -> Result<
-    (
-        String,
-        BTreeMap<String, ArtifactCandidate>,
-        Option<AttentionEvidence>,
-    ),
-    HarnessError,
-> {
+) -> Result<SanitizedInspectorArtifacts, HarnessError> {
     let mut details: serde_json::Value =
         serde_json::from_str(details_json).map_err(|_| HarnessError::ProtocolViolation)?;
     let root = details
