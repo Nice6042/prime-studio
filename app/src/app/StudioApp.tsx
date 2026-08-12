@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 import * as rpc from "../rpc";
 import type { Account, AppSettings, LayoutPreferencesV1 } from "../types";
@@ -20,6 +22,7 @@ import { CommandPalette } from "../features/command-palette/CommandPalette";
 import type { PaletteChat, PaletteMessage } from "../features/command-palette/searchIndex";
 import type { StudioCommandId } from "../entities/commands/commandRegistry";
 import { EditorPane } from "../features/editor/EditorPane";
+import type { StudioOperation } from "../contracts/studioOperations";
 import { useStudioSelector, useStudioStore } from "./AppProviders";
 
 let bootstrapPromise: ReturnType<typeof rpc.bootstrapHarness> | null = null;
@@ -223,6 +226,21 @@ export function StudioApp() {
     }
   };
 
+  const runTitleOperation = (operation: StudioOperation) => {
+    switch (operation.action) {
+      case "catalog.chat.create": createChat(); return;
+      case "route.settings.open": store.dispatch({ type: "route/settings" }); return;
+      case "layout.sidebar.toggle": changeLayout({ sidebarOpen: !layout.sidebarOpen }); return;
+      case "layout.inspector.toggle": changeLayout({ inspectorOpen: !layout.inspectorOpen }); return;
+      case "window.minimize": void getCurrentWindow().minimize(); return;
+      case "window.maximize-toggle": void getCurrentWindow().toggleMaximize(); return;
+      case "route.external-docs.open": void openUrl(operation.payload.document === "support" ? "https://github.com/Nice6042/prime-studio/blob/main/SUPPORT.md" : "https://www.npmjs.com/package/prime-agent"); return;
+      case "history.undo": document.execCommand("undo"); return;
+      case "history.redo": document.execCommand("redo"); return;
+      default: return;
+    }
+  };
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.isComposing || !event.ctrlKey || event.altKey || event.shiftKey) return;
@@ -339,7 +357,7 @@ export function StudioApp() {
     }
   };
   return <div className="studio-application">
-    <TitleBar title={title} actions={<>
+    <TitleBar title={title} onOperation={runTitleOperation} actions={<>
       <button type="button" className="studio-command-trigger" aria-label="Projects" aria-pressed={viewport < 760 ? activeSheet === "sidebar" : layout.sidebarOpen} onClick={(event) => { if (viewport < 760) { sheetOpener.current = event.currentTarget; changeLayout({ sidebarOpen: true }); setActiveSheet((value) => value === "sidebar" ? null : "sidebar"); } else changeLayout({ sidebarOpen: !layout.sidebarOpen }); }}><NavigationIcon kind="menu" /></button>
       <button type="button" className="studio-command-trigger" aria-label="Harness" aria-pressed={viewport < 760 ? activeSheet === "inspector" : layout.inspectorOpen} onClick={(event) => { if (viewport < 760) { sheetOpener.current = event.currentTarget; changeLayout({ inspectorOpen: true }); setActiveSheet((value) => value === "inspector" ? null : "inspector"); } else changeLayout({ inspectorOpen: !layout.inspectorOpen }); }}><NavigationIcon kind="harness" /></button>
       <button type="button" className="studio-command-trigger" aria-label={layout.editorOpen ? "Close editor" : "Open editor"} onClick={(event) => { if (!layout.editorOpen) sheetOpener.current = event.currentTarget; changeLayout({ editorOpen: !layout.editorOpen }); setActiveSheet(layout.editorOpen ? null : "editor"); }}><NavigationIcon kind="editor" /></button>
