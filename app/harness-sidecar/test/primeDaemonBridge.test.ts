@@ -1,6 +1,26 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+test("runtime closure is descriptor-bound and detects post-verification mutation", async (context) => {
+  const { mkdtemp, mkdir, rm, writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { createHash } = await import("node:crypto");
+  const { lockVerifiedRuntimeClosure } = await import("../src/runtimeClosure.js");
+  const root = await mkdtemp(join(tmpdir(), "prime-runtime-closure-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, "dist"));
+  const path = join(root, "dist", "index.js");
+  const bytes = Buffer.from("export const value = 1;\n");
+  await writeFile(path, bytes);
+  const digest = createHash("sha256").update(Buffer.from(`dist/index.js\0${bytes.length}\0`)).update(bytes).digest("hex");
+  const lock = await lockVerifiedRuntimeClosure(root, { files: 1, digest: `sha256:${digest}` });
+  context.after(() => lock.close());
+  await lock.verify();
+  try { await writeFile(path, "export const value = 2;\n"); } catch { return; }
+  await assert.rejects(lock.verify(), /changed/);
+});
+
 test("verified daemon hello is required before production operations", async () => {
   const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
   const calls: string[] = [];
@@ -128,6 +148,13 @@ test("full operation catalog is closed and unsupported upstream operations are e
   assert.equal(prompts, 1);
   assert.equal((await dispatcher.dispatch(port, { ...operation, payload: { ...operation.payload, text: "two" } })).status, "rejected");
   assert.equal((await dispatchStudioHarnessOperation(port, { ...operation, operationId: "op-123456789016", idempotencyKey: "prompt-2", payload: { ...operation.payload, extra: true } })).status, "rejected");
+
+  let uncertainCalls = 0;
+  const uncertain = { ...operation, operationId: "op-123456789017", idempotencyKey: "prompt-3" };
+  const uncertainPort = { connection: { async prompt() { uncertainCalls += 1; throw new Error("connection lost"); } }, currentCursor: operation.expectedCursor };
+  assert.equal((await dispatcher.dispatch(uncertainPort, uncertain)).status, "unknown_outcome");
+  assert.equal((await dispatcher.dispatch(uncertainPort, uncertain)).status, "unknown_outcome");
+  assert.equal(uncertainCalls, 1);
 });
 
 test("production bridge exposes every verified daemon operation without provider calls", async () => {
@@ -163,13 +190,18 @@ test("production bridge exposes every verified daemon operation without provider
   await bridge.toolDefinition("root", "ipython"); await bridge.resources("root"); await bridge.models("root"); await bridge.commands("root");
   const details = await bridge.inspector("root");
   assert.deepEqual(Object.keys(details).sort(), ["activity", "children", "context", "contributions", "notices", "observedAtMs", "outputs", "sources", "startedAtMs"]);
+  const statsBeforeSessionReplayCheck = calls.filter((call) => call === "stats").length;
+  const sharedIdentity = { operationId: "cross-session-operation", action: "usage.current.refresh" as const, expectedCursor: null, idempotencyKey: "cross-session-key" };
+  assert.equal((await bridge.executeOperation("root", { ...sharedIdentity, payload: { sessionId: "root" } })).status, "updated");
+  assert.equal((await bridge.executeOperation("other", { ...sharedIdentity, payload: { sessionId: "other" } })).status, "updated");
+  assert.equal(calls.filter((call) => call === "stats").length, statsBeforeSessionReplayCheck + 2);
   await bridge.importJsonl("root", "C:\\safe\\input.jsonl"); await bridge.exportSession("root", "jsonl"); await bridge.exportSession("root", "html", "C:\\safe\\out.html");
   assert.equal((await bridge.clone("root")).status, "unsupported_upstream");
   await bridge.detach("root");
   assert.deepEqual(calls, [
     "global:list", "global:create", "global:rename", "queue", "stats", "deleteSavedSession:C:\\safe\\session.jsonl", "setModel:openai,gpt-test", "setThinkingLevel:high", "compact:undefined", "fork:entry-1,undefined",
     "messages", "stats", "getSessionTree:", "queue", "clearQueue:", "abortAndClearQueue:", "listCronJobs:[object Object]", "addCronJob:in 5m,Continue", "cancelCronJob:job-1",
-    "listHeartbeats:", "getHeartbeat:", "setHeartbeat:every 5m,Check,follow_up", "updateHeartbeat:pause", "manageHeartbeat:child,job-2,resume", "tool:ipython", "getModelCatalog:", "getCommands:", "getSessionContext:", "stats",
+    "listHeartbeats:", "getHeartbeat:", "setHeartbeat:every 5m,Check,follow_up", "updateHeartbeat:pause", "manageHeartbeat:child,job-2,resume", "tool:ipython", "getModelCatalog:", "getCommands:", "getSessionContext:", "stats", "stats", "stats",
     "importFromJsonl:C:\\safe\\input.jsonl,undefined", "exportToJsonl:undefined", "exportToHtml:C:\\safe\\out.html", "detach",
   ]);
 });

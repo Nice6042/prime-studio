@@ -195,6 +195,7 @@ export type StudioRequest =
   | { type: "attach_session"; sessionId: string }
   | { type: "session_command"; sessionId: string; commandId: string; expectedCursor: HarnessCursor; kind: "prompt" | "steer" | "follow_up" | "abort"; text: string }
   | { type: "inspector"; sessionId: string }
+  | { type: "refresh_session"; sessionId: string; knownCursor: HarnessCursor }
   | { type: "studio_operation"; sessionId: string; operationId: string; action: HarnessStudioAction; payloadJson: string; expectedCursor: HarnessCursor | null; idempotencyKey: string | null };
 
 export type StudioResponse =
@@ -373,6 +374,7 @@ pub enum StudioRequest {
         text: String,
     },
     Inspector { #[serde(rename = "sessionId")] session_id: String },
+    RefreshSession { #[serde(rename = "sessionId")] session_id: String, #[serde(rename = "knownCursor")] known_cursor: HarnessCursor },
     StudioOperation {
         #[serde(rename = "sessionId")] session_id: String,
         #[serde(rename = "operationId")] operation_id: String,

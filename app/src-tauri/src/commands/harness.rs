@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::harness::broker::{
-    AttachRequest, InspectorRequest, SessionCommandRequest, StudioOperationRequest,
+    AttachRequest, InspectorRequest, RefreshSessionRequest, SessionCommandRequest,
+    StudioOperationRequest,
 };
 use crate::harness::generated::{
     CommandOutcome, HarnessCursor, HarnessStudioAction, SessionCommandKind, StudioOperationStatus,
@@ -39,6 +40,13 @@ pub(crate) struct HarnessSessionCommandInput {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub(crate) struct HarnessInspectorInput {
     session_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub(crate) struct HarnessRefreshSessionInput {
+    session_id: String,
+    known_cursor: HarnessCursor,
 }
 
 #[derive(Deserialize)]
@@ -147,6 +155,29 @@ pub(crate) async fn harness_inspector(
     })
     .await
     .map_err(|_| "Harness inspector task failed".to_owned())?
+}
+
+#[tauri::command]
+pub(crate) async fn harness_refresh_session(
+    state: State<'_, crate::AppState>,
+    request: HarnessRefreshSessionInput,
+) -> Result<RootSessionProjection, String> {
+    let broker = state
+        .harness
+        .broker()
+        .ok_or_else(|| "Harness activation is unavailable".to_owned())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut broker = broker
+            .lock()
+            .map_err(|_| "Harness broker is unavailable".to_owned())?;
+        tauri::async_runtime::block_on(broker.refresh_session(RefreshSessionRequest {
+            session_id: request.session_id,
+            known_cursor: request.known_cursor,
+        }))
+        .map_err(|error| format!("Harness refresh failed: {}", error.code()))
+    })
+    .await
+    .map_err(|_| "Harness refresh task failed".to_owned())?
 }
 
 #[tauri::command]

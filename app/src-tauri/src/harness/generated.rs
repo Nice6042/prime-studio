@@ -1,4 +1,4 @@
-// Generated from harness-v1.schema.json; SHA-256: b1349997402e85ed24f4c16e50944bc1fbc88c22a77a6888ec87a790579d405e
+// Generated from harness-v1.schema.json; SHA-256: fac30bce3715b0c80eef0ce1f60ae8168bbed3a9076657f6b9f479043daee623
 // Do not edit by hand. Run npm run generate:harness-contract.
 
 use std::collections::HashSet;
@@ -150,6 +150,7 @@ pub enum StudioRequest {
         text: String,
     },
     Inspector { #[serde(rename = "sessionId")] session_id: String },
+    RefreshSession { #[serde(rename = "sessionId")] session_id: String, #[serde(rename = "knownCursor")] known_cursor: HarnessCursor },
     StudioOperation {
         #[serde(rename = "sessionId")] session_id: String,
         #[serde(rename = "operationId")] operation_id: String,

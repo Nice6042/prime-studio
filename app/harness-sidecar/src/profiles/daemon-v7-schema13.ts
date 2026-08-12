@@ -5,6 +5,8 @@ export const DAEMON_V7_SCHEMA13_PROFILE = Object.freeze({
   packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900",
   entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b",
   daemonEntrypointDigest: "sha256:16e2324a4e3aa13305c437168d44d7395bab317e292218a52d1c61a7ebdf0993",
+  distJavascriptClosureDigest: "sha256:f17aa8a415bcdd7dfee5b6da43fbcba1294a920c9625bd637cf08e3f35519826",
+  distJavascriptClosureFiles: 309,
   protocolName: "prime-agent.daemon",
   protocolVersion: 7,
   schemaRevision: 13,

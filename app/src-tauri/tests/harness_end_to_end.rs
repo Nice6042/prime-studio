@@ -91,6 +91,7 @@ fn tauri_broker_bootstraps_through_the_real_sidecar_against_a_fake_daemon() {
         "index.js",
         "redaction.js",
         "runtimeDiscovery.js",
+        "runtimeClosure.js",
         "primeDaemonBridge.js",
         "studioHarnessOperations.js",
         "profiles/daemon-v7-schema13.js",

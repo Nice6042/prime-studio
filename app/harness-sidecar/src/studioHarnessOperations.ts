@@ -275,14 +275,13 @@ export class StudioHarnessOperationDispatcher {
       if (prior.fingerprint !== fingerprint) return { status: "rejected", reason: "Operation identity was reused with different input.", retryable: false };
       return prior.outcome;
     }
-    const outcome = await dispatchStudioHarnessOperation(port, operation);
-    if (outcome.status !== "unknown_outcome") {
-      const record = Object.freeze({ fingerprint, outcome });
-      this.#byOperationId.set(operation.operationId, record);
-      if (operation.idempotencyKey) this.#byIdempotencyKey.set(operation.idempotencyKey, record);
-      while (this.#byOperationId.size > 4096) this.#byOperationId.delete(this.#byOperationId.keys().next().value!);
-      while (this.#byIdempotencyKey.size > 4096) this.#byIdempotencyKey.delete(this.#byIdempotencyKey.keys().next().value!);
+    if (this.#byOperationId.size >= 4096 || (operation.idempotencyKey && this.#byIdempotencyKey.size >= 4096)) {
+      return { status: "rejected", reason: "Operation replay ledger capacity is exhausted; reattach to reconcile the session.", retryable: true };
     }
+    const outcome = await dispatchStudioHarnessOperation(port, operation);
+    const record = Object.freeze({ fingerprint, outcome });
+    this.#byOperationId.set(operation.operationId, record);
+    if (operation.idempotencyKey) this.#byIdempotencyKey.set(operation.idempotencyKey, record);
     return outcome;
   }
 }

@@ -276,6 +276,7 @@ pub enum TauriCommand {
     HarnessAttachSession,
     HarnessSessionCommand,
     HarnessInspector,
+    HarnessRefreshSession,
     HarnessStudioOperation,
     GetLayoutPreferences,
     SetLayoutPreferences,
@@ -292,7 +293,7 @@ pub enum TauriCommand {
     ComputerUseReadiness,
 }
 
-pub const ALL_TAURI_COMMANDS: [TauriCommand; 54] = [
+pub const ALL_TAURI_COMMANDS: [TauriCommand; 55] = [
     TauriCommand::StartSession,
     TauriCommand::AttachSession,
     TauriCommand::DetachSession,
@@ -333,6 +334,7 @@ pub const ALL_TAURI_COMMANDS: [TauriCommand; 54] = [
     TauriCommand::HarnessAttachSession,
     TauriCommand::HarnessSessionCommand,
     TauriCommand::HarnessInspector,
+    TauriCommand::HarnessRefreshSession,
     TauriCommand::HarnessStudioOperation,
     TauriCommand::GetLayoutPreferences,
     TauriCommand::SetLayoutPreferences,
@@ -399,6 +401,7 @@ impl TauriCommand {
             Self::HarnessAttachSession => "harness_attach_session",
             Self::HarnessSessionCommand => "harness_session_command",
             Self::HarnessInspector => "harness_inspector",
+            Self::HarnessRefreshSession => "harness_refresh_session",
             Self::HarnessStudioOperation => "harness_studio_operation",
             Self::GetLayoutPreferences => "get_layout_preferences",
             Self::SetLayoutPreferences => "set_layout_preferences",
@@ -454,6 +457,7 @@ impl TauriCommand {
             Self::HarnessAttachSession
             | Self::HarnessSessionCommand
             | Self::HarnessInspector
+            | Self::HarnessRefreshSession
             | Self::HarnessStudioOperation => CommandAuthority::VerifiedBroker,
             Self::ExportAccountUsageCsv => CommandAuthority::SafetyControl,
             Self::EditorArtifactOpen | Self::EditorArtifactSave => CommandAuthority::VerifiedBroker,

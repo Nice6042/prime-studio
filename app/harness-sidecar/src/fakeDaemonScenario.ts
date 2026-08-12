@@ -38,6 +38,7 @@ export type ScenarioRequest =
   | Readonly<{ type: "discover_runtime" }>
   | Readonly<{ type: "bootstrap" }>
   | Readonly<{ type: "attach_session"; sessionId: string }>
+  | Readonly<{ type: "refresh_session"; sessionId: string; knownCursor: Readonly<{ runtimeGeneration: string; sequence: number }> }>
   | Readonly<{
       type: "session_command";
       sessionId: string;
@@ -266,6 +267,14 @@ export class FakeDaemonController {
     if (!current) return deepFreeze({ type: "error", code: "unknown_session", message: "Session is not owned by this scenario" });
     if (request.type === "attach_session") {
       const snapshot = this.#advance(current, {});
+      this.#sessions.set(request.sessionId, snapshot);
+      return deepFreeze({ type: "snapshot_result", snapshot });
+    }
+    if (request.type === "refresh_session") {
+      if (request.knownCursor.runtimeGeneration !== current.cursor.runtimeGeneration || request.knownCursor.sequence > current.cursor.sequence) {
+        return deepFreeze({ type: "error", code: "stale_cursor", message: "Known cursor is not in this session generation" });
+      }
+      const snapshot = request.knownCursor.sequence === current.cursor.sequence ? this.#advance(current, {}) : current;
       this.#sessions.set(request.sessionId, snapshot);
       return deepFreeze({ type: "snapshot_result", snapshot });
     }

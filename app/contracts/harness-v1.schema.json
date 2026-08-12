@@ -303,6 +303,10 @@
       "type": "object", "additionalProperties": false, "required": ["type", "sessionId"],
       "properties": { "type": { "const": "inspector" }, "sessionId": { "$ref": "#/$defs/Id" } }
     },
+    "RefreshSessionRequest": {
+      "type": "object", "additionalProperties": false, "required": ["type", "sessionId", "knownCursor"],
+      "properties": { "type": { "const": "refresh_session" }, "sessionId": { "$ref": "#/$defs/Id" }, "knownCursor": { "$ref": "#/$defs/HarnessCursor" } }
+    },
     "HarnessStudioAction": {
       "type": "string", "enum": [
         "conversation.user-version.create", "conversation.response.regenerate", "conversation.branch.create", "conversation.files.review", "conversation.archive-fork", "conversation.history.page",
@@ -329,6 +333,7 @@
         { "$ref": "#/$defs/AttachSessionRequest" },
         { "$ref": "#/$defs/SessionCommandRequest" },
         { "$ref": "#/$defs/InspectorRequest" },
+        { "$ref": "#/$defs/RefreshSessionRequest" },
         { "$ref": "#/$defs/StudioOperationRequest" }
       ]
     },

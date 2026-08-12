@@ -427,6 +427,14 @@ export async function attachHarnessSession(sessionId: string): Promise<RootSessi
   return projection;
 }
 
+export async function refreshHarnessSession(sessionId: string, knownCursor: HarnessCursor): Promise<RootSessionProjection> {
+  const exactSessionId = id(sessionId);
+  const exactCursor = cursor(knownCursor);
+  const projection = session(detach(await invoke("harness_refresh_session", { request: { sessionId: exactSessionId, knownCursor: exactCursor } })));
+  if (projection.sessionId !== exactSessionId || projection.cursor.runtimeGeneration !== exactCursor.runtimeGeneration || projection.cursor.sequence !== exactCursor.sequence + 1) fail();
+  return deepFreeze(projection);
+}
+
 function commandRequest(value: HarnessSessionCommandRequest): HarnessSessionCommandRequest {
   const source = record(detach(value), ["sessionId", "commandId", "expectedCursor", "kind", "text"]);
   const kind = oneOf(source.kind, new Set(["prompt", "steer", "follow_up", "abort"] as const));
@@ -768,6 +776,8 @@ const listeners = new Set<Listener>();
 let unlisten: Promise<UnlistenFn> | null = null;
 let lastSequence = 0;
 let eventStreamClosed = false;
+let refreshTimer: ReturnType<typeof setInterval> | null = null;
+let refreshRunning = false;
 const sessionCursors = new Map<string, HarnessCursor>();
 const retiredGenerations = new Map<string, Set<string>>();
 const childOwners = new Map<string, string>();
@@ -819,6 +829,22 @@ async function ensureListener(): Promise<void> {
     for (const listener of listeners) listener(event);
   });
   await unlisten;
+  refreshTimer ??= setInterval(() => {
+    if (refreshRunning || eventStreamClosed || listeners.size === 0) return;
+    refreshRunning = true;
+    void (async () => {
+      for (const [sessionId, knownCursor] of [...sessionCursors]) {
+        if (eventStreamClosed || listeners.size === 0) break;
+        try {
+          const projected = await refreshHarnessSession(sessionId, knownCursor);
+          const event: HarnessProjectionEvent = { schemaVersion: 1, sequence: lastSequence + 1, type: "session_projection", session: projected };
+          if (!acceptSessionCursor(event)) { eventStreamClosed = true; break; }
+          lastSequence = event.sequence;
+          for (const listener of listeners) listener(deepFreeze(event));
+        } catch { /* Retain the last truthful projection and retry on the next bounded interval. */ }
+      }
+    })().finally(() => { refreshRunning = false; });
+  }, 1_000);
 }
 
 export function subscribeHarnessEvents(listener: Listener): () => void {

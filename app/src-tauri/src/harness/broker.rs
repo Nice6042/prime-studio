@@ -68,6 +68,11 @@ pub struct InspectorRequest {
     pub session_id: String,
 }
 
+pub struct RefreshSessionRequest {
+    pub session_id: String,
+    pub known_cursor: HarnessCursor,
+}
+
 pub struct StudioOperationRequest {
     pub session_id: String,
     pub operation_id: String,
@@ -276,6 +281,7 @@ impl HarnessBroker {
         request: AttachRequest,
     ) -> Result<RootSessionProjection, HarnessError> {
         if self.state != BrokerState::Live
+            || self.unknown_outcome
             || !valid_id(&request.session_id)
             || !self.ownership.contains_key(&request.session_id)
         {
@@ -295,6 +301,7 @@ impl HarnessBroker {
         };
         let admission = self.admit_event(HarnessEvent::Snapshot { snapshot })?;
         self.apply_event(admission)?;
+        self.unknown_outcome = false;
         self.project(&request.session_id)
             .ok_or(HarnessError::OwnershipViolation)
     }
@@ -383,11 +390,46 @@ impl HarnessBroker {
         Ok(details_json)
     }
 
+    pub async fn refresh_session(
+        &mut self,
+        request: RefreshSessionRequest,
+    ) -> Result<RootSessionProjection, HarnessError> {
+        if self.state != BrokerState::Live || !valid_id(&request.session_id) {
+            return Err(HarnessError::ProtocolViolation);
+        }
+        let current = self
+            .committed
+            .get(&request.session_id)
+            .ok_or(HarnessError::OwnershipViolation)?;
+        if current.cursor != request.known_cursor {
+            return Err(HarnessError::ChronologyViolation);
+        }
+        let sidecar = self.sidecar.clone().ok_or(HarnessError::StateViolation)?;
+        let response = sidecar
+            .request(
+                StudioRequest::RefreshSession {
+                    session_id: request.session_id.clone(),
+                    known_cursor: request.known_cursor,
+                },
+                Instant::now() + Duration::from_secs(10),
+            )
+            .await?;
+        let StudioResponse::SnapshotResult { snapshot } = response else {
+            return Err(HarnessError::ProtocolViolation);
+        };
+        let admission = self.admit_event(HarnessEvent::Snapshot { snapshot })?;
+        self.apply_event(admission)?;
+        self.unknown_outcome = false;
+        self.project(&request.session_id)
+            .ok_or(HarnessError::OwnershipViolation)
+    }
+
     pub async fn execute_operation(
         &mut self,
         request: StudioOperationRequest,
     ) -> Result<StudioOperationResult, HarnessError> {
         if self.state != BrokerState::Live
+            || self.unknown_outcome
             || !valid_id(&request.session_id)
             || !valid_id(&request.operation_id)
             || request.payload_json.chars().count() > 131_072

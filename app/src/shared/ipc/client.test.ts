@@ -11,7 +11,7 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: mocks.listen,
 }));
 
-import { attachHarnessSession, bootstrapHarness, decodeBootProjection, decodeHarnessProjectionEvent, executeHarnessStudioOperation, loadHarnessInspector, sendHarnessCommand, subscribeHarnessEvents } from "./client";
+import { attachHarnessSession, bootstrapHarness, decodeBootProjection, decodeHarnessProjectionEvent, executeHarnessStudioOperation, loadHarnessInspector, refreshHarnessSession, sendHarnessCommand, subscribeHarnessEvents } from "./client";
 
 const unavailable = {
   compatibility: {
@@ -273,6 +273,15 @@ describe("Harness IPC client", () => {
         text: "Hello Harness",
       },
     });
+  });
+
+  it("binds live refresh snapshots to the exact next Studio cursor", async () => {
+    const refreshed = { ...session, cursor: { ...session.cursor, sequence: 2 }, state: "working" };
+    mocks.invoke.mockResolvedValueOnce(refreshed);
+    await expect(refreshHarnessSession("root", session.cursor)).resolves.toEqual(refreshed);
+    expect(mocks.invoke).toHaveBeenLastCalledWith("harness_refresh_session", { request: { sessionId: "root", knownCursor: session.cursor } });
+    mocks.invoke.mockResolvedValueOnce({ ...refreshed, cursor: { ...refreshed.cursor, sequence: 4 } });
+    await expect(refreshHarnessSession("root", session.cursor)).rejects.toThrow("Harness projection unavailable");
   });
 
   it("strictly decodes bounded inspector details from the verified broker", async () => {

@@ -39,7 +39,7 @@ use browser::{
 use commands::editor::{editor_artifact_open, editor_artifact_save, ArtifactAuthority};
 use commands::harness::{
     harness_attach_session, harness_bootstrap, harness_inspector, harness_projection,
-    harness_session_command, harness_studio_operation,
+    harness_refresh_session, harness_session_command, harness_studio_operation,
 };
 use commands::settings::{get_layout_preferences, set_layout_preferences};
 use commands::usage::export_account_usage_csv;
@@ -3707,13 +3707,14 @@ fn install_explicit_debug_harness_fixture(app: &AppHandle) -> std::io::Result<()
     const RUNTIME_DIGEST: &str =
         "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900";
     const PROFILE: &str = "prime-agent-daemon-v7-schema13-816309b1cd50";
-    const RESOURCE_NAMES: [&str; 9] = [
+    const RESOURCE_NAMES: [&str; 10] = [
         "compatibility.js",
         "fakeDaemonScenario.js",
         "framing.js",
         "index.js",
         "redaction.js",
         "runtimeDiscovery.js",
+        "runtimeClosure.js",
         "primeDaemonBridge.js",
         "studioHarnessOperations.js",
         "profiles/daemon-v7-schema13.js",
@@ -3873,6 +3874,7 @@ pub fn run() {
             harness_attach_session,
             harness_session_command,
             harness_inspector,
+            harness_refresh_session,
             harness_studio_operation,
             get_layout_preferences,
             set_layout_preferences,

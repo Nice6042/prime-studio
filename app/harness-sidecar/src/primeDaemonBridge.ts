@@ -7,6 +7,7 @@ import { decideCompatibility } from "./compatibility.js";
 import type { FakeRootSessionSnapshot, ParentMessage, ScenarioRequest, ScenarioResponse } from "./fakeDaemonScenario.js";
 import { discoverRuntime, type RuntimeIdentity } from "./runtimeDiscovery.js";
 import { StudioHarnessOperationDispatcher, type StudioHarnessOperationOutcome } from "./studioHarnessOperations.js";
+import { lockVerifiedRuntimeClosure, type RuntimeClosureLock } from "./runtimeClosure.js";
 
 interface DaemonHelloLike {
   readonly type: "daemon_hello";
@@ -50,6 +51,7 @@ export interface PrimeDaemonBridgePorts {
   readonly attach: (client: DaemonClientPort, activeSessionId: string) => Promise<DaemonConnectionPort>;
   readonly expectedSocketPath?: string;
   readonly expectedDaemonEntrypoint?: string;
+  readonly runtimeClosure?: RuntimeClosureLock;
 }
 
 export interface PrimeHarnessInspectorDetails {
@@ -175,10 +177,10 @@ export class PrimeDaemonBridge {
   readonly #attachPort: PrimeDaemonBridgePorts["attach"];
   readonly #expectedSocketPath: string | undefined;
   readonly #expectedDaemonEntrypoint: string | undefined;
+  readonly #runtimeClosure: RuntimeClosureLock | undefined;
   readonly #connections = new Map<string, BoundConnection>();
   readonly #commands = new Map<string, Readonly<{ fingerprint: string; response: Extract<ScenarioResponse, { type: "command_result" }> }>>();
-  readonly #operationDispatcher = new StudioHarnessOperationDispatcher();
-  readonly #advancedOperationOutcomes = new WeakSet<object>();
+  readonly #operationDispatchers = new Map<string, StudioHarnessOperationDispatcher>();
   #hello: DaemonHelloLike | null = null;
 
   constructor(ports: PrimeDaemonBridgePorts) {
@@ -187,6 +189,7 @@ export class PrimeDaemonBridge {
     this.#attachPort = ports.attach;
     this.#expectedSocketPath = ports.expectedSocketPath;
     this.#expectedDaemonEntrypoint = ports.expectedDaemonEntrypoint;
+    this.#runtimeClosure = ports.runtimeClosure;
   }
 
   get client(): DaemonClientPort { return this.#client; }
@@ -221,6 +224,7 @@ export class PrimeDaemonBridge {
     bound.unsubscribe?.();
     await bound.connection.dispose();
     this.#connections.delete(activeSessionId);
+    this.#operationDispatchers.delete(activeSessionId);
   }
 
   async rename(activeSessionId: string, name: string): Promise<unknown> {
@@ -361,13 +365,16 @@ export class PrimeDaemonBridge {
         if (typeof raw.activeSessionId === "string") {
           try {
             const watcher = await this.#call(activeSessionId, "watchSession", raw.activeSessionId);
-            if (plain(watcher) && typeof watcher.getMessages === "function") {
-              const childMessages = await (watcher.getMessages as () => Promise<unknown[]>).call(watcher);
-              for (const [index, message] of childMessages.slice(-300).entries()) {
-                if (!plain(message)) continue;
-                transcript.push({ id: messageId(message, index), actor: typeof message.role === "string" ? message.role : "system", occurredAtMs: safeInteger(message.timestamp), text: contentText(message.content) });
+            if (plain(watcher) && typeof watcher.getMessages === "function" && typeof watcher.close === "function") {
+              try {
+                const childMessages = await (watcher.getMessages as () => Promise<unknown[]>).call(watcher);
+                for (const [index, message] of childMessages.slice(-300).entries()) {
+                  if (!plain(message)) continue;
+                  transcript.push({ id: messageId(message, index), actor: typeof message.role === "string" ? message.role : "system", occurredAtMs: safeInteger(message.timestamp), text: contentText(message.content) });
+                }
+              } finally {
+                await (watcher.close as () => Promise<void>).call(watcher);
               }
-              if (typeof watcher.close === "function") await (watcher.close as () => Promise<void>).call(watcher);
             }
           } catch {
             error ??= { code: "child_transcript_unavailable", message: "Child transcript is unavailable from the installed Harness.", retryable: true };
@@ -396,22 +403,16 @@ export class PrimeDaemonBridge {
     if (plain(operation) && plain(operation.payload) && typeof operation.payload.sessionId === "string" && operation.payload.sessionId !== activeSessionId) {
       return { status: "rejected", reason: "Operation session does not match the attached session.", retryable: false };
     }
-    const outcome = await this.#operationDispatcher.dispatch({
+    const dispatcher = this.#operationDispatchers.get(activeSessionId) ?? new StudioHarnessOperationDispatcher();
+    this.#operationDispatchers.set(activeSessionId, dispatcher);
+    return dispatcher.dispatch({
       connection: bound.connection as unknown as Readonly<Record<string, ((...arguments_: any[]) => Promise<unknown>) | undefined>>,
       currentCursor: { runtimeGeneration: this.#hello!.supervisorGeneration!, sequence: bound.sequence },
     }, operation);
-    if (
-      ["accepted", "queued", "updated", "cancelled"].includes(outcome.status)
-      && !this.#advancedOperationOutcomes.has(outcome)
-    ) {
-      this.#advancedOperationOutcomes.add(outcome);
-      bound.sequence += 1;
-    }
-    return outcome;
   }
 
   async negotiate(): Promise<DaemonHelloLike> {
-    if (this.#hello) return this.#hello;
+    if (this.#hello) { await this.#runtimeClosure?.verify(); return this.#hello; }
     const compatibility = decideCompatibility(this.#identity);
     if (compatibility.status !== "ready" && compatibility.status !== "degraded") throw new Error("runtime identity is incompatible");
     await this.#client.connect(5_000);
@@ -452,6 +453,13 @@ export class PrimeDaemonBridge {
     if (request.type === "discover_runtime") return { type: "discover_runtime_result", runtime: this.#identity, compatibility: decideCompatibility(this.#identity) };
     if (request.type === "bootstrap") return this.bootstrap();
     if (request.type === "attach_session") return { type: "snapshot_result", snapshot: await this.snapshot(request.sessionId) };
+    if (request.type === "refresh_session") {
+      const snapshot = await this.snapshot(request.sessionId, request.knownCursor.sequence + 1);
+      if (snapshot.cursor.runtimeGeneration !== request.knownCursor.runtimeGeneration || snapshot.cursor.sequence !== request.knownCursor.sequence + 1) {
+        return { type: "error", code: "cursor_gap", message: "Daemon session chronology requires a full rebootstrap" };
+      }
+      return { type: "snapshot_result", snapshot };
+    }
     if (request.type !== "session_command") return { type: "error", code: "unsupported_command", message: "Use the dedicated Studio operation route" };
     await this.negotiate();
     const fingerprint = JSON.stringify(request);
@@ -485,7 +493,9 @@ export class PrimeDaemonBridge {
     const rawMessages = Array.isArray(source.messages) ? source.messages : await bound.connection.getMessages();
     const streaming = plain(source.streamingMessage) ? source.streamingMessage : null;
     const observedCursor = plain(source.lastEventCursor) && source.lastEventCursor.generation === hello.supervisorGeneration ? safeInteger(source.lastEventCursor.sequence) : safeInteger(source.lastEventSequence);
-    bound.sequence = bound.initialized ? Math.max(bound.sequence, minimumSequence) : Math.max(observedCursor, minimumSequence);
+    if (bound.initialized && observedCursor > bound.sequence) bound.sequence += 1;
+    else if (!bound.initialized) bound.sequence = Math.max(observedCursor, minimumSequence);
+    else bound.sequence = Math.max(bound.sequence, minimumSequence);
     bound.initialized = true;
     const completedToolCalls = new Set(rawMessages.flatMap((raw) => plain(raw) && raw.role === "toolResult" && typeof raw.toolCallId === "string" ? [raw.toolCallId] : []));
     const upstreamMessageIds = sessionTreeMessageIds(source.sessionTree);
@@ -546,13 +556,15 @@ export class PrimeDaemonBridge {
   async close(): Promise<void> {
     await Promise.all([...this.#connections.values()].map((item) => item.connection.dispose().catch(() => undefined)));
     this.#connections.clear();
+    this.#operationDispatchers.clear();
     this.#client.close();
+    await this.#runtimeClosure?.close();
   }
 
   async #bound(activeSessionId: string): Promise<BoundConnection> {
+    await this.negotiate();
     const prior = this.#connections.get(activeSessionId);
     if (prior) return prior;
-    await this.negotiate();
     if (!/^[!-~]{1,128}$/u.test(activeSessionId)) throw new TypeError("active session ID is invalid");
     const connection = await this.#attachPort(this.#client, activeSessionId);
     const bound: BoundConnection = { connection, sequence: 0, initialized: false };
@@ -595,19 +607,36 @@ export async function loadVerifiedPrimeDaemonBridge(packageRoot: string): Promis
   const daemonDigest = `sha256:${createHash("sha256").update(daemonBytes).digest("hex")}`;
   const { DAEMON_V7_SCHEMA13_PROFILE } = await import("./profiles/daemon-v7-schema13.js");
   if (daemonDigest !== DAEMON_V7_SCHEMA13_PROFILE.daemonEntrypointDigest) throw new Error("daemon entrypoint identity mismatch");
-  const namespace = await import(`${pathToFileURL(entry).href}?bridge=${identity.entrypointDigest.slice(7)}`) as Record<string, unknown>;
+  const runtimeClosure = await lockVerifiedRuntimeClosure(root);
+  let namespace: Record<string, unknown>;
+  try {
+    namespace = await import(`${pathToFileURL(entry).href}?bridge=${identity.entrypointDigest.slice(7)}`) as Record<string, unknown>;
+    await runtimeClosure.verify();
+  } catch (error) {
+    await runtimeClosure.close();
+    throw error;
+  }
   const Client = namespace.DaemonClient;
   const Connection = namespace.DaemonAgentConnection;
   const socket = namespace.defaultDaemonSocketPath;
-  if (typeof Client !== "function" || typeof Connection !== "function" || typeof socket !== "function") throw new Error("runtime bridge exports are unavailable");
+  if (typeof Client !== "function" || typeof Connection !== "function" || typeof socket !== "function") {
+    await runtimeClosure.close();
+    throw new Error("runtime bridge exports are unavailable");
+  }
   const socketPath = (socket as () => string)();
-  if (typeof socketPath !== "string" || socketPath.length < 1 || socketPath.length > 4096) throw new Error("daemon socket path is invalid");
-  const client = new (Client as new (path: string) => DaemonClientPort)(socketPath);
+  if (typeof socketPath !== "string" || socketPath.length < 1 || socketPath.length > 4096) {
+    await runtimeClosure.close();
+    throw new Error("daemon socket path is invalid");
+  }
+  let client: DaemonClientPort;
+  try { client = new (Client as new (path: string) => DaemonClientPort)(socketPath); }
+  catch (error) { await runtimeClosure.close(); throw error; }
   return new PrimeDaemonBridge({
     identity,
     client,
     expectedSocketPath: socketPath,
     expectedDaemonEntrypoint: daemonEntrypoint,
+    runtimeClosure,
     attach: async (daemonClient, activeSessionId) => (Connection as unknown as { attach(client: DaemonClientPort, session: string, options: object): Promise<DaemonConnectionPort> }).attach(daemonClient, activeSessionId, { supportsExtensionUi: true }),
   });
 }
