@@ -88,7 +88,7 @@ export function EditorPane({ onClose, artifact, onArtifactSave, canvas, onCanvas
     }
   };
 
-  return <section className="studio-editor-pane" aria-label="Editor">
+  return <section className="studio-editor-pane">
     <header>
       <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24"><path d="M6 2h8l4 4v16H6zM14 2v5h5" /></svg>
       <h1 title={artifact?.label}>{artifact?.label ?? (canvas ? "Canvas" : "Editor")}</h1>
