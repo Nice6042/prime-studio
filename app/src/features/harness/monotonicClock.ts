@@ -29,14 +29,16 @@ export class MonotonicEpochClock {
 }
 
 /** One daemon-anchored inspector clock avoids per-row timers and mixed clock authorities. */
-export function useMonotonicNow(observedAtMs: number | null | undefined, intervalMs = 1_000): number {
-  const clock = useRef<MonotonicEpochClock | null>(null);
-  if (clock.current === null) clock.current = new MonotonicEpochClock();
+export function useMonotonicNow(scope: string | null, observedAtMs: number | null | undefined, intervalMs = 1_000): number {
+  const scopedClock = useRef<Readonly<{ scope: string | null; clock: MonotonicEpochClock }> | null>(null);
+  if (scopedClock.current === null || scopedClock.current.scope !== scope) {
+    scopedClock.current = { scope, clock: new MonotonicEpochClock() };
+  }
   const [, tick] = useReducer((value: number) => value + 1, 0);
   const monotonicNow = readMonotonicNow();
   const now = observedAtMs === null || observedAtMs === undefined
-    ? clock.current.read(monotonicNow)
-    : clock.current.observe(observedAtMs, monotonicNow);
+    ? scopedClock.current.clock.read(monotonicNow)
+    : scopedClock.current.clock.observe(observedAtMs, monotonicNow);
 
   useEffect(() => {
     const handle = window.setInterval(tick, intervalMs);

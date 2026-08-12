@@ -133,6 +133,23 @@ describe("HarnessInspector", () => {
     expect(await screen.findByText("13:20")).toBeVisible();
   });
 
+  it("resets elapsed authority when the daemon session and generation change", async () => {
+    const highDetails = { ...details, observedAtMs: 20_000, startedAtMs: 10_000 };
+    const lowDetails = { ...details, observedAtMs: 5_000, startedAtMs: 4_000 };
+    const source: HarnessInspectorAdapter = {
+      availability: { status: "available" },
+      load: vi.fn(async (sessionId) => sessionId === "root-a" ? highDetails : lowDetails),
+      execute: vi.fn(),
+    };
+    const view = render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={source} />);
+    expect(await screen.findByText("0:10")).toBeVisible();
+
+    view.rerender(<HarnessInspector chatId="chat-b" session={{ ...session, chatId: "chat-b", sessionId: "root-b", cursor: { runtimeGeneration: "g2", sequence: 1 } }} compatibility={compatibility} adapter={source} />);
+
+    expect(await screen.findByText("0:01")).toBeVisible();
+    expect(screen.queryByText("0:16")).not.toBeInTheDocument();
+  });
+
   it("routes every overview action through the typed adapter and reports success", async () => {
     const commands: StudioOperation[] = [];
     const user = userEvent.setup();
