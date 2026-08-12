@@ -6,7 +6,7 @@ import { RuntimeStatusBar } from "../features/shell/RuntimeStatusBar";
 import { TitleBar } from "../features/shell/TitleBar";
 import { WorkspaceShell } from "../features/shell/WorkspaceShell";
 import { CollapsedSidebar } from "../features/navigation/CollapsedSidebar";
-import { ProjectSidebar } from "../features/navigation/ProjectSidebar";
+import { NavigationIcon, ProjectSidebar } from "../features/navigation/ProjectSidebar";
 import { selectNavigationProjects } from "../features/navigation/navigationSelectors";
 import { loadProjectCatalog } from "../features/navigation/projectCatalogClient";
 import { ParentConversation } from "../features/conversation/ParentConversation";
@@ -271,7 +271,12 @@ export function StudioApp() {
     }
   };
   return <div className="studio-application">
-    <TitleBar title={title} actions={<><button type="button" className="studio-command-trigger" aria-label="Projects" aria-pressed={viewport < 760 ? activeSheet === "sidebar" : layout.sidebarOpen} onClick={() => { if (viewport < 760) { changeLayout({ sidebarOpen: true }); setActiveSheet((value) => value === "sidebar" ? null : "sidebar"); } else changeLayout({ sidebarOpen: !layout.sidebarOpen }); }}>☰</button><button type="button" className="studio-command-trigger" aria-label="Harness" aria-pressed={viewport < 760 ? activeSheet === "inspector" : layout.inspectorOpen} onClick={() => { if (viewport < 760) { changeLayout({ inspectorOpen: true }); setActiveSheet((value) => value === "inspector" ? null : "inspector"); } else changeLayout({ inspectorOpen: !layout.inspectorOpen }); }}>◫</button><button type="button" className="studio-command-trigger" aria-label={layout.editorOpen ? "Close editor" : "Open editor"} onClick={() => { changeLayout({ editorOpen: !layout.editorOpen }); setActiveSheet(layout.editorOpen ? null : "editor"); }}>▤</button><button type="button" className="studio-command-trigger" aria-label="Open command palette" onClick={openPalette}>⌕</button></>} />
+    <TitleBar title={title} actions={<>
+      <button type="button" className="studio-command-trigger" aria-label="Projects" aria-pressed={viewport < 760 ? activeSheet === "sidebar" : layout.sidebarOpen} onClick={() => { if (viewport < 760) { changeLayout({ sidebarOpen: true }); setActiveSheet((value) => value === "sidebar" ? null : "sidebar"); } else changeLayout({ sidebarOpen: !layout.sidebarOpen }); }}><NavigationIcon kind="menu" /></button>
+      <button type="button" className="studio-command-trigger" aria-label="Harness" aria-pressed={viewport < 760 ? activeSheet === "inspector" : layout.inspectorOpen} onClick={() => { if (viewport < 760) { changeLayout({ inspectorOpen: true }); setActiveSheet((value) => value === "inspector" ? null : "inspector"); } else changeLayout({ inspectorOpen: !layout.inspectorOpen }); }}><NavigationIcon kind="harness" /></button>
+      <button type="button" className="studio-command-trigger" aria-label={layout.editorOpen ? "Close editor" : "Open editor"} onClick={() => { changeLayout({ editorOpen: !layout.editorOpen }); setActiveSheet(layout.editorOpen ? null : "editor"); }}><NavigationIcon kind="editor" /></button>
+      <button type="button" className="studio-command-trigger" aria-label="Open command palette" onClick={openPalette}><NavigationIcon kind="command" /></button>
+    </>} />
     <WorkspaceShell
       viewport={viewport}
       sidebar={{ open: layout.sidebarOpen, preferred: layout.sidebarWidth }}

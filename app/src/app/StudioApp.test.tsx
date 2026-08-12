@@ -95,6 +95,9 @@ describe("Studio application state", () => {
 
     expect(screen.getByRole("main")).toHaveAccessibleName("Harness architecture");
     expect(screen.getByRole("heading", { name: "Harness architecture" })).toBeVisible();
+    for (const name of ["Projects", "Harness", "Open editor", "Open command palette"]) {
+      expect(screen.getByRole("button", { name }).querySelector("svg")).not.toBeNull();
+    }
   });
 
   it("projects the durable project catalog into the real sidebar", () => {
