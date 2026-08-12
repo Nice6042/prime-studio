@@ -52,8 +52,14 @@ export function createProductionHarnessInspectorAdapter(
   ports: ProductionHarnessPorts = realPorts,
 ): HarnessInspectorAdapter {
   return Object.freeze({
-    availability: { status: "available" as const },
-    load: (sessionId: string) => ports.load(sessionId),
+    get availability() {
+      return store.getSnapshot().compatibility.status === "ready"
+        ? { status: "available" as const }
+        : { status: "unavailable" as const, reason: "The verified Prime Harness broker is not live." };
+    },
+    load: (sessionId: string) => store.getSnapshot().sessions[sessionId]
+      ? ports.load(sessionId)
+      : Promise.reject(new Error("The requested Harness session is not admitted by the native broker.")),
     async execute(operation: StudioOperation): Promise<StudioOperationOutcome> {
       const descriptor = STUDIO_ACTIONS[operation.action];
       if (descriptor.owner.kind === "renderer") return { status: "updated", revision: "renderer" };

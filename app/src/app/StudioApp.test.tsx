@@ -19,7 +19,7 @@ const chat = {
 } as const;
 
 const rootSession: RootSessionProjection = {
-  sessionId: "session-1", accountId: "account-1", projectId: "project-1", chatId: "chat-1",
+  sessionId: "session-1", accountId: "account-1", projectId: "daemon-project-1", chatId: "daemon-chat-1",
   cursor: { runtimeGeneration: "g1", sequence: 2 }, state: "idle", freshness: "live",
   parentMessages: [
     { channel: "parent", kind: "user", id: "u1", text: "Original prompt", emittedAtMs: 1 },
@@ -47,7 +47,28 @@ function conversationAdapter(operations: StudioOperation[]): HarnessInspectorAda
   };
 }
 
+function catalogBoundToRootSession() {
+  const created = transitionProjectChatState(createInitialProjectChatState(), {
+    type: "chat.create", projectId: "project:personal", chatId: chat.id, title: chat.title,
+  });
+  if (created.status !== "applied") throw new Error("test catalog create failed");
+  const bound = transitionProjectChatState(created.state, {
+    type: "chat.bind-prime-session", projectId: "project:personal", chatId: chat.id,
+    binding: { kind: "prime-session", accountId: rootSession.accountId, sessionId: rootSession.sessionId, sessionFile: `${rootSession.chatId}.jsonl`, agentId: rootSession.chatId },
+  });
+  if (bound.status !== "applied") throw new Error("test catalog bind failed");
+  return bound.state;
+}
+
 describe("Studio application state", () => {
+  it("projects daemon messages under the separately bound Studio chat identity", () => {
+    const state = initialStudioState({ projectCatalog: catalogBoundToRootSession(), sessions: [rootSession] });
+    expect(state.navigation.selectedChatId).toBe("chat-1");
+    expect(state.sessions["session-1"]?.chatId).toBe("daemon-chat-1");
+    expect(state.projectCatalog.projects[0]?.id).toBe("project:personal");
+    expect(state.conversationDisplay["chat-1"]?.messages.u1?.versions).toEqual([{ text: "Original prompt" }]);
+  });
+
   it("keeps the account and project ownership of an open chat immutable", () => {
     const initial = initialStudioState({ chats: [chat] });
     const opened = reduceStudio(initial, { type: "chat/open", chatId: chat.id });
@@ -149,7 +170,7 @@ describe("Studio application state", () => {
 
   it("projects verified composer identity into the current-chat runtime status", () => {
     const store = createStudioStore(initialStudioState({
-      chats: [chat],
+      projectCatalog: catalogBoundToRootSession(),
       sessions: [rootSession],
       compatibility: { status: "ready", profile: "verified", capabilities: ["model_catalog"] },
     }));
@@ -325,7 +346,7 @@ describe("Studio application state", () => {
   it("routes immutable edits, branches, regeneration, and Harness slash commands through the verified adapter", async () => {
     const operations: StudioOperation[] = [];
     const store = createStudioStore(initialStudioState({
-      chats: [chat],
+      projectCatalog: catalogBoundToRootSession(),
       sessions: [rootSession],
       compatibility: {
         status: "ready", profile: "verified",

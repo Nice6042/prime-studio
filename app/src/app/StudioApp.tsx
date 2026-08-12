@@ -71,7 +71,10 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const projectCatalog = useStudioSelector((state) => state.projectCatalog);
   const selectedChat = useStudioSelector((state) => navigation.selectedChatId ? state.chats[navigation.selectedChatId] : null);
   const sessions = useStudioSelector((state) => state.sessions);
-  const selectedSession = Object.values(sessions).find((session) => session.chatId === navigation.selectedChatId) ?? null;
+  const selectedCatalogChat = navigation.selectedChatId
+    ? projectCatalog.projects.flatMap((project) => project.chats).find((chat) => chat.id === navigation.selectedChatId && !chat.archived) ?? null
+    : null;
+  const selectedSession = selectedCatalogChat?.binding ? sessions[selectedCatalogChat.binding.sessionId] ?? null : null;
   const compatibility = useStudioSelector((state) => state.compatibility);
   const drafts = useStudioSelector((state) => state.drafts);
   const attachments = useStudioSelector((state) => state.attachments);
@@ -107,8 +110,11 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const [operationFeedback, setOperationFeedback] = useState<string | null>(null);
 
   const sessionStates = useMemo(() => Object.fromEntries(
-    Object.values(sessions).map((session) => [session.chatId, session.state]),
-  ), [sessions]);
+    projectCatalog.projects.flatMap((project) => project.chats).flatMap((chat) => {
+      const session = chat.binding ? sessions[chat.binding.sessionId] : null;
+      return session ? [[chat.id, session.state] as const] : [];
+    }),
+  ), [projectCatalog.projects, sessions]);
   const projects = useMemo(() => selectNavigationProjects(projectCatalog, {
     expandedProjectIds,
     activityMs: {},
@@ -120,12 +126,14 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     project.chats.map((chat) => ({ id: chat.id, title: chat.title, project: project.name, archived: project.archived || chat.archived })),
   ), [projectCatalog]);
   const paletteMessages = useMemo<readonly PaletteMessage[]>(() => Object.values(sessions).flatMap((session) => {
-    const project = projectCatalog.projects.find((candidate) => candidate.id === session.projectId);
+    const project = projectCatalog.projects.find((candidate) => candidate.chats.some((chat) => chat.binding?.sessionId === session.sessionId));
+    const chat = project?.chats.find((candidate) => candidate.binding?.sessionId === session.sessionId);
+    if (!chat) return [];
     return session.parentMessages.map((message) => {
       const excerpt = message.kind === "assistant"
         ? message.blocks.filter((block) => block.kind === "text").map((block) => block.text).join(" ")
         : message.text;
-      return { id: message.id, chatId: session.chatId, project: project?.name ?? "Personal", excerpt, channel: "parent" as const };
+      return { id: message.id, chatId: chat.id, project: project?.name ?? "Personal", excerpt, channel: "parent" as const };
     });
   }), [projectCatalog.projects, sessions]);
 

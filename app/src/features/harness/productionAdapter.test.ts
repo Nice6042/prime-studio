@@ -48,6 +48,13 @@ describe("production Harness inspector adapter", () => {
     const adapter = createProductionHarnessInspectorAdapter(store, { load: vi.fn(), execute });
     await expect(adapter.execute({ action: "composer.model.select", payload: { chatId: "missing-chat", modelId: "openai/gpt-test" } })).resolves.toMatchObject({ status: "rejected" });
     await expect(adapter.execute({ action: "harness.session.prompt", payload: { sessionId: "substituted", text: "no" } })).resolves.toMatchObject({ status: "rejected" });
+    await expect(adapter.load("substituted")).rejects.toThrow("not admitted");
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("reports unavailable until the native broker publishes a ready compatibility profile", () => {
+    const store = createStudioStore(initialStudioState());
+    const adapter = createProductionHarnessInspectorAdapter(store, { load: vi.fn(), execute: vi.fn() });
+    expect(adapter.availability).toEqual({ status: "unavailable", reason: "The verified Prime Harness broker is not live." });
   });
 });

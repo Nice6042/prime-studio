@@ -45,6 +45,28 @@ export interface DraftAttachment {
   readonly mediaType: string;
 }
 
+function studioChatIdForSession(catalog: ProjectChatState, session: RootSessionProjection): string | null {
+  const matches = catalog.projects.flatMap((project) => project.chats).filter((chat) =>
+    !chat.archived
+    && chat.binding?.sessionId === session.sessionId
+    && chat.binding.accountId === session.accountId
+    && (chat.binding.agentId === null || chat.binding.agentId === session.chatId)
+  );
+  return matches.length === 1 ? matches[0]!.id : null;
+}
+
+function reconcileSessionDisplays(
+  current: Readonly<Record<string, ConversationDisplay>>,
+  catalog: ProjectChatState,
+  sessions: SessionEntities,
+): Readonly<Record<string, ConversationDisplay>> {
+  return Object.freeze(Object.values(sessions).reduce<Record<string, ConversationDisplay>>((display, session) => {
+    const studioChatId = studioChatIdForSession(catalog, session);
+    if (studioChatId) display[studioChatId] = reconcileParentDisplay(current[studioChatId] ?? createConversationDisplay(), session.parentMessages);
+    return display;
+  }, { ...current }));
+}
+
 export type StudioIntent =
   | Readonly<{ type: "chat/open"; chatId: string }>
   | Readonly<{ type: "chat/create"; chat: StudioChat }>
@@ -82,10 +104,7 @@ export function initialStudioState(input: {
     (chat) => chat.id === selectedProject.selectedChatId && !chat.archived,
   ) ? selectedProject.selectedChatId : null;
   const sessions = normalizeSessions(input.sessions ?? []);
-  const conversationDisplay = Object.freeze(Object.fromEntries(Object.values(sessions).map((session) => [
-    session.chatId,
-    reconcileParentDisplay(createConversationDisplay(), session.parentMessages),
-  ])));
+  const conversationDisplay = reconcileSessionDisplays({}, projectCatalog, sessions);
   return {
     compatibility: input.compatibility ?? { status: "unavailable", reason: "security_verification_failed" },
     projectCatalog,
@@ -180,19 +199,18 @@ export function reduceStudio(state: StudioAppState, intent: StudioIntent): Studi
         ...state,
         compatibility: intent.projection.compatibility,
         sessions,
-        conversationDisplay: Object.freeze(Object.values(sessions).reduce<Record<string, ConversationDisplay>>((display, session) => {
-          display[session.chatId] = reconcileParentDisplay(state.conversationDisplay[session.chatId] ?? createConversationDisplay(), session.parentMessages);
-          return display;
-        }, { ...state.conversationDisplay })),
+        conversationDisplay: reconcileSessionDisplays(state.conversationDisplay, state.projectCatalog, sessions),
       };
     }
     case "harness/session-projected": {
       if (!state.sessions[intent.session.sessionId]) return state;
-      const display = reconcileParentDisplay(state.conversationDisplay[intent.session.chatId] ?? createConversationDisplay(), intent.session.parentMessages);
+      const studioChatId = studioChatIdForSession(state.projectCatalog, intent.session);
+      if (!studioChatId) return state;
+      const display = reconcileParentDisplay(state.conversationDisplay[studioChatId] ?? createConversationDisplay(), intent.session.parentMessages);
       return {
         ...state,
         sessions: Object.freeze({ ...state.sessions, [intent.session.sessionId]: intent.session }),
-        conversationDisplay: Object.freeze({ ...state.conversationDisplay, [intent.session.chatId]: display }),
+        conversationDisplay: Object.freeze({ ...state.conversationDisplay, [studioChatId]: display }),
       };
     }
     case "project-catalog/loaded": {
@@ -212,6 +230,7 @@ export function reduceStudio(state: StudioAppState, intent: StudioIntent): Studi
         projectCatalog,
         catalogRevision: intent.snapshot.revision,
         chats,
+        conversationDisplay: reconcileSessionDisplays(state.conversationDisplay, projectCatalog, state.sessions),
         navigation: { route: "workspace", settingsSection: null, selectedChatId },
       };
     }
