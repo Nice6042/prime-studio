@@ -323,9 +323,15 @@ fn ownership_and_broker_specific_admission_are_enforced() {
 
 #[test]
 fn studio_catalog_bindings_cannot_forge_daemon_session_project_chat_or_account_identity() {
-    let mut broker =
-        HarnessBroker::for_tests(vec![ownership("daemon-session", "project-from-cwd", "daemon-chat")], None)
-            .unwrap();
+    let mut broker = HarnessBroker::for_tests(
+        vec![ownership(
+            "daemon-session",
+            "project-from-cwd",
+            "daemon-chat",
+        )],
+        None,
+    )
+    .unwrap();
     broker.begin_snapshot(1).unwrap();
 
     let mut forged_catalog_chat = snapshot(
