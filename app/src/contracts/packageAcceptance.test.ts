@@ -82,6 +82,10 @@ describe("Prime Studio package acceptance catalog", () => {
     }
   });
 
+  it("requires production turn-usage evidence before re-auditing CU-04", () => {
+    expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).toContain("CU-04");
+  });
+
   it("records every package surface, state family, persisted setting, shortcut, responsive rule, and data authority", () => {
     expect(PACKAGE_SCREENS).toHaveLength(29);
     expect(PACKAGE_STATES).toHaveLength(58);

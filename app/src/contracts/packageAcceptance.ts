@@ -149,7 +149,7 @@ export const PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS = Object.freeze([
   "CP-03", "CP-04", "CP-05", "CP-07",
   "HR-02", "HR-03", "HR-04", "HR-07", "HR-08", "HR-10", "HR-11",
   "HR-13", "HR-14", "HR-16", "HR-18",
-  "CU-02", "CU-03", "CU-06",
+  "CU-02", "CU-03", "CU-04", "CU-06",
   "AC-03",
   "ED-01", "ED-02", "ED-06",
   "ST-06", "ST-07", "ST-09", "ST-13",
