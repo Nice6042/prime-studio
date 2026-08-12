@@ -203,7 +203,6 @@ export function reduceStudio(state: StudioAppState, intent: StudioIntent): Studi
       };
     }
     case "harness/session-projected": {
-      if (!state.sessions[intent.session.sessionId]) return state;
       const studioChatId = studioChatIdForSession(state.projectCatalog, intent.session);
       if (!studioChatId) return state;
       const display = reconcileParentDisplay(state.conversationDisplay[studioChatId] ?? createConversationDisplay(), intent.session.parentMessages);

@@ -69,6 +69,17 @@ describe("Studio application state", () => {
     expect(state.conversationDisplay["chat-1"]?.messages.u1?.versions).toEqual([{ text: "Original prompt" }]);
   });
 
+  it("admits a newly created daemon projection only after its catalog binding exists", () => {
+    const boundCatalog = catalogBoundToRootSession();
+    const empty = initialStudioState({ projectCatalog: boundCatalog });
+    const admitted = reduceStudio(empty, { type: "harness/session-projected", session: rootSession });
+    expect(admitted.sessions[rootSession.sessionId]).toEqual(rootSession);
+    expect(admitted.conversationDisplay[chat.id]?.messages.u1?.versions).toEqual([{ text: "Original prompt" }]);
+
+    const rejected = reduceStudio(initialStudioState(), { type: "harness/session-projected", session: rootSession });
+    expect(rejected.sessions[rootSession.sessionId]).toBeUndefined();
+  });
+
   it("keeps the account and project ownership of an open chat immutable", () => {
     const initial = initialStudioState({ chats: [chat] });
     const opened = reduceStudio(initial, { type: "chat/open", chatId: chat.id });
