@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -209,12 +209,14 @@ describe("Composer", () => {
       onOpenUsage={vi.fn()}
     />);
 
-    await userEvent.click(screen.getByRole("button", { name: "Choose model Model A" }));
+    const trigger = screen.getByRole("button", { name: "Choose model Model A" });
+    await userEvent.click(trigger);
     expect(screen.getByRole("menu", { name: "Verified models" })).toBeVisible();
     await userEvent.click(screen.getByRole("menuitemradio", { name: "Model B" }));
     expect(onSelectModel).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole("menuitemradio", { name: "Model A" }));
     expect(onSelectModel).toHaveBeenCalledWith("model-a");
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
 
   it("uses menu-button keyboard navigation and restores focus when the model catalog closes", async () => {
@@ -253,6 +255,40 @@ describe("Composer", () => {
     await userEvent.keyboard("{End}");
     expect(modelC).toHaveFocus();
     await userEvent.keyboard("{Escape}");
+    expect(trigger).toHaveFocus();
+  });
+
+  it("lets Tab leave the model menu without restoring focus to its trigger", async () => {
+    render(<div>
+      <button type="button">Before composer</button>
+      <Composer
+        draft=""
+        state={{ kind: "idle", draft: "", canSend: false }}
+        models={[{ id: "model-a", label: "Model A", enabled: true }]}
+        selectedModel="model-a"
+        thinking="low"
+        thinkingLevels={["low", "high"]}
+        onSelectModel={vi.fn()}
+        onSelectThinking={vi.fn()}
+        onDraftChange={vi.fn()}
+        onSubmit={vi.fn()}
+        onAbort={vi.fn()}
+        onOpenUsage={vi.fn()}
+      />
+      <button type="button">After composer</button>
+    </div>);
+
+    const trigger = screen.getByRole("button", { name: "Choose model Model A" });
+    await userEvent.click(trigger);
+    expect(screen.getByRole("menuitemradio", { name: "Model A" })).toHaveFocus();
+    await userEvent.keyboard("{Tab}");
+    await waitFor(() => expect(screen.queryByRole("menu", { name: "Verified models" })).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Thinking low" })).toHaveFocus();
+
+    await userEvent.click(trigger);
+    expect(screen.getByRole("menuitemradio", { name: "Model A" })).toHaveFocus();
+    await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
+    await waitFor(() => expect(screen.queryByRole("menu", { name: "Verified models" })).not.toBeInTheDocument());
     expect(trigger).toHaveFocus();
   });
 });

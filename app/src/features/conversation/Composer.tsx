@@ -78,7 +78,7 @@ export function Composer({
   const modelTrigger = useRef<HTMLButtonElement>(null);
   const modelInitialFocus = useRef<"first" | "last" | "selected">("selected");
   usePopoverSurface(thinkingMenu, () => setThinkingOpen(false), thinkingOpen);
-  usePopoverSurface(modelMenu, () => setModelOpen(false), modelOpen);
+  const closeModelWithoutFocusRestore = usePopoverSurface(modelMenu, () => setModelOpen(false), modelOpen);
   const commandCatalog = useMemo(() => suppliedSlashCommands ?? deriveSlashCommands({
     model: models.length > 0 && Boolean(onSelectModel),
     effort: thinkingLevels.length > 0 && Boolean(onSelectThinking),
@@ -207,7 +207,8 @@ export function Composer({
               event.preventDefault();
               moveModelFocus(event.key);
             } else if (event.key === "Tab") {
-              setModelOpen(false);
+              closeModelWithoutFocusRestore();
+              window.setTimeout(() => setModelOpen(false), 0);
             }
           }}>{models.map((model) => <button key={model.id} type="button" {...controlBinding(`composer-model-catalog-${model.id}`, "composer.model.select", model.enabled ? null : (model.disabledReason ?? "This model is unavailable."))} role="menuitemradio" aria-checked={model.id === selectedModel} aria-label={model.label} data-model-id={model.id} tabIndex={model.enabled && model.id === focusedModelId ? 0 : -1} disabled={!model.enabled} title={model.disabledReason} onFocus={() => setFocusedModelId(model.id)} onClick={() => { setModelOpen(false); onSelectModel(model.id); }}>{model.label}</button>)}</div>}
         </div> : null}

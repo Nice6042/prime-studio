@@ -164,6 +164,27 @@ describe("ParentConversation", () => {
     await userEvent.click(open);
   });
 
+  it("describes only the missing edited-file authority when one callback exists", () => {
+    const onOpenEditedFile = vi.fn();
+    const { rerender } = render(<ParentConversation title="Open only" session={session} archived={false} presentations={{
+      a1: { editedFiles: [{ path: "app/src/runtime.ts", additions: 1, deletions: 0 }] },
+    }} onOpenEditedFile={onOpenEditedFile} />);
+
+    expect(screen.getByRole("button", { name: "Review edited files" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Open app/src/runtime.ts" })).toBeEnabled();
+    expect(screen.getByText(/No identity-bound Harness review action/i)).toBeVisible();
+    expect(screen.queryByText(/No identity-bound Harness artifact is available/i)).not.toBeInTheDocument();
+
+    rerender(<ParentConversation title="Review only" session={session} archived={false} presentations={{
+      a1: { editedFiles: [{ path: "app/src/runtime.ts", additions: 1, deletions: 0 }] },
+    }} onReviewEditedFiles={vi.fn()} />);
+
+    expect(screen.getByRole("button", { name: "Review edited files" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Open app/src/runtime.ts" })).toBeDisabled();
+    expect(screen.getByText(/No identity-bound Harness file-open action/i)).toBeVisible();
+    expect(screen.queryByText(/No identity-bound Harness artifact is available/i)).not.toBeInTheDocument();
+  });
+
   it("does not offer unavailable history paging without a Harness cursor", () => {
     render(<ParentConversation title="No history cursor" session={session} archived={false} />);
 

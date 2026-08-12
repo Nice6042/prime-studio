@@ -35,15 +35,18 @@ function EditedFiles({ messageId, files, onUndo, onReview, onOpen }: {
 }) {
   const boundedFiles = files.slice(0, 64);
   const artifactUnavailableReason = "No identity-bound Harness artifact is available for this edited-file summary.";
+  const reviewUnavailableReason = "No identity-bound Harness review action is available for this edited-file summary.";
+  const openUnavailableReason = "No identity-bound Harness file-open action is available for this edited-file summary.";
+  const missingAuthorityReason = !onReview && !onOpen ? artifactUnavailableReason : !onReview ? reviewUnavailableReason : !onOpen ? openUnavailableReason : null;
   const additions = files.reduce((total, file) => total + file.additions, 0);
   const deletions = files.reduce((total, file) => total + file.deletions, 0);
   return <section className="conversation-edited-files" aria-label={`Edited ${files.length} files`}>
     <header><span className="conversation-file-icon" aria-hidden="true">◇</span><span><strong>Edited {files.length} files</strong><small><b>+{additions}</b> <i>−{deletions}</i></small></span>
       <button type="button" {...controlBinding(`files-undo-${messageId}`, "conversation.files.undo", "Prime Harness exposes no verified reversible patch capability.")} aria-label="Undo edited files" disabled={!onUndo} title={onUndo ? "Undo these edits" : "The verified Harness exposes no reversible patch capability."} onClick={() => onUndo?.(messageId)}>Undo ↶</button>
-      <button type="button" {...controlBinding(`files-review-${messageId}`, "conversation.files.review", onReview ? null : artifactUnavailableReason)} aria-label="Review edited files" disabled={!onReview} title={onReview ? "Review these identity-bound edits" : artifactUnavailableReason} onClick={() => onReview?.(messageId)}>Review</button>
+      <button type="button" {...controlBinding(`files-review-${messageId}`, "conversation.files.review", onReview ? null : reviewUnavailableReason)} aria-label="Review edited files" disabled={!onReview} title={onReview ? "Review these identity-bound edits" : reviewUnavailableReason} onClick={() => onReview?.(messageId)}>Review</button>
     </header>
-    {(!onReview || !onOpen) && <p className="conversation-files-unavailable" tabIndex={0}>{artifactUnavailableReason}</p>}
-    {boundedFiles.map((file) => <button key={file.path} type="button" {...controlBinding(`file-open-${messageId}-${file.path}`, "editor.artifact.open", onOpen ? null : artifactUnavailableReason)} aria-label={`Open ${file.path}`} disabled={!onOpen} title={onOpen ? `Open ${file.path}` : artifactUnavailableReason} onClick={() => onOpen?.(messageId, file.path)}><code>{file.path}</code><b>+{file.additions}</b><i>−{file.deletions}</i></button>)}
+    {missingAuthorityReason && <p className="conversation-files-unavailable" tabIndex={0}>{missingAuthorityReason}</p>}
+    {boundedFiles.map((file) => <button key={file.path} type="button" {...controlBinding(`file-open-${messageId}-${file.path}`, "editor.artifact.open", onOpen ? null : openUnavailableReason)} aria-label={`Open ${file.path}`} disabled={!onOpen} title={onOpen ? `Open ${file.path}` : openUnavailableReason} onClick={() => onOpen?.(messageId, file.path)}><code>{file.path}</code><b>+{file.additions}</b><i>−{file.deletions}</i></button>)}
     {files.length > boundedFiles.length && <p className="conversation-files-truncated">{files.length - boundedFiles.length} additional paths are not shown in this bounded view.</p>}
   </section>;
 }

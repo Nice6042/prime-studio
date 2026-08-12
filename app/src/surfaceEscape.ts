@@ -33,18 +33,21 @@ export function useTopmostSurfaceEscape(
   }, [backdropRef, enabled, onClose]);
 }
 
-/** Escape ownership and trigger restoration for non-modal menus and popovers. */
+/** Escape ownership and trigger restoration for non-modal menus and popovers. Returns a one-close restoration suppressor for native Tab progression. */
 export function usePopoverSurface(
   surfaceRef: RefObject<HTMLElement | null>,
   onClose: () => void,
   enabled = true,
 ) {
   const openerRef = useRef<HTMLElement | null>(null);
+  const restoreFocusRef = useRef(true);
 
   useLayoutEffect(() => {
     if (!enabled || !surfaceRef.current) return;
+    restoreFocusRef.current = true;
     openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     return () => {
+      if (!restoreFocusRef.current) return;
       const opener = openerRef.current;
       queueMicrotask(() => {
         if (opener?.isConnected && !opener.matches(":disabled") && !opener.closest("[inert]")) opener.focus();
@@ -53,4 +56,5 @@ export function usePopoverSurface(
   }, [enabled, surfaceRef]);
 
   useTopmostSurfaceEscape(surfaceRef, onClose, enabled);
+  return () => { restoreFocusRef.current = false; };
 }
