@@ -33,9 +33,9 @@ describe("workspace layout solver", () => {
       editor: { open: true, preferred: 900 },
     });
     expect(result.sidebar).toEqual({ mode: "pane", width: 380 });
-    expect(result.inspector).toEqual({ mode: "pane", width: 280 });
+    expect(result.inspector).toEqual({ mode: "pane", width: 300 });
     expect(result.editor).toEqual({ mode: "pane", width: 600 });
-    expect(result.centerWidth).toBe(360);
+    expect(result.centerWidth).toBe(340);
   });
 
   it("collapses the sidebar before converting the active editor to a sheet", () => {
@@ -58,25 +58,25 @@ describe("workspace layout solver", () => {
       inspector: { open: true, preferred: 384 },
       editor: { open: false, preferred: 400 },
     });
-    expect(result.sidebar).toEqual({ mode: "sheet", width: 320 });
+    expect(result.sidebar).toEqual({ mode: "rail", width: 52 });
     expect(result.inspector).toEqual({ mode: "sheet", width: 384 });
     expect(result.editor).toEqual({ mode: "closed", width: 0 });
-    expect(result.centerWidth).toBe(640);
+    expect(result.centerWidth).toBe(580);
   });
 
-  it("clamps the Harness inspector to the approved 280–520px range", () => {
+  it("clamps the Harness inspector to the native-compatible 300–600px range", () => {
     expect(solveLayout({
       viewport: 1600,
       sidebar: { open: false, preferred: 264 },
       inspector: { open: true, preferred: 900 },
       editor: { open: false, preferred: 400 },
-    }).inspector.width).toBe(520);
+    }).inspector.width).toBe(600);
     expect(solveLayout({
       viewport: 1200,
       sidebar: { open: false, preferred: 264 },
       inspector: { open: true, preferred: 12 },
       editor: { open: false, preferred: 400 },
-    }).inspector.width).toBe(280);
+    }).inspector.width).toBe(300);
   });
 
   it("keeps the compact rail when every secondary surface is closed", () => {
@@ -86,10 +86,10 @@ describe("workspace layout solver", () => {
       inspector: { open: false, preferred: 384 },
       editor: { open: false, preferred: 400 },
     })).toEqual({
-      sidebar: { mode: "rail", width: 56 },
+      sidebar: { mode: "rail", width: 52 },
       inspector: { mode: "closed", width: 0 },
       editor: { mode: "closed", width: 0 },
-      centerWidth: 736,
+      centerWidth: 740,
     });
   });
 });

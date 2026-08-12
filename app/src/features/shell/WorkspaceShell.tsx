@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { solveLayout, type LayoutInput } from "./layoutSolver";
+import { layoutBounds, solveLayout, type LayoutInput } from "./layoutSolver";
 import { PaneSeparator } from "./PaneSeparator";
 import "./shell.css";
 
@@ -35,9 +35,10 @@ export function WorkspaceShell({
   const sidebarAttached = layout.sidebar.mode !== "sheet";
   const inspectorAttached = layout.inspector.mode === "pane";
   const editorAttached = layout.editor.mode === "pane";
-  const columns = sidebarAttached ? [layout.sidebar.width, 8, layout.centerWidth] : [layout.centerWidth];
-  if (inspectorAttached) columns.push(8, layout.inspector.width);
-  if (editorAttached) columns.push(8, layout.editor.width);
+  const narrow = viewport < layoutBounds.sheetBreakpoint;
+  const columns = sidebarAttached ? [layout.sidebar.width, layoutBounds.handle, layout.centerWidth] : [layout.centerWidth];
+  if (editorAttached) columns.push(layoutBounds.handle, layout.editor.width);
+  if (inspectorAttached) columns.push(layoutBounds.handle, layout.inspector.width);
 
   return (
     <div className="studio-shell" style={{ gridTemplateColumns: columns.map((width) => `${width}px`).join(" ") }}>
@@ -47,18 +48,18 @@ export function WorkspaceShell({
         </nav>
       )}
       {sidebarAttached && (layout.sidebar.mode === "pane" && onSidebarPreferred ? (
-        <PaneSeparator label="Resize project sidebar" value={layout.sidebar.width} min={210} max={380} onChange={onSidebarPreferred} onReset={() => onSidebarPreferred(264)} />
+        <PaneSeparator label="Resize project sidebar" value={layout.sidebar.width} min={layoutBounds.sidebar.minimum} max={layoutBounds.sidebar.maximum} onChange={onSidebarPreferred} onReset={() => onSidebarPreferred(layoutBounds.sidebar.default)} />
       ) : <div className="studio-pane-divider" />)}
       <main className="studio-conversation" aria-label={conversationLabel}>{conversation}</main>
-      {inspectorAttached && <>
-        {onInspectorPreferred ? <PaneSeparator label="Resize Harness inspector" value={layout.inspector.width} min={280} max={520} direction={-1} onChange={onInspectorPreferred} onReset={() => onInspectorPreferred(384)} /> : <div className="studio-pane-divider" />}
-        <aside className="studio-inspector" aria-label="Harness">{inspectorContent}</aside>
-      </>}
       {editorAttached && <>
-        {onEditorPreferred ? <PaneSeparator label="Resize editor" value={layout.editor.width} min={280} max={600} direction={-1} onChange={onEditorPreferred} onReset={() => onEditorPreferred(400)} /> : <div className="studio-pane-divider" />}
+        {onEditorPreferred ? <PaneSeparator label="Resize editor" value={layout.editor.width} min={layoutBounds.editor.minimum} max={layoutBounds.editor.maximum} direction={-1} onChange={onEditorPreferred} onReset={() => onEditorPreferred(layoutBounds.editor.default)} /> : <div className="studio-pane-divider" />}
         <section className="studio-editor" aria-label="Editor">{editorContent}</section>
       </>}
-      {layout.sidebar.mode === "sheet" && activeSheet === "sidebar" && <nav className="studio-sheet studio-sheet-left" data-studio-sheet="sidebar" aria-label="Projects and chats">{sidebarContent}</nav>}
+      {inspectorAttached && <>
+        {onInspectorPreferred ? <PaneSeparator label="Resize Harness inspector" value={layout.inspector.width} min={layoutBounds.inspector.minimum} max={layoutBounds.inspector.maximum} direction={-1} onChange={onInspectorPreferred} onReset={() => onInspectorPreferred(layoutBounds.inspector.default)} /> : <div className="studio-pane-divider" />}
+        <aside className="studio-inspector" aria-label="Harness">{inspectorContent}</aside>
+      </>}
+      {narrow && activeSheet === "sidebar" && <nav className="studio-sheet studio-sheet-left studio-sidebar-sheet" data-studio-sheet="sidebar" aria-label="Projects and chats">{sidebarContent}</nav>}
       {layout.inspector.mode === "sheet" && activeSheet === "inspector" && <aside className="studio-sheet studio-sheet-right studio-harness-sheet" data-studio-sheet="inspector" aria-label="Harness">{inspectorContent}</aside>}
       {layout.editor.mode === "sheet" && activeSheet === "editor" && <section className="studio-sheet studio-sheet-right" data-studio-sheet="editor" aria-label="Editor">{editorContent}</section>}
     </div>

@@ -26,6 +26,14 @@ const menus: readonly Readonly<{ label: string; items: readonly Readonly<{ label
   ] },
 ];
 
+function WindowControlIcon({ kind }: { readonly kind: "minimize" | "maximize" | "close" }) {
+  return <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.15" strokeLinecap="square">
+    {kind === "minimize" && <path d="M3 11.5h10" />}
+    {kind === "maximize" && <rect x="3.5" y="3.5" width="9" height="9" />}
+    {kind === "close" && <><path d="m4 4 8 8" /><path d="m12 4-8 8" /></>}
+  </svg>;
+}
+
 export function TitleBar({ title, actions, onOperation }: { readonly title: string; readonly actions?: ReactNode; readonly onOperation?: (operation: StudioOperation) => void }) {
   const [open, setOpen] = useState<string | null>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -43,9 +51,9 @@ export function TitleBar({ title, actions, onOperation }: { readonly title: stri
     <span className="studio-title-current" title={title}>{title}</span>
     <span className="studio-titlebar-actions">{actions}</span>
     <span className="studio-window-controls" aria-label="Window controls">
-      <button type="button" aria-label="Minimize window" onClick={() => onOperation?.({ action: "window.minimize", payload: {} })}>âˆ’</button>
-      <button type="button" aria-label="Maximize or restore window" onClick={() => onOperation?.({ action: "window.maximize-toggle", payload: {} })}>â–¡</button>
-      <button type="button" aria-label="Close window" onClick={() => onOperation?.({ action: "window.close", payload: {} })}>Ã—</button>
+      <button type="button" aria-label="Minimize window" onClick={() => onOperation?.({ action: "window.minimize", payload: {} })}><WindowControlIcon kind="minimize" /></button>
+      <button type="button" aria-label="Maximize or restore window" onClick={() => onOperation?.({ action: "window.maximize-toggle", payload: {} })}><WindowControlIcon kind="maximize" /></button>
+      <button type="button" aria-label="Close window" onClick={() => onOperation?.({ action: "window.close", payload: {} })}><WindowControlIcon kind="close" /></button>
     </span>
   </div>;
 }

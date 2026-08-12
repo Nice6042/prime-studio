@@ -15,9 +15,9 @@ export interface LayoutResult {
 export const layoutBounds = Object.freeze({
   centerMinimum: 340,
   handle: 8,
-  rail: 56,
+  rail: 52,
   sidebar: { minimum: 210, maximum: 380, default: 264 },
-  inspector: { minimum: 280, maximum: 520, default: 384 },
+  inspector: { minimum: 300, maximum: 600, default: 384 },
   editor: { minimum: 280, maximum: 600, default: 400 },
   sheetBreakpoint: 760,
 });
@@ -32,22 +32,20 @@ function clamp(value: number, minimum: number, maximum: number, fallback: number
 
 export function solveLayout(input: LayoutInput): LayoutResult {
   const viewport = Math.max(0, finite(input.viewport, 0));
-  const sidebarPreferred = clamp(input.sidebar.preferred, 210, 380, 264);
+  const sidebarPreferred = clamp(input.sidebar.preferred, layoutBounds.sidebar.minimum, layoutBounds.sidebar.maximum, layoutBounds.sidebar.default);
   const inspectorPreferred = clamp(input.inspector.preferred, layoutBounds.inspector.minimum, layoutBounds.inspector.maximum, layoutBounds.inspector.default);
-  const editorPreferred = clamp(input.editor.preferred, 280, Math.min(600, Math.max(280, viewport * 0.46)), 400);
+  const editorPreferred = clamp(input.editor.preferred, layoutBounds.editor.minimum, Math.min(layoutBounds.editor.maximum, Math.max(layoutBounds.editor.minimum, viewport * 0.46)), layoutBounds.editor.default);
 
   if (viewport < layoutBounds.sheetBreakpoint) {
     return {
-      sidebar: input.sidebar.open
-        ? { mode: "sheet", width: Math.min(viewport, Math.max(320, sidebarPreferred)) }
-        : { mode: "rail", width: Math.min(viewport, layoutBounds.rail) },
+      sidebar: { mode: "rail", width: Math.min(viewport, layoutBounds.rail) },
       inspector: input.inspector.open
         ? { mode: "sheet", width: Math.min(viewport, inspectorPreferred) }
         : { mode: "closed", width: 0 },
       editor: input.editor.open
         ? { mode: "sheet", width: Math.min(viewport, editorPreferred) }
         : { mode: "closed", width: 0 },
-      centerWidth: viewport,
+      centerWidth: Math.max(0, viewport - Math.min(viewport, layoutBounds.rail) - layoutBounds.handle),
     };
   }
 

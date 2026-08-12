@@ -17,4 +17,13 @@ describe("TitleBar", () => {
     await userEvent.click(screen.getByRole("button", { name: "Close window" }));
     expect(onOperation).toHaveBeenCalledWith({ action: "window.close", payload: {} });
   });
+
+  it("renders encoding-safe vector window controls", () => {
+    render(<TitleBar title="Harness architecture" onOperation={() => undefined} />);
+    for (const name of ["Minimize window", "Maximize or restore window", "Close window"]) {
+      const button = screen.getByRole("button", { name });
+      expect(button.querySelector("svg")).not.toBeNull();
+      expect(button).toHaveTextContent("");
+    }
+  });
 });

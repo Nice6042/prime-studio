@@ -147,6 +147,19 @@ describe("Studio application state", () => {
     }
   });
 
+  it("projects verified composer identity into the current-chat runtime status", () => {
+    const store = createStudioStore(initialStudioState({
+      chats: [chat],
+      sessions: [rootSession],
+      compatibility: { status: "ready", profile: "verified", capabilities: ["model_catalog"] },
+    }));
+    store.dispatch({ type: "chat/open", chatId: chat.id });
+
+    render(<AppProviders store={store}><StudioApp harnessAdapter={conversationAdapter([])} /></AppProviders>);
+
+    expect(screen.getByText(/account-1 · verified-model · thinking low/)).toBeVisible();
+  });
+
   it("moves focus into the narrow Harness drawer and restores its opener on Escape", async () => {
     const originalWidth = window.innerWidth;
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 320 });
@@ -161,6 +174,21 @@ describe("Studio application state", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("complementary", { name: "Harness" })).not.toBeInTheDocument());
     await waitFor(() => expect(opener).toHaveFocus());
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+    fireEvent(window, new Event("resize"));
+  });
+
+  it("opens the full project sheet from the persistent narrow navigation rail", async () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 320 });
+    const store = createStudioStore(initialStudioState({ chats: [chat] }));
+    store.dispatch({ type: "chat/open", chatId: chat.id });
+
+    render(<AppProviders store={store}><StudioApp /></AppProviders>);
+    expect(screen.getByRole("navigation", { name: "Projects and chats" })).toHaveAttribute("data-mode", "rail");
+    await userEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
+    await waitFor(() => expect(document.querySelector("[data-studio-sheet='sidebar']")).not.toBeNull());
+
     Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
     fireEvent(window, new Event("resize"));
   });

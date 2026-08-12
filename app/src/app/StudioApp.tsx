@@ -309,7 +309,11 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         onOpenSettings={openSettings}
       />;
   const sidebarRailContent = <CollapsedSidebar
-    onExpand={() => changeLayout({ sidebarOpen: true })}
+    onExpand={() => {
+      sheetOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      changeLayout({ sidebarOpen: true });
+      if (viewport < 760) setActiveSheet("sidebar");
+    }}
     onNewChat={createChat}
     newChatDisabledReason={catalogOperation.phase === "pending" ? catalogOperation.label : undefined}
     onOpenSearch={openPalette}
@@ -551,7 +555,11 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         } : undefined}
       />}
     />
-    <RuntimeStatusBar session={selectedSession} />
+    <RuntimeStatusBar
+      session={selectedSession}
+      model={composerProjection?.selectedModel ?? undefined}
+      thinking={composerProjection?.selectedThinking ?? undefined}
+    />
     {paletteOpen && <CommandPalette admissionConnected={admissionConnected} onRun={runCommand} onClose={() => setPaletteOpen(false)} restoreFocusTo={paletteOpener} chats={paletteChats} messages={paletteMessages} onOpenChat={openCatalogChat} onOpenMessage={(chatId) => openCatalogChat(chatId)} />}
     {createProjectOpen && <CreateProjectDialog onCancel={() => setCreateProjectOpen(false)} onCreate={(name, folderPath) => { createProject(name, folderPath); setCreateProjectOpen(false); }} />}
   </div>;

@@ -24,4 +24,13 @@ describe("RuntimeStatusBar", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Harness unavailable");
     expect(screen.queryByText(/tok\/s/)).not.toBeInTheDocument();
   });
+
+  it("labels absent per-chat performance fields unavailable", () => {
+    render(<RuntimeStatusBar session={session} model="gpt-5.6-sol" thinking="high" />);
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent("ctx unavailable");
+    expect(status).toHaveTextContent("first token unavailable");
+    expect(status).toHaveTextContent("throughput unavailable");
+    expect(status).not.toHaveTextContent("0 tok/s");
+  });
 });

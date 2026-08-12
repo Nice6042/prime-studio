@@ -42,7 +42,8 @@
 .studio-sheet { position: absolute; inset-block: 0; z-index: 20; overflow: auto; background: var(--panel, #1b1b1b); box-shadow: 0 12px 36px rgb(0 0 0 / 0.35); }
 .studio-sheet-left { inset-inline-start: 0; }
 .studio-sheet-right { inset-inline-end: 0; }
-.studio-harness-sheet { inline-size: min(100%, 520px); }
+.studio-sidebar-sheet { inline-size: min(calc(100% - 52px), 380px); inset-inline-start: 52px; }
+.studio-harness-sheet { inline-size: min(100%, 600px); }
 
 .studio-titlebar,
 .studio-statusbar { display: flex; align-items: center; min-block-size: 36px; padding-inline: 12px; border-block-end: 1px solid var(--line, #323232); }
@@ -64,6 +65,7 @@
 .studio-titlebar-actions { margin-inline-start: auto; }
 .studio-window-controls { align-self: stretch; display: flex; margin-inline-end: -14px; }
 .studio-window-controls > button { min-inline-size: 46px; border: 0; border-radius: 0; color: #a7a7b0; background: transparent; }
+.studio-window-controls > button svg { inline-size: 16px; block-size: 16px; }
 .studio-window-controls > button:hover { color: #f3f3f5; background: #27272c; }
 .studio-window-controls > button:last-child:hover { background: #c42b1c; }
 .studio-command-trigger { inline-size:30px; block-size:28px; margin-inline-start:3px; border:0; border-radius:7px; background:transparent; color:inherit; }.studio-command-trigger:hover { background:rgb(255 255 255 / .06); }
