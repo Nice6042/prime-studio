@@ -202,4 +202,15 @@ mod tests {
             Err("Harness activation already reached a terminal state")
         );
     }
+
+    #[test]
+    fn every_catalog_mutation_shares_the_resident_transaction_coordinator() {
+        let state = HarnessState::default();
+        let first = state.resident_transaction();
+        let second = state.resident_transaction();
+        let held = first.lock().unwrap();
+        assert!(second.try_lock().is_err());
+        drop(held);
+        assert!(second.try_lock().is_ok());
+    }
 }
