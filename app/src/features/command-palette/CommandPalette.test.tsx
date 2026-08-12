@@ -21,15 +21,14 @@ describe("CommandPalette", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
-  it("does not execute disabled commands and explains why", async () => {
+  it("keeps durable new-chat creation available while Harness admission is offline", async () => {
     const run = vi.fn();
     render(<CommandPalette admissionConnected={false} onRun={run} onClose={() => undefined} />);
     await userEvent.type(screen.getByRole("combobox", { name: "Search commands, chats, and messages" }), "new chat");
     const option = screen.getByRole("option", { name: /New chat/ });
-    expect(option).toHaveAttribute("aria-disabled", "true");
+    expect(option).toHaveAttribute("aria-disabled", "false");
     await userEvent.click(option);
-    expect(run).not.toHaveBeenCalled();
-    expect(screen.getByText("New chat activation is not connected yet.")).toBeVisible();
+    expect(run).toHaveBeenCalledWith("chat.new");
   });
 
   it("closes on Escape", async () => {
