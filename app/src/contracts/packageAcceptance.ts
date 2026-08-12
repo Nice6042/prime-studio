@@ -13,73 +13,73 @@ export interface PackageFeatureAcceptance {
 const row = (id: string, requirement: string, current: ImplementationStatus, actions: readonly StudioActionId[] = []): PackageFeatureAcceptance => Object.freeze({ id, requirement, current, interactive: actions.length > 0, actions });
 
 export const FEATURE_ACCEPTANCE: readonly PackageFeatureAcceptance[] = Object.freeze([
-  row("SH-01", "40px desktop title bar with app identity, five menus, and real window controls", "partial", ["surface.popover.toggle", "window.minimize", "window.maximize-toggle", "window.close"]),
+  row("SH-01", "40px desktop title bar with app identity, five menus, and real window controls", "complete", ["surface.popover.toggle", "window.minimize", "window.maximize-toggle", "window.close"]),
   row("SH-02", "persistent sidebar, parent conversation, optional editor, and Harness inspector topology", "complete"),
   row("SH-03", "sidebar resizes 210–380px, defaults to 264px, and resets on double click", "complete", ["layout.sidebar.resize", "layout.sidebar.reset"]),
-  row("SH-04", "inspector resizes 300–600px, defaults to 384px, and resets on double click", "complete", ["layout.inspector.resize", "layout.inspector.reset"]),
+  row("SH-04", "inspector resizes 300–600px, defaults to 384px, and resets on double click", "partial", ["layout.inspector.resize", "layout.inspector.reset"]),
   row("SH-05", "center keeps a 340px minimum plus handle and border budget", "complete"),
-  row("SH-06", "editor uses 280–600px up to 46 percent and may displace the inspector", "partial", ["layout.editor.resize", "layout.editor.toggle"]),
+  row("SH-06", "editor uses 280–600px up to 46 percent and may displace the inspector", "complete", ["layout.editor.resize", "layout.editor.toggle"]),
   row("SH-07", "narrow layouts use a 52px sidebar rail and sheet/replacement panel routes", "partial", ["layout.sidebar.toggle", "layout.inspector.toggle"]),
   row("SH-08", "24px bottom status reports runtime, model, thinking, context, latency, throughput, and overload", "partial"),
   row("SH-09", "dark, light, and system themes use semantic tokens", "complete", ["settings.preference.set"]),
   row("SH-10", "reduced motion controls pulse, blink, and pane/popover transitions", "partial", ["settings.preference.set"]),
 
-  row("NV-01", "New chat button and Ctrl+N create a catalog chat and select it", "placeholder", ["catalog.chat.create"]),
-  row("NV-02", "Search row opens the global command and content palette", "partial", ["palette.open"]),
-  row("NV-03", "pinned section and pin toggle persist truthfully", "missing", ["catalog.chat.pin-toggle"]),
+  row("NV-01", "New chat button and Ctrl+N create a catalog chat and select it", "complete", ["catalog.chat.create"]),
+  row("NV-02", "Search row opens the global command and content palette", "complete", ["palette.open"]),
+  row("NV-03", "pinned section and pin toggle persist truthfully", "complete", ["catalog.chat.pin-toggle"]),
   row("NV-04", "expandable project tree groups chats and preserves expansion", "partial", ["catalog.project.toggle", "catalog.chat.select"]),
-  row("NV-05", "Archived chats route lists and restores archived records", "partial", ["route.archived.open", "catalog.project.restore", "catalog.chat.restore"]),
+  row("NV-05", "Archived chats route lists and restores archived records", "complete", ["route.archived.open", "catalog.project.restore", "catalog.chat.restore"]),
   row("NV-06", "inactive-chat completion sets unread and selection clears it", "missing", ["catalog.chat.unread-clear"]),
   row("NV-07", "chat rows show authoritative working, live, and error status", "partial"),
   row("NV-08", "footer reports configured workspace identity and opens its menu", "partial", ["surface.popover.toggle", "workspace.switch", "route.settings.open", "workspace.sign-out"]),
   row("NV-09", "collapsed rail preserves expand, new, search, settings, avatar actions and tooltips", "partial", ["layout.sidebar.toggle", "catalog.chat.create", "palette.open", "route.settings.open"]),
-  row("NV-10", "rename, duplicate, move, archive, restore, and delete are durable catalog commands", "missing", ["catalog.chat.rename", "catalog.chat.duplicate", "catalog.chat.move", "catalog.chat.archive", "catalog.chat.restore", "catalog.chat.delete"]),
+  row("NV-10", "rename, duplicate, move, archive, restore, and delete are durable catalog commands", "complete", ["catalog.chat.rename", "catalog.chat.duplicate", "catalog.chat.move", "catalog.chat.archive", "catalog.chat.restore", "catalog.chat.delete"]),
 
-  row("CV-01", "header breadcrumb, chat switcher, pin, chat menu, and inspector reopen are functional", "partial", ["surface.popover.toggle", "catalog.chat.select", "catalog.chat.pin-toggle", "layout.inspector.toggle"]),
+  row("CV-01", "header breadcrumb, chat switcher, pin, chat menu, and inspector reopen are functional", "complete", ["surface.popover.toggle", "catalog.chat.select", "catalog.chat.pin-toggle", "layout.inspector.toggle"]),
   row("CV-02", "main transcript renders parent-channel messages only", "complete"),
   row("CV-03", "bounded assistant streaming has cursor, pending, active, stopped, and completed states", "complete"),
   row("CV-04", "first-token latency and tokens per second come from admitted event chronology", "partial"),
-  row("CV-05", "editing a user message creates and selects a new immutable version", "missing", ["conversation.user-edit.start", "conversation.user-edit.cancel", "conversation.user-version.create"]),
-  row("CV-06", "user and assistant version selectors preserve independent version positions", "missing", ["conversation.user-version.select", "conversation.assistant-version.select"]),
-  row("CV-07", "branch from a message creates a new chat bound to a Harness branch", "missing", ["conversation.branch.create"]),
+  row("CV-05", "editing a user message creates and selects a new immutable version", "partial", ["conversation.user-edit.start", "conversation.user-edit.cancel", "conversation.user-version.create"]),
+  row("CV-06", "user and assistant version selectors preserve independent version positions", "partial", ["conversation.user-version.select", "conversation.assistant-version.select"]),
+  row("CV-07", "branch from a message creates a new chat bound to a Harness branch", "partial", ["conversation.branch.create"]),
   row("CV-08", "copy response reports clipboard success or failure", "complete", ["conversation.response.copy"]),
-  row("CV-09", "Canvas opens the selected response and applies a Studio display revision", "partial", ["conversation.canvas.open", "editor.canvas.apply"]),
+  row("CV-09", "Canvas opens the selected response and applies a Studio display revision", "complete", ["conversation.canvas.open", "editor.canvas.apply"]),
   row("CV-10", "edited-files card shows bounded paths and opens Review/editor", "partial", ["conversation.files.review", "activity.file.open"]),
   row("CV-11", "Undo edited files is visibly unavailable without verified reversible patch authority", "explicitly_unavailable", ["conversation.files.undo"]),
   row("CV-12", "Worked-for disclosure groups real steps under the owning root turn", "partial", ["conversation.work-details.toggle"]),
-  row("CV-13", "empty conversation suggestions fill but never send the draft", "partial", ["conversation.suggestion.fill"]),
+  row("CV-13", "empty conversation suggestions fill but never send the draft", "complete", ["conversation.suggestion.fill"]),
   row("CV-14", "history pages by cursor with truncation and omission metadata", "partial", ["conversation.history.page"]),
-  row("CV-15", "archived transcripts are read-only and may fork to continue", "complete", ["conversation.archive-fork"]),
+  row("CV-15", "archived transcripts are read-only and may fork to continue", "partial", ["conversation.archive-fork"]),
 
-  row("CP-01", "composer grows to a bounded height and scrolls beyond it", "complete"),
+  row("CP-01", "composer grows to a bounded height and scrolls beyond it", "partial"),
   row("CP-02", "add menu, picker, drag/drop, chips, removal, and bounded admission are wired", "partial", ["surface.popover.toggle", "composer.attachment.pick", "composer.attachment.drop", "composer.attachment.remove"]),
-  row("CP-03", "quick model pills and catalog dropdown select a verified model", "placeholder", ["composer.model.select"]),
-  row("CP-04", "thinking dropdown uses supported levels for the selected model", "placeholder", ["composer.thinking.select"]),
+  row("CP-03", "quick model pills and catalog dropdown select a verified model", "partial", ["composer.model.select"]),
+  row("CP-04", "thinking dropdown uses supported levels for the selected model", "partial", ["composer.thinking.select"]),
   row("CP-05", "send, stop, queue, follow-up, and steer return explicit admission outcomes", "partial", ["harness.session.prompt", "harness.session.abort", "harness.session.follow-up", "harness.session.steer"]),
   row("CP-06", "slash autocomplete filters above the composer and supports keyboard execution", "partial", ["composer.slash.select", "composer.slash.execute"]),
   row("CP-07", "/model /effort /compact /fork /new /usage /export all map to real or explicit unavailable actions", "partial", ["composer.model.select", "composer.thinking.select", "harness.session.compact", "conversation.branch.create", "catalog.chat.create", "usage.account.open", "harness.session.export"]),
   row("CP-08", "draft token estimate is local, approximate, and visually distinct from runtime counts", "complete"),
-  row("CP-09", "Enter versus Ctrl+Enter is persisted and safe for IME and multiline input", "partial", ["settings.preference.set"]),
-  row("CP-10", "text and attachment drafts are isolated and retained per chat", "partial", ["composer.draft.change"]),
+  row("CP-09", "Enter versus Ctrl+Enter is persisted and safe for IME and multiline input", "complete", ["settings.preference.set"]),
+  row("CP-10", "text and attachment drafts are isolated and retained per chat", "complete", ["composer.draft.change"]),
   row("CP-11", "mic control exposes an explicit privacy-safe unavailable state until voice exists", "explicitly_unavailable", ["composer.voice.start", "composer.voice.stop"]),
 
   row("HR-01", "Harness, Usage, and Activity tabs preserve a per-chat route", "complete", ["harness.tab.select"]),
   row("HR-02", "compatibility, demonstration, degraded, read-only, and unavailable banners are truthful", "partial"),
   row("HR-03", "main agent state and elapsed time come from the attached root session", "partial"),
   row("HR-04", "This chat context, tokens, turns, and Compact use active-session truth", "partial", ["harness.session.compact"]),
-  row("HR-05", "active and done child lists reconcile by child identity", "partial", ["harness.child.open"]),
-  row("HR-06", "child progress shows reported numeric progress or an indeterminate state", "partial"),
+  row("HR-05", "active and done child lists reconcile by child identity", "complete", ["harness.child.open"]),
+  row("HR-06", "child progress shows reported numeric progress or an indeterminate state", "complete"),
   row("HR-07", "queue accordion supports run-now and removal with explicit outcomes", "partial", ["surface.accordion.toggle", "harness.queue.run-now", "harness.queue.remove"]),
   row("HR-08", "tools accordion reports and changes capability-backed enablement", "partial", ["surface.accordion.toggle", "harness.tool.set-enabled"]),
   row("HR-09", "context accordion lists real context sources and opens supported ones", "partial", ["surface.accordion.toggle", "harness.context-source.open"]),
-  row("HR-10", "overload banner retries idempotently or dismisses only the local presentation", "missing", ["harness.overload.retry", "harness.overload.dismiss"]),
+  row("HR-10", "overload banner retries idempotently or dismisses only the local presentation", "partial", ["harness.overload.retry", "harness.overload.dismiss"]),
   row("HR-11", "silent worker death shows closure reason, one retry, recovery, and terminal failure", "missing"),
   row("HR-12", "child selection never inserts child transcript into the parent conversation", "complete", ["harness.child.open"]),
   row("HR-13", "child status, elapsed, provider, model, task, context, and token facts are projected", "partial"),
-  row("HR-14", "child Chat, Activity, and Files tabs load their own paged data", "placeholder", ["harness.child.tab-select", "harness.child.transcript-page"]),
+  row("HR-14", "child Chat, Activity, and Files tabs load their own paged data", "partial", ["harness.child.tab-select", "harness.child.transcript-page"]),
   row("HR-15", "child composer is visibly locked with a Harness-owned explanation", "partial"),
-  row("HR-16", "Stop child invokes verified cancellation and reconciles its actual result", "placeholder", ["harness.child.stop"]),
-  row("HR-17", "Back and close restore focus to the selected child row", "partial", ["harness.child.back"]),
+  row("HR-16", "Stop child invokes verified cancellation and reconciles its actual result", "partial", ["harness.child.stop"]),
+  row("HR-17", "Back and close restore focus to the selected child row", "complete", ["harness.child.back"]),
   row("HR-18", "extension prompts exist only for verified runtime extension requests; no approvals dashboard", "partial", ["harness.extension.respond"]),
 
   row("CU-01", "right-panel usage contains only the active root session and its attributed children/tools", "complete"),
@@ -87,48 +87,48 @@ export const FEATURE_ACCEPTANCE: readonly PackageFeatureAcceptance[] = Object.fr
   row("CU-03", "tokens, turns, elapsed, and cost use real values or explicit unavailable", "partial"),
   row("CU-04", "tokens-by-turn grouped chart has an accessible table equivalent", "missing"),
   row("CU-05", "utilization sparkline reports context samples rather than provider quota", "missing"),
-  row("CU-06", "contribution breakdown avoids double counting main, child, and tool tokens", "missing"),
-  row("CU-07", "token-type table separates input, cached input, output, and tool results", "missing"),
+  row("CU-06", "contribution breakdown avoids double counting main, child, and tool tokens", "partial"),
+  row("CU-07", "token-type table separates input, cached input, output, and tool results", "complete"),
   row("CU-08", "Account-wide selection routes to Settings Usage without changing inspector scope", "complete", ["usage.account.open"]),
-  row("AC-01", "Activity filters All, Agents, Tools, and Files", "missing", ["activity.filter.select"]),
-  row("AC-02", "activity groups timestamps into Today and Yesterday using local presentation time", "missing"),
-  row("AC-03", "tool rows expand to redacted command, status, duration, and copy", "missing", ["activity.row.toggle", "activity.command.copy"]),
-  row("AC-04", "affected file rows open identity-bound editor content", "missing", ["activity.file.open"]),
-  row("AC-05", "View subagent selects its private inspector route", "missing", ["activity.child.open"]),
+  row("AC-01", "Activity filters All, Agents, Tools, and Files", "complete", ["activity.filter.select"]),
+  row("AC-02", "activity groups timestamps into Today and Yesterday using local presentation time", "partial"),
+  row("AC-03", "tool rows expand to redacted command, status, duration, and copy", "partial", ["activity.row.toggle", "activity.command.copy"]),
+  row("AC-04", "affected file rows open identity-bound editor content", "partial", ["activity.file.open"]),
+  row("AC-05", "View subagent selects its private inspector route", "complete", ["activity.child.open"]),
   row("AC-06", "unseen Activity dot is cursor-backed and clears on visit", "missing", ["activity.seen.mark"]),
 
-  row("ED-01", "split editor header shows path, counts, mode, and close", "placeholder", ["layout.editor.close"]),
-  row("ED-02", "Diff and Edit modes operate on one identity-bound artifact", "placeholder", ["editor.mode.select"]),
-  row("ED-03", "structured diff rows render bounded numbers, markers, additions, deletions, and context", "missing"),
-  row("ED-04", "dirty edits save with expected revision and conflict handling", "missing", ["editor.content.change", "editor.file.save", "editor.conflict.reload", "editor.conflict.save-copy"]),
-  row("ED-05", "Canvas edits apply a new Studio display revision without rewriting Harness history", "partial", ["editor.canvas.apply"]),
+  row("ED-01", "split editor header shows path, counts, mode, and close", "partial", ["layout.editor.close"]),
+  row("ED-02", "Diff and Edit modes operate on one identity-bound artifact", "partial", ["editor.mode.select"]),
+  row("ED-03", "structured diff rows render bounded numbers, markers, additions, deletions, and context", "partial"),
+  row("ED-04", "dirty edits save with expected revision and conflict handling", "partial", ["editor.content.change", "editor.file.save", "editor.conflict.reload", "editor.conflict.save-copy"]),
+  row("ED-05", "Canvas edits apply a new Studio display revision without rewriting Harness history", "complete", ["editor.canvas.apply"]),
   row("ED-06", "file and Canvas buffers persist per session and artifact identity", "partial"),
-  row("ED-07", "narrow editor replaces center or opens as a focus-managed sheet", "partial", ["layout.editor.toggle"]),
+  row("ED-07", "narrow editor replaces center or opens as a focus-managed sheet", "complete", ["layout.editor.toggle"]),
 
   row("ST-01", "Settings replaces the workspace and Back to chat restores it", "complete", ["route.settings.open", "route.settings.back"]),
-  row("ST-02", "left navigation groups and live-filters all 13 actual settings pages", "partial", ["settings.search.change", "settings.section.select"]),
+  row("ST-02", "left navigation groups and live-filters all 13 actual settings pages", "complete", ["settings.search.change", "settings.section.select"]),
   row("ST-03", "General page wires theme, density, default project, send shortcut, panel width, restore, and motion", "partial", ["settings.preference.set", "settings.preference.reset"]),
   row("ST-04", "Appearance page wires accent, font size, timestamps, and compact bubbles", "partial", ["settings.preference.set"]),
-  row("ST-05", "Composer page wires voice visibility, token estimate, and spell check", "placeholder", ["settings.preference.set"]),
-  row("ST-06", "Harness page wires concurrency, turn budget, retry policy, and context discovery", "placeholder", ["settings.harness-policy.set"]),
-  row("ST-07", "Models page wires provider, model, thinking, context facts, and streaming", "placeholder", ["settings.model-default.set", "settings.preference.set"]),
+  row("ST-05", "Composer page wires voice visibility, token estimate, and spell check", "partial", ["settings.preference.set"]),
+  row("ST-06", "Harness page wires concurrency, turn budget, retry policy, and context discovery", "partial", ["settings.harness-policy.set"]),
+  row("ST-07", "Models page wires provider, model, thinking, context facts, and streaming", "partial", ["settings.model-default.set", "settings.preference.set"]),
   row("ST-08", "Accounts page preserves hardened add, use, default, remove, and sign-out flows", "partial", ["account.add", "account.use", "account.set-default", "account.remove", "account.sign-out"]),
-  row("ST-09", "Tools page lists and changes verified tool policy", "placeholder", ["settings.tool.set-enabled"]),
-  row("ST-10", "Git and Environments remain separate pages with bounded discovery and controls", "missing", ["settings.preference.set"]),
+  row("ST-09", "Tools page lists and changes verified tool policy", "partial", ["settings.tool.set-enabled"]),
+  row("ST-10", "Git and Environments remain separate pages with bounded discovery and controls", "partial", ["settings.preference.set"]),
   row("ST-11", "Privacy and security page wires telemetry, crash reports, and local-only policy", "partial", ["settings.preference.set"]),
   row("ST-12", "Keyboard shortcuts page is generated from the same command registry that executes them", "partial"),
   row("ST-13", "About reports real Studio/Harness/runtime identity, licenses, and update availability", "partial", ["settings.updates.check", "route.external-docs.open"]),
   row("ST-14", "workspace-managed controls are disabled with policy source and feedback", "partial", ["settings.preference.set"]),
   row("AU-01", "Settings-only account usage switches 7, 30, and 90 day windows", "complete", ["usage.account.range-select"]),
-  row("AU-02", "account usage refresh and formula-safe CSV export use real ledger data", "partial", ["usage.account.refresh", "usage.account.export-csv"]),
+  row("AU-02", "account usage refresh and formula-safe CSV export use real ledger data", "complete", ["usage.account.refresh", "usage.account.export-csv"]),
   row("AU-03", "seven-stat strip reports processed, cache, input, output, cost, chats, and tasks", "partial"),
   row("AU-04", "daily accessible chart toggles main, subagent, and tool series", "partial", ["usage.account.series-toggle"]),
   row("AU-05", "breakdowns by runtime or model and project preserve totals", "partial"),
   row("AU-06", "quota and cost remain separate and unavailable when unsupported", "partial"),
 
   row("PL-01", "Ctrl+K opens a centered modal palette and restores trigger focus", "complete", ["palette.open", "palette.close"]),
-  row("PL-02", "palette groups Actions, Chats, and bounded full-text Message hits", "partial", ["palette.result.execute"]),
-  row("PL-03", "query, keyboard movement, Enter, Escape, empty, and disabled results work", "partial", ["palette.query.change", "palette.result.execute", "palette.close"]),
+  row("PL-02", "palette groups Actions, Chats, and bounded full-text Message hits", "complete", ["palette.result.execute"]),
+  row("PL-03", "query, keyboard movement, Enter, Escape, empty, and disabled results work", "complete", ["palette.query.change", "palette.result.execute", "palette.close"]),
   row("PL-04", "one typed command registry owns menus, shortcuts, palette, and availability", "partial", ["palette.result.execute"]),
   row("CM-01", "Ctrl+N, Ctrl+K, Ctrl+comma, Ctrl+B, and Ctrl+J honor topmost overlay priority", "partial", ["catalog.chat.create", "palette.open", "route.settings.open", "layout.sidebar.toggle", "layout.inspector.toggle"]),
   row("CM-02", "typed toast queue deduplicates and keeps actionable failures until resolved", "partial", ["toast.dismiss"]),
@@ -137,6 +137,49 @@ export const FEATURE_ACCEPTANCE: readonly PackageFeatureAcceptance[] = Object.fr
   row("CM-05", "each asynchronous surface declares loading, empty, ready, stale, degraded, disconnected, error, and blocked states", "partial"),
   row("CM-06", "the whole product reflows at 640x400, 820px, 1280px, 1600px, and 200 percent zoom", "partial"),
 ]);
+
+/**
+ * Rows whose current status must not be promoted from fixture/component evidence.
+ * Re-audit these only after the verified production adapter is mounted and proves
+ * session lifecycle, daemon projections, and identity-bound artifact hydration.
+ */
+export const PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS = Object.freeze([
+  "NV-06", "NV-07",
+  "CV-04", "CV-05", "CV-06", "CV-07", "CV-10", "CV-12", "CV-14",
+  "CP-03", "CP-04", "CP-05", "CP-07",
+  "HR-02", "HR-03", "HR-04", "HR-07", "HR-08", "HR-09", "HR-10", "HR-11",
+  "HR-13", "HR-14", "HR-16", "HR-18",
+  "CU-02", "CU-03", "CU-06",
+  "AC-02", "AC-03", "AC-04",
+  "ED-01", "ED-02", "ED-03", "ED-04", "ED-06",
+  "ST-06", "ST-07", "ST-09", "ST-13",
+] as const);
+
+export type PackageImplementationSummary = Readonly<Record<ImplementationStatus, number>>;
+
+export function summarizePackageImplementation(
+  features: readonly PackageFeatureAcceptance[] = FEATURE_ACCEPTANCE,
+): PackageImplementationSummary {
+  const counts: Record<ImplementationStatus, number> = {
+    complete: 0,
+    partial: 0,
+    placeholder: 0,
+    missing: 0,
+    explicitly_unavailable: 0,
+  };
+  for (const feature of features) counts[feature.current] += 1;
+  return Object.freeze(counts);
+}
+
+export const PACKAGE_IMPLEMENTATION_SUMMARY = summarizePackageImplementation();
+
+export function isPackageReleaseReady(
+  features: readonly PackageFeatureAcceptance[] = FEATURE_ACCEPTANCE,
+): boolean {
+  return features.every((feature) =>
+    feature.current === "complete" || feature.current === "explicitly_unavailable"
+  );
+}
 
 export interface PackageControlAcceptance {
   readonly controlId: string;

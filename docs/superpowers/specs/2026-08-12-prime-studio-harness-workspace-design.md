@@ -357,8 +357,10 @@ Reconnect rules:
 
 ## 9. Complete feature map
 
-The “current” column describes public `main`; it is not a promise that an unavailable backend is
-already active.
+The historical “Current baseline” column below describes the pre-revamp public `main`; it is not a
+live implementation-status column and is not a promise that an unavailable backend is already
+active. Current per-row implementation truth and derived counts live in
+`app/src/contracts/packageAcceptance.ts`.
 
 ### 9.1 Shell and responsive layout
 

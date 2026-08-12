@@ -19,7 +19,7 @@ or copied into the product. The package artifacts inspected for this contract we
 ## Machine-checkable authorities
 
 - [`packageAcceptance.ts`](../../app/src/contracts/packageAcceptance.ts) is the complete acceptance
-  catalog: 115 feature requirements, 153 unique feature/action control bindings, 29 screen
+  catalog: 115 feature requirements, 154 unique feature/action control bindings, 29 screen
   destinations, 58 state families, 30 preference keys, 7 keyboard requirements, 13 responsive
   invariants, and 26 required data authorities.
 - [`studioOperations.ts`](../../app/src/contracts/studioOperations.ts) is the closed action contract.
@@ -91,9 +91,15 @@ No provider credential, raw SDK object, unrestricted path, or fabricated count e
 
 ## Acceptance gate
 
-The audited baseline at `4206bbedb5fb7d6ee0ae34e3092d5fea5b02241d` has 18 complete, 63 partial,
-11 placeholder, 21 missing, and 2 explicitly unavailable requirements. “Complete” means the
-visible product slice already meets this package contract, not merely that a component renders.
+The historical baseline at `4206bbedb5fb7d6ee0ae34e3092d5fea5b02241d` had 18 complete, 63 partial,
+11 placeholder, 21 missing, and 2 explicitly unavailable requirements. The current audited tree
+has 39 complete, 69 partial, 0 placeholder, 5 missing, and 2 explicitly unavailable requirements.
+These counts are derived by `summarizePackageImplementation()` from the same rows used by the gate;
+they are not a separately maintained release claim. “Complete” means the visible product slice meets
+the package contract, not merely that a component renders. The production Harness adapter and
+session/artifact hydration remain nonterminal, so `isPackageReleaseReady()` is intentionally false.
+`PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS` identifies the exact rows that require fresh production
+adapter evidence before their status may be promoted.
 
 1. All 115 rows in the machine catalog are `complete` or `explicitly_unavailable` for a documented
    upstream reason; no `partial`, `placeholder`, or `missing` remains.
