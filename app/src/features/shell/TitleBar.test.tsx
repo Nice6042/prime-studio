@@ -14,5 +14,7 @@ describe("TitleBar", () => {
     await userEvent.click(screen.getByRole("button", { name: "View" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Toggle Harness" }));
     expect(onOperation).toHaveBeenCalledWith({ action: "layout.inspector.toggle", payload: {} });
+    await userEvent.click(screen.getByRole("button", { name: "Close window" }));
+    expect(onOperation).toHaveBeenCalledWith({ action: "window.close", payload: {} });
   });
 });

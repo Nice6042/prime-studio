@@ -234,6 +234,7 @@ export function StudioApp() {
       case "layout.inspector.toggle": changeLayout({ inspectorOpen: !layout.inspectorOpen }); return;
       case "window.minimize": void getCurrentWindow().minimize(); return;
       case "window.maximize-toggle": void getCurrentWindow().toggleMaximize(); return;
+      case "window.close": void getCurrentWindow().close(); return;
       case "route.external-docs.open": void openUrl(operation.payload.document === "support" ? "https://github.com/Nice6042/prime-studio/blob/main/SUPPORT.md" : "https://www.npmjs.com/package/prime-agent"); return;
       case "history.undo": document.execCommand("undo"); return;
       case "history.redo": document.execCommand("redo"); return;

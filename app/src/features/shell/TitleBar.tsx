@@ -42,5 +42,10 @@ export function TitleBar({ title, actions, onOperation }: { readonly title: stri
     </span>)}</nav>
     <span className="studio-title-current" title={title}>{title}</span>
     <span className="studio-titlebar-actions">{actions}</span>
+    <span className="studio-window-controls" aria-label="Window controls">
+      <button type="button" aria-label="Minimize window" onClick={() => onOperation?.({ action: "window.minimize", payload: {} })}>âˆ’</button>
+      <button type="button" aria-label="Maximize or restore window" onClick={() => onOperation?.({ action: "window.maximize-toggle", payload: {} })}>â–¡</button>
+      <button type="button" aria-label="Close window" onClick={() => onOperation?.({ action: "window.close", payload: {} })}>Ã—</button>
+    </span>
   </div>;
 }
