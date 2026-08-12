@@ -73,4 +73,16 @@ describe("project catalog client", () => {
     })).rejects.toThrow("Project catalog unavailable");
     expect(invoke).not.toHaveBeenCalled();
   });
+
+  it("rejects hostile command accessors before invoking native code", async () => {
+    let reads = 0;
+    const command = Object.defineProperty({}, "type", {
+      enumerable: true,
+      get: () => { reads += 1; return "selection.select-project"; },
+    });
+
+    await expect(applyProjectCatalogCommand(0, command as never)).rejects.toThrow("Project catalog unavailable");
+    expect(reads).toBe(0);
+    expect(invoke).not.toHaveBeenCalled();
+  });
 });

@@ -76,8 +76,15 @@ export async function applyProjectCatalogCommand(
   command: ProjectChatCommand,
 ): Promise<ProjectCatalogSnapshot> {
   if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) return fail();
+  let detached: ProjectChatCommand;
+  try {
+    preflight(command);
+    detached = structuredClone(command);
+  } catch {
+    return fail();
+  }
   return decodeProjectCatalogSnapshot(await invoke("project_catalog_apply", {
     expectedRevision,
-    command,
+    command: detached,
   }));
 }
