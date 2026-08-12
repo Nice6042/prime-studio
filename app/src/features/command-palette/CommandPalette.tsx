@@ -26,7 +26,9 @@ export function CommandPalette({ admissionConnected, onRun, onClose, restoreFocu
   const inputRef = useRef<HTMLInputElement>(null);
   const results = useMemo(() => searchPaletteIndex(query, { admissionConnected }, chats, messages), [admissionConnected, chats, messages, query]);
   const groups = useMemo(() => (["Actions", "Chats", "Messages"] as const).map((name) => ({ name, rows: results.filter((result) => result.group === name) })).filter((group) => group.rows.length > 0), [results]);
-  const current = results[Math.min(active, Math.max(0, results.length - 1))];
+  const enabledIndexes = useMemo(() => results.flatMap((result, index) => result.enabled ? [index] : []), [results]);
+  const selectedIndex = results[active]?.enabled ? active : (enabledIndexes[0] ?? -1);
+  const current = selectedIndex >= 0 ? results[selectedIndex] : undefined;
 
   useEffect(() => { inputRef.current?.focus(); return () => { if (restoreFocusTo?.isConnected && !restoreFocusTo.hasAttribute("disabled")) restoreFocusTo.focus(); }; }, [restoreFocusTo]);
   useEffect(() => setActive(0), [query]);
@@ -42,8 +44,8 @@ export function CommandPalette({ admissionConnected, onRun, onClose, restoreFocu
   const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing) return;
     if (event.key === "Escape") { event.preventDefault(); onClose(); }
-    else if (event.key === "ArrowDown") { event.preventDefault(); if (results.length > 0) setActive((index) => (index + 1) % results.length); }
-    else if (event.key === "ArrowUp") { event.preventDefault(); if (results.length > 0) setActive((index) => (index - 1 + results.length) % results.length); }
+    else if (event.key === "ArrowDown") { event.preventDefault(); if (enabledIndexes.length > 0) setActive(enabledIndexes[(enabledIndexes.indexOf(selectedIndex) + 1) % enabledIndexes.length]); }
+    else if (event.key === "ArrowUp") { event.preventDefault(); if (enabledIndexes.length > 0) setActive(enabledIndexes[(enabledIndexes.indexOf(selectedIndex) - 1 + enabledIndexes.length) % enabledIndexes.length]); }
     else if (event.key === "Enter") { event.preventDefault(); execute(current); }
   };
 
@@ -54,7 +56,7 @@ export function CommandPalette({ admissionConnected, onRun, onClose, restoreFocu
         {results.length === 0 && <p className="command-palette-empty">No results</p>}
         {groups.map((group) => <section role="group" aria-label={group.name} key={group.name}><h2>{group.name}</h2>{group.rows.map((result) => {
           const index = results.indexOf(result);
-          return <button id={`palette-${result.id}`} key={result.id} type="button" role="option" aria-selected={index === active} aria-disabled={!result.enabled} data-control-id={`${controls.result.controlId}.${result.id}`} data-action={controls.result.action} onMouseMove={() => setActive(index)} onClick={() => execute(result)}><span><strong>{result.title}</strong><small>{result.detail}</small></span>{result.kind === "command" && result.command.shortcuts[0] && <kbd>{result.command.shortcuts[0]}</kbd>}</button>;
+          return <button id={`palette-${result.id}`} key={result.id} type="button" role="option" aria-selected={index === selectedIndex} aria-disabled={!result.enabled} data-control-id={`${controls.result.controlId}.${result.id}`} data-action={controls.result.action} onMouseMove={() => { if (result.enabled) setActive(index); }} onClick={() => execute(result)}><span><strong>{result.title}</strong><small>{result.detail}</small></span>{result.kind === "command" && result.command.shortcuts[0] && <kbd>{result.command.shortcuts[0]}</kbd>}</button>;
         })}</section>)}
       </div>
       <footer><span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span><span><kbd>Enter</kbd> Open</span><button type="button" data-control-id={controls.close.controlId} data-action={controls.close.action} onClick={onClose}>Close</button></footer>
