@@ -88,7 +88,14 @@ export async function lockVerifiedRuntimeClosure(
     const verify = async (): Promise<void> => {
       for (const file of locked) {
         const metadata = await lstat(file.path, { bigint: true });
-        if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.dev !== file.dev || metadata.ino !== file.ino || metadata.size !== file.size) throw new Error("runtime closure identity changed");
+        if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size !== file.size || await realpath(file.path) !== file.path) throw new Error("runtime closure identity changed");
+        const current = await open(file.path, "r");
+        try {
+          const currentMetadata = await current.stat({ bigint: true });
+          if (!currentMetadata.isFile() || currentMetadata.dev !== file.dev || currentMetadata.ino !== file.ino || currentMetadata.size !== file.size) throw new Error("runtime closure identity changed");
+        } finally {
+          await current.close().catch(() => undefined);
+        }
       }
       if (await digest(locked) !== expected.digest) throw new Error("runtime closure content changed");
     };
