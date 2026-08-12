@@ -61,7 +61,7 @@ export function HarnessOverview({ session, compatibility, details, pendingKey, h
       <QueueSection sessionId={session.sessionId} queue={session.queue} enabled={queueEnabled} pendingKey={pendingKey} onAction={onAction} />
       <ToolsSection sessionId={session.sessionId} tools={session.tools} enabled={controlsEnabled} pendingKey={pendingKey} onAction={onAction} />
       <ContextSection sessionId={session.sessionId} resources={session.resources} onAction={onAction} />
-      <OutputSourceSections details={details} onOpen={(artifactId) => onAction({ action: "editor.artifact.open", payload: { sessionId: session.sessionId, artifactId } }, `artifact:${artifactId}`)} />
+      <OutputSourceSections details={details} sessionId={session.sessionId} onAction={onAction} />
     </div>
   </div>;
 }

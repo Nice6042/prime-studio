@@ -121,6 +121,10 @@ function safeInteger(value: unknown): number {
   if (!Number.isSafeInteger(value) || (value as number) < 0) throw new TypeError("daemon integer is invalid");
   return value as number;
 }
+function optionalSafeInteger(value: unknown): number | null {
+  if (value === undefined || value === null) return null;
+  return safeInteger(value);
+}
 function stableId(prefix: string, value: string): string {
   return `${prefix}-${createHash("sha256").update(value).digest("hex").slice(0, 24)}`;
 }
@@ -359,9 +363,10 @@ export class PrimeDaemonBridge {
     const initial = plain(initialRaw) ? initialRaw : {};
     const context = plain(contextRaw) ? contextRaw : {};
     const stats = plain(statsRaw) ? statsRaw : {};
-    const contextUsage = plain(stats.contextUsage) ? stats.contextUsage : plain((plain(initial.state) ? initial.state : {}).contextUsage) ? (initial.state as Record<string, unknown>).contextUsage as Record<string, unknown> : {};
-    const usedTokens = safeInteger(contextUsage.tokens ?? (plain(stats.tokens) ? stats.tokens.total : 0));
-    const capacityTokens = safeInteger(contextUsage.contextWindow ?? contextUsage.capacityTokens);
+    const initialState = plain(initial.state) ? initial.state : {};
+    const contextUsage = plain(stats.contextUsage) ? stats.contextUsage : plain(initialState.contextUsage) ? initialState.contextUsage : null;
+    const usedTokens = contextUsage ? optionalSafeInteger(contextUsage.tokens) : null;
+    const capacityTokens = contextUsage ? optionalSafeInteger(contextUsage.contextWindow ?? contextUsage.capacityTokens) : null;
     const messages = Array.isArray(initial.messages) ? initial.messages : Array.isArray(context.messages) ? context.messages : [];
     const activity: Array<PrimeHarnessInspectorDetails["activity"][number]> = [];
     const toolCalls = new Map<string, Readonly<{ command: string; files: readonly string[] }>>();
@@ -396,6 +401,19 @@ export class PrimeDaemonBridge {
     const resources = plain(resourcesRaw) ? resourcesRaw : {};
     const outputs: Array<PrimeHarnessInspectorDetails["outputs"][number]> = [];
     const sources: Array<PrimeHarnessInspectorDetails["sources"][number]> = [];
+    if (Array.isArray(resources.outputs)) {
+      for (const [index, raw] of resources.outputs.slice(0, 512).entries()) {
+        if (!plain(raw)) continue;
+        const path = [raw.path, raw.filePath, raw.outputPath].find((value) => typeof value === "string") as string | undefined;
+        if (!path) continue;
+        const label = [raw.name, raw.label].find((value) => typeof value === "string") as string | undefined;
+        const kind = typeof raw.kind === "string" ? raw.kind : "output";
+        outputs.push({
+          id: stableId("output", `${index}:${path}`), label: boundedString(label ?? "Output", 200),
+          candidatePath: boundedString(path, 4096), kind: boundedString(kind, 128),
+        });
+      }
+    }
     for (const kind of ["contextFiles", "skills", "prompts", "extensions", "themes"] as const) {
       const rows = resources[kind]; if (!Array.isArray(rows)) continue;
       for (const [index, raw] of rows.entries()) {
@@ -443,9 +461,22 @@ export class PrimeDaemonBridge {
         });
       }
     }
+    const explicitTurns = contextUsage ? optionalSafeInteger(contextUsage.turns) : null;
+    const contextSamples = contextUsage && Array.isArray(contextUsage.samples) && contextUsage.samples.length > 0 && contextUsage.samples.length <= 1_000
+      ? contextUsage.samples.map((sample) => safeInteger(sample)) : null;
+    const sampleCapacity = capacityTokens ?? 0;
+    const validSamples = contextSamples && (sampleCapacity === 0 || contextSamples.every((sample) => sample <= sampleCapacity)) ? contextSamples : null;
+    const contextDetails = usedTokens !== null || capacityTokens !== null
+      ? {
+          usedTokens: usedTokens ?? 0, capacityTokens: capacityTokens ?? 0,
+          turns: explicitTurns ?? messages.filter((message) => plain(message) && message.role === "user").length,
+          ...(validSamples ? { samples: validSamples } : {}),
+        }
+      : null;
+    const startedAtMs = optionalSafeInteger(stats.startedAtMs ?? initial.startedAtMs ?? initialState.startedAtMs);
     return Object.freeze({
-      observedAtMs: Date.now(), startedAtMs: null,
-      context: capacityTokens > 0 || usedTokens > 0 ? { usedTokens, capacityTokens, turns: messages.length } : null,
+      observedAtMs: Date.now(), startedAtMs,
+      context: contextDetails,
       contributions: Object.freeze(Object.entries(children).flatMap(([id, child]) => child.context ? [{ id, label: child.summary, tokens: child.context.usedTokens }] : [])),
       notices: Object.freeze([]), activity: Object.freeze(activity.slice(-300)), outputs: Object.freeze(outputs),
       sources: Object.freeze(sources.slice(0, 512)), children: Object.freeze(children),

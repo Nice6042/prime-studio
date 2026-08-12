@@ -334,6 +334,44 @@ test("production bridge exposes every verified daemon operation without provider
   ]);
 });
 
+test("inspector projects only explicit daemon context and output evidence", async () => {
+  const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
+  const state = {
+    activeSessionId: "root", cwd: "C:\\work", thinkingLevel: "high", serviceTier: "auto",
+    availableThinkingLevels: [], isStreaming: false, isCompacting: false, isBashRunning: false,
+    retryAttempt: 0, steeringMode: "all", followUpMode: "all", sessionId: "chat", leafId: null,
+    autoCompactionEnabled: true, messageCount: 2, sessionActions: {}, compactionCount: 0, goal: {}, scopedModels: [], activeToolNames: [],
+  };
+  let statsResult: Record<string, unknown> = { contextUsage: { tokens: 25, capacityTokens: 100, turns: 1, samples: [5, 15, 25] }, tokens: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, total: 3 } };
+  let resourceResult: Record<string, unknown> = { outputs: [{ name: "Report", path: "C:\\work\\report.md", kind: "markdown" }, { name: "Unbound" }] };
+  const connection = {
+    async getInitialSnapshot() { return { state, startedAtMs: 1_000, messages: [{ role: "user", content: "one" }, { role: "assistant", content: "two" }], children: [], lastEventCursor: { generation: "generation-1", sequence: 1 } }; },
+    async getState() { return state; }, async getMessages() { return []; }, async getQueue() { return {}; },
+    async getSessionContext() { return {}; },
+    async getResourceSnapshot() { return resourceResult; },
+    async getSessionStats() { return statsResult; },
+    async getToolDefinition() { return undefined; }, async prompt() {}, async steer() {}, async followUp() {}, async abort() {}, async dispose() {},
+  };
+  const bridge = new PrimeDaemonBridge({
+    identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
+    client: { async connect() {}, async waitForHello() { return { type: "daemon_hello" as const, socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request() { throw new Error("not used"); }, close() {} },
+    attach: async () => connection,
+  });
+  // Bind the verified connection through the public attach path before inspecting it.
+  await bridge.attach("root");
+  const details = await bridge.inspector("root");
+  assert.equal(details.startedAtMs, 1_000);
+  assert.deepEqual(details.context, { usedTokens: 25, capacityTokens: 100, turns: 1, samples: [5, 15, 25] });
+  assert.equal(details.outputs.length, 1);
+  assert.equal(details.outputs[0]?.candidatePath, "C:\\work\\report.md");
+
+  statsResult = { tokens: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, total: 3 } };
+  resourceResult = {};
+  const unavailable = await bridge.inspector("root");
+  assert.equal(unavailable.context, null);
+  assert.deepEqual(unavailable.outputs, []);
+});
+
 test("resident creation recovers a lost create response by stable creation identity", async () => {
   const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
   const calls: Array<Readonly<Record<string, unknown>>> = [];

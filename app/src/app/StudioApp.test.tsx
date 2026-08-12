@@ -369,6 +369,40 @@ describe("Studio application state", () => {
     expect(screen.getByRole("textbox", { name: "File content" })).toHaveValue("verified content");
   });
 
+  it("wires editor conflict recovery to native reload and save-copy authority", async () => {
+    const document = {
+      label: "report.md",
+      ref: { brokerId: "broker-1", rootSessionId: rootSession.sessionId, artifactId: "candidate-1", revision: 1 },
+      identity: `sha256:${"a".repeat(64)}`,
+      content: "verified content",
+      writable: true,
+      diff: [],
+    } as const;
+    const adapter: HarnessInspectorAdapter = {
+      availability: { status: "available" },
+      load: async () => ({ observedAtMs: 1, startedAtMs: null, context: null, contributions: [], notices: [], activity: [], outputs: [{ id: "output-1", label: "Report", candidateId: "candidate-1", kind: "file" }], sources: [], children: {} }),
+      execute: async () => ({ status: "rejected", reason: "wrong route", retryable: false }),
+      openArtifact: async () => ({ kind: "opened", document }),
+    };
+    const save = vi.spyOn(rpc, "saveEditorArtifact").mockResolvedValue({ kind: "conflict", message: "changed on disk" });
+    const saveCopy = vi.spyOn(rpc, "saveEditorArtifactCopy").mockResolvedValue({ kind: "saved_copy", label: "report.prime-copy.md" });
+    const reload = vi.spyOn(rpc, "reloadEditorArtifact").mockResolvedValue({ kind: "opened", document: { ...document, ref: { ...document.ref, revision: 2 }, identity: `sha256:${"b".repeat(64)}`, content: "external" } });
+    const store = createStudioStore(initialStudioState({ projectCatalog: catalogBoundToRootSession(), sessions: [rootSession] }));
+    render(<AppProviders store={store}><StudioApp harnessAdapter={adapter} /></AppProviders>);
+    await userEvent.click(await screen.findByText("Outputs"));
+    await userEvent.click(await screen.findByRole("button", { name: /Report/ }));
+    await userEvent.click(await screen.findByRole("tab", { name: "Edit" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "File content" }), " changed");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Save a copy" }));
+    expect(saveCopy).toHaveBeenCalledWith(expect.objectContaining({ content: "verified content changed" }));
+    await userEvent.click(screen.getByRole("button", { name: "Reload from disk" }));
+    expect(reload).toHaveBeenCalledWith(document.ref);
+    await userEvent.click(await screen.findByRole("tab", { name: "Edit" }));
+    expect(await screen.findByRole("textbox", { name: "File content" })).toHaveValue("external");
+    save.mockRestore(); saveCopy.mockRestore(); reload.mockRestore();
+  }, 15_000);
+
   it("opens the centralized command palette and routes enabled commands", async () => {
     const store = createStudioStore(initialStudioState({ chats: [chat] }));
     store.dispatch({ type: "chat/open", chatId: chat.id });

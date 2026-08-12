@@ -69,6 +69,10 @@ function operationAccepted(status: string): boolean {
   return status === "accepted" || status === "updated";
 }
 
+function artifactDraftKey(document: ArtifactDocument): string {
+  return `${document.ref.brokerId}:${document.ref.rootSessionId}:${document.ref.artifactId}`;
+}
+
 export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter }: { readonly harnessAdapter?: HarnessInspectorAdapter } = {}) {
   const store = useStudioStore();
   const navigation = useStudioSelector((state) => state.navigation);
@@ -106,6 +110,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const sheetOpener = useRef<HTMLElement | null>(null);
   const [canvas, setCanvas] = useState<Readonly<{ chatId: string; messageId: string; displayRevision: number; content: string }> | null>(null);
   const [editorArtifact, setEditorArtifact] = useState<ArtifactDocument | null>(null);
+  const [artifactDrafts, setArtifactDrafts] = useState<Readonly<Record<string, string>>>({});
   const [displayRevisions, setDisplayRevisions] = useState<Readonly<Record<string, Readonly<Record<string, Readonly<{ revision: number; content: string }>>>>>>({});
   const [inspectorRouteRequest, setInspectorRouteRequest] = useState<Readonly<{ id: number; route: "overview" | "usage" | "activity" }> | undefined>();
   const [admissionPhase, setAdmissionPhase] = useState<"idle" | "submitting" | "aborting">("idle");
@@ -831,7 +836,32 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       editorContent={<EditorPane
         onClose={() => { void dispatchOperation({ action: "layout.editor.close", payload: {} }); }}
         artifact={editorArtifact}
+        draftContent={editorArtifact ? artifactDrafts[artifactDraftKey(editorArtifact)] : undefined}
+        onDraftChange={editorArtifact ? (content) => {
+          const key = artifactDraftKey(editorArtifact);
+          setArtifactDrafts((current) => Object.freeze({ ...current, [key]: content }));
+        } : undefined}
         onArtifactSave={rpc.saveEditorArtifact}
+        onArtifactReload={(document) => rpc.reloadEditorArtifact(document.ref)}
+        onArtifactSaveCopy={rpc.saveEditorArtifactCopy}
+        onArtifactReloaded={(document) => {
+          const key = artifactDraftKey(document);
+          setEditorArtifact(document);
+          setArtifactDrafts((current) => {
+            const next = { ...current };
+            delete next[key];
+            return Object.freeze(next);
+          });
+        }}
+        onArtifactSaved={(document) => {
+          const key = artifactDraftKey(document);
+          setEditorArtifact(document);
+          setArtifactDrafts((current) => {
+            const next = { ...current };
+            delete next[key];
+            return Object.freeze(next);
+          });
+        }}
         unsupportedReason="Open an identity-bound candidate from Harness Outputs, Sources, Activity, or a subagent file list."
         canvas={canvas?.chatId === navigation.selectedChatId ? canvas : null}
         onCanvasApply={canvas ? (content) => {

@@ -29,7 +29,7 @@ import type {
   UsageRow,
   WorkspaceFile,
 } from "./types";
-import type { ArtifactOpenResult, ArtifactRef, ArtifactSaveRequest, ArtifactSaveResult } from "./entities/editor/types";
+import type { ArtifactOpenResult, ArtifactRef, ArtifactSaveCopyRequest, ArtifactSaveCopyResult, ArtifactSaveRequest, ArtifactSaveResult } from "./entities/editor/types";
 
 // The versioned Harness projection is the only new integration surface.
 // Legacy session methods below remain isolated until verified activation.
@@ -526,6 +526,11 @@ export async function openEditorArtifact(artifactRef: ArtifactRef): Promise<Arti
   return strictInvoke<ArtifactOpenResult>("editor_artifact_open", { request: { artifactRef } });
 }
 
+export async function reloadEditorArtifact(artifactRef: ArtifactRef): Promise<ArtifactOpenResult> {
+  if (!validArtifactRef(artifactRef)) throw new Error("artifact reference is invalid");
+  return strictInvoke<ArtifactOpenResult>("editor_artifact_reload", { request: { artifactRef } });
+}
+
 export async function openHarnessArtifactCandidate(sessionId: string, candidateId: string): Promise<ArtifactOpenResult> {
   const id = /^[A-Za-z0-9_.:-]{1,128}$/;
   if (!id.test(sessionId) || !id.test(candidateId)) throw new Error("Harness artifact candidate is invalid");
@@ -535,6 +540,11 @@ export async function openHarnessArtifactCandidate(sessionId: string, candidateI
 export async function saveEditorArtifact(request: ArtifactSaveRequest): Promise<ArtifactSaveResult> {
   if (!validArtifactRef(request.ref) || request.expectedRevision !== request.ref.revision || !/^sha256:[0-9a-f]{64}$/.test(request.expectedIdentity) || request.content.length > 2 * 1024 * 1024 || request.content.includes("\0")) throw new Error("artifact save request is invalid");
   return strictInvoke<ArtifactSaveResult>("editor_artifact_save", { request });
+}
+
+export async function saveEditorArtifactCopy(request: ArtifactSaveCopyRequest): Promise<ArtifactSaveCopyResult> {
+  if (!validArtifactRef(request.ref) || request.content.length > 2 * 1024 * 1024 || request.content.includes("\0")) throw new Error("artifact copy request is invalid");
+  return strictInvoke<ArtifactSaveCopyResult>("editor_artifact_save_copy", { request });
 }
 
 const USAGE_ROW_KEYS = ["ts", "provider", "cost", "input", "output", "cacheRead", "cacheWrite"] as const;

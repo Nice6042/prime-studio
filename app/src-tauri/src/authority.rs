@@ -288,7 +288,9 @@ pub enum TauriCommand {
     SetAppSetting,
     ExportAccountUsageCsv,
     EditorArtifactOpen,
+    EditorArtifactReload,
     EditorArtifactSave,
+    EditorArtifactSaveCopy,
     KernelStatus,
     FilesTouched,
     PickDirectory,
@@ -298,7 +300,7 @@ pub enum TauriCommand {
     ComputerUseReadiness,
 }
 
-pub const ALL_TAURI_COMMANDS: [TauriCommand; 60] = [
+pub const ALL_TAURI_COMMANDS: [TauriCommand; 62] = [
     TauriCommand::StartSession,
     TauriCommand::AttachSession,
     TauriCommand::DetachSession,
@@ -351,7 +353,9 @@ pub const ALL_TAURI_COMMANDS: [TauriCommand; 60] = [
     TauriCommand::SetAppSetting,
     TauriCommand::ExportAccountUsageCsv,
     TauriCommand::EditorArtifactOpen,
+    TauriCommand::EditorArtifactReload,
     TauriCommand::EditorArtifactSave,
+    TauriCommand::EditorArtifactSaveCopy,
     TauriCommand::KernelStatus,
     TauriCommand::FilesTouched,
     TauriCommand::PickDirectory,
@@ -423,7 +427,9 @@ impl TauriCommand {
             Self::SetAppSetting => "set_app_setting",
             Self::ExportAccountUsageCsv => "export_account_usage_csv",
             Self::EditorArtifactOpen => "editor_artifact_open",
+            Self::EditorArtifactReload => "editor_artifact_reload",
             Self::EditorArtifactSave => "editor_artifact_save",
+            Self::EditorArtifactSaveCopy => "editor_artifact_save_copy",
             Self::KernelStatus => "kernel_status",
             Self::FilesTouched => "files_touched",
             Self::PickDirectory => "pick_directory",
@@ -478,7 +484,10 @@ impl TauriCommand {
             | Self::HarnessStudioOperation
             | Self::HarnessCreateResidentChat => CommandAuthority::VerifiedBroker,
             Self::ExportAccountUsageCsv => CommandAuthority::SafetyControl,
-            Self::EditorArtifactOpen | Self::EditorArtifactSave => CommandAuthority::VerifiedBroker,
+            Self::EditorArtifactOpen
+            | Self::EditorArtifactReload
+            | Self::EditorArtifactSave
+            | Self::EditorArtifactSaveCopy => CommandAuthority::VerifiedBroker,
             Self::NoteAgent | Self::ProjectCatalogApply | Self::AttentionMarkSeen => {
                 CommandAuthority::LocalBookkeeping
             }

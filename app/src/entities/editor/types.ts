@@ -25,6 +25,7 @@ export interface ArtifactDocument {
   readonly content: string;
   readonly writable: boolean;
   readonly diff: readonly StructuredDiffRow[];
+  readonly diffTruncated?: boolean;
 }
 
 export interface ArtifactSaveRequest {
@@ -41,6 +42,16 @@ export type ArtifactSaveResult =
 export type ArtifactOpenResult =
   | Readonly<{ kind: "opened"; document: ArtifactDocument }>
   | Readonly<{ kind: "unsupported"; reason: string }>;
+
+export interface ArtifactSaveCopyRequest {
+  readonly ref: ArtifactRef;
+  readonly content: string;
+}
+
+export type ArtifactSaveCopyResult =
+  | Readonly<{ kind: "saved_copy"; label: string }>
+  | Readonly<{ kind: "cancelled" }>
+  | Readonly<{ kind: "unsupported" | "error"; message: string }>;
 
 export type EditorTab =
   | Readonly<{ id: string; kind: "artifact"; label: string; ref: ArtifactRef; brokerRef: ArtifactRef; identity: string; revision: number; originalContent: string; content: string; dirty: boolean; writable: boolean }>

@@ -234,7 +234,9 @@ fn tauri_policy_keeps_only_offline_account_configuration_reads_and_owned_stop_pa
         (TauriCommand::GetLayoutPreferences, OfflineRead),
         (TauriCommand::ExportAccountUsageCsv, SafetyControl),
         (TauriCommand::EditorArtifactOpen, VerifiedBroker),
+        (TauriCommand::EditorArtifactReload, VerifiedBroker),
         (TauriCommand::EditorArtifactSave, VerifiedBroker),
+        (TauriCommand::EditorArtifactSaveCopy, VerifiedBroker),
         (TauriCommand::ComputerUseReadiness, OfflineRead),
     ];
 

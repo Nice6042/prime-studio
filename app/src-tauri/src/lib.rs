@@ -38,7 +38,7 @@ use bounded_io::{
 use browser::{
     BrowserBroker, BrowserIntentAdmission, BrowserIntentAdmissionRequest, BrowserSecurityStatus,
 };
-use commands::editor::{editor_artifact_open, editor_artifact_save, ArtifactAuthority};
+use commands::editor::{editor_artifact_open, editor_artifact_reload, editor_artifact_save, editor_artifact_save_copy, ArtifactAuthority};
 use commands::harness::{
     harness_artifact_open, harness_attach_session, harness_bootstrap, harness_create_resident_chat,
     harness_inspector, harness_projection, harness_refresh_session, harness_session_command,
@@ -4116,7 +4116,9 @@ pub fn run() {
             set_app_setting,
             export_account_usage_csv,
             editor_artifact_open,
+            editor_artifact_reload,
             editor_artifact_save,
+            editor_artifact_save_copy,
             kernel_status,
             files_touched,
             pick_directory,

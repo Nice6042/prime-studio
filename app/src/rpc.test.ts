@@ -17,8 +17,10 @@ import {
   setLayoutPreferences,
   exportAccountUsageCsv,
   openEditorArtifact,
+  reloadEditorArtifact,
   openHarnessArtifactCandidate,
   saveEditorArtifact,
+  saveEditorArtifactCopy,
 } from "./rpc";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -110,6 +112,17 @@ describe("identity-bound editor RPC", () => {
         content: "edited",
       },
     });
+  });
+
+  it("reloads and saves a copy through identity-only native commands", async () => {
+    invokeMock.mockResolvedValueOnce({ kind: "unsupported", reason: "reload denied" });
+    await expect(reloadEditorArtifact(artifactRef)).resolves.toEqual({ kind: "unsupported", reason: "reload denied" });
+    expect(invokeMock).toHaveBeenNthCalledWith(1, "editor_artifact_reload", { request: { artifactRef } });
+
+    invokeMock.mockResolvedValueOnce({ kind: "cancelled" });
+    await expect(saveEditorArtifactCopy({ ref: artifactRef, content: "unsaved" })).resolves.toEqual({ kind: "cancelled" });
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "editor_artifact_save_copy", { request: { ref: artifactRef, content: "unsaved" } });
+    expect(invokeMock.mock.calls[1]?.[1]).not.toHaveProperty("path");
   });
 });
 

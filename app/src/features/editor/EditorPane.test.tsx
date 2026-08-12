@@ -45,13 +45,38 @@ describe("EditorPane", () => {
   });
 
   it("keeps dirty content visible when the native save reports a conflict", async () => {
+    const onArtifactReload = vi.fn(async () => ({ kind: "opened" as const, document: { label: "README.md", ref: { brokerId: "b", rootSessionId: "s", artifactId: "a", revision: 2 }, identity: "sha256:reloaded", content: "external", writable: true, diff: [], diffTruncated: false } }));
+    const onArtifactSaveCopy = vi.fn(async () => ({ kind: "saved_copy" as const, label: "README.prime-copy.md" }));
     render(<EditorPane onClose={() => undefined} artifact={{ label: "README.md", ref: { brokerId: "b", rootSessionId: "s", artifactId: "a", revision: 1 }, identity: "old", content: "old", writable: true, diff: [] }}
-      onArtifactSave={async () => ({ kind: "conflict", message: "The file changed on disk. Reopen it before saving." })} />);
+      onArtifactSave={async () => ({ kind: "conflict", message: "The file changed on disk. Reopen it before saving." })}
+      onArtifactReload={onArtifactReload}
+      onArtifactSaveCopy={onArtifactSaveCopy} />);
     await userEvent.click(screen.getByRole("tab", { name: "Edit" }));
     await userEvent.type(screen.getByRole("textbox", { name: "File content" }), " changed");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("changed on disk");
     expect(screen.getByRole("textbox", { name: "File content" })).toHaveValue("old changed");
+    expect(screen.getByRole("button", { name: "Reload from disk" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Save a copy" })).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Save a copy" }));
+    expect(onArtifactSaveCopy).toHaveBeenCalledWith(expect.objectContaining({ content: "old changed" }));
+    expect(await screen.findByText("Saved copy as README.prime-copy.md")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Reload from disk" }));
+    expect(onArtifactReload).toHaveBeenCalled();
+    expect(screen.getByRole("textbox", { name: "File content" })).toHaveValue("external");
+  });
+
+  it("restores an artifact-scoped draft after the editor is unmounted", async () => {
+    const drafts = new Map<string, string>();
+    const artifact = { label: "notes.md", ref: { brokerId: "b", rootSessionId: "session-one", artifactId: "a", revision: 1 }, identity: "old", content: "original", writable: true, diff: [] } as const;
+    const first = render(<EditorPane onClose={() => undefined} artifact={artifact} draftContent={drafts.get("draft")} onDraftChange={(content) => drafts.set("draft", content)} />);
+    await userEvent.click(screen.getByRole("tab", { name: "Edit" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "File content" }), " retained");
+    first.unmount();
+    render(<EditorPane onClose={() => undefined} artifact={artifact} draftContent={drafts.get("draft")} onDraftChange={(content) => drafts.set("draft", content)} />);
+    await userEvent.click(screen.getByRole("tab", { name: "Edit" }));
+    expect(screen.getByRole("textbox", { name: "File content" })).toHaveValue("original retained");
+    expect(screen.getAllByText("Unsaved changes")).toHaveLength(2);
   });
 
   it("advances the expected native revision and identity after each exact save", async () => {
