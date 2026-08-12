@@ -353,7 +353,7 @@ test("inspector projects only explicit daemon context and output evidence", asyn
   let statsResult: Record<string, unknown> = { contextUsage: { tokens: 25, capacityTokens: 100, turns: 1, samples: [5, 15, 25] }, tokens: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, total: 3 } };
   let resourceResult: Record<string, unknown> = { outputs: [{ name: "Report", path: "C:\\work\\report.md", kind: "markdown" }, { name: "Unbound" }] };
   const connection = {
-    async getInitialSnapshot() { return { state, startedAtMs: 1_000, messages: [{ role: "user", content: "one" }, { role: "assistant", content: "two" }], children: [], lastEventCursor: { generation: "generation-1", sequence: 1 } }; },
+    async getInitialSnapshot() { return { state, startedAtMs: 1_000, messages: [{ role: "user", content: "one", timestamp: 1 }, { role: "assistant", content: [], timestamp: 2, stopReason: "stop", usage: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 3, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } }], children: [], lastEventCursor: { generation: "generation-1", sequence: 1 } }; },
     async getState() { return state; }, async getMessages() { return []; }, async getQueue() { return {}; },
     async getSessionContext() { return {}; },
     async getModelCatalog() { return { models: [] }; },
@@ -379,6 +379,92 @@ test("inspector projects only explicit daemon context and output evidence", asyn
   const unavailable = await bridge.inspector("root");
   assert.equal(unavailable.context, null);
   assert.deepEqual(unavailable.outputs, []);
+});
+
+test("inspector projects bounded authoritative per-turn usage without recounting child context", async () => {
+  const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
+  const usage = (input: number, output: number, cacheRead: number, cacheWrite: number) => ({
+    input, output, cacheRead, cacheWrite,
+    totalTokens: input + output + cacheRead + cacheWrite,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  });
+  const messages = [
+    { role: "user", content: "one", timestamp: 1_000 },
+    { role: "assistant", content: [], timestamp: 1_100, stopReason: "toolUse", usage: usage(10, 5, 3, 2) },
+    { role: "toolResult", toolCallId: "call-1", toolName: "ipython", content: [], timestamp: 1_200 },
+    { role: "assistant", content: [], timestamp: 1_300, stopReason: "stop", usage: usage(4, 6, 1, 0) },
+    { role: "user", content: "two", timestamp: 2_000 },
+    // Prime has already folded child_usage_attributed evidence into this assistant usage.
+    { role: "assistant", content: [], timestamp: 2_100, stopReason: "stop", usage: usage(20, 8, 4, 1) },
+  ];
+  const totals = usage(34, 19, 8, 3);
+  const state = {
+    activeSessionId: "root", cwd: "C:\\work", thinkingLevel: "high", serviceTier: "auto",
+    availableThinkingLevels: [], isStreaming: false, isCompacting: false, isBashRunning: false,
+    retryAttempt: 0, steeringMode: "all", followUpMode: "all", sessionId: "chat", leafId: null,
+    autoCompactionEnabled: true, messageCount: messages.length, sessionActions: {}, compactionCount: 0,
+    goal: {}, scopedModels: [], activeToolNames: [],
+  };
+  const connection = {
+    async getInitialSnapshot() {
+      return {
+        state, messages,
+        children: [{ id: "child-1", label: "Child", status: "done", tokenCount: 9_999, sessionDir: "C:\\work\\child" }],
+        lastEventCursor: { generation: "generation-1", sequence: 1 },
+      };
+    },
+    async getState() { return state; }, async getMessages() { return messages; }, async getQueue() { return {}; },
+    async getSessionContext() { return { messages }; }, async getModelCatalog() { return { models: [] }; },
+    async getResourceSnapshot() { return {}; },
+    async getSessionStats() { return { tokens: { ...totals, total: totals.totalTokens }, cost: 0 }; },
+    async getToolDefinition() { return undefined; }, async prompt() {}, async steer() {}, async followUp() {}, async abort() {}, async dispose() {},
+  };
+  const bridge = new PrimeDaemonBridge({
+    identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
+    client: { async connect() {}, async waitForHello() { return { type: "daemon_hello" as const, socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request() { throw new Error("not used"); }, close() {} },
+    attach: async () => connection,
+  });
+
+  await bridge.attach("root");
+  const details = await bridge.inspector("root");
+  assert.deepEqual((details as unknown as { turnUsage?: unknown }).turnUsage, {
+    totalTurns: 3,
+    omittedTurns: 0,
+    rows: [
+      { turn: 1, occurredAtMs: 1_100, input: 10, output: 5, cacheRead: 3, cacheWrite: 2, totalTokens: 20 },
+      { turn: 2, occurredAtMs: 1_300, input: 4, output: 6, cacheRead: 1, cacheWrite: 0, totalTokens: 11 },
+      { turn: 3, occurredAtMs: 2_100, input: 20, output: 8, cacheRead: 4, cacheWrite: 1, totalTokens: 33 },
+    ],
+  });
+
+  for (let index = 0; index < 300; index += 1) {
+    messages.push({ role: "assistant", content: [], timestamp: 3_000 + index, stopReason: "stop", usage: usage(1, 0, 0, 0) });
+    totals.input += 1;
+    totals.totalTokens += 1;
+  }
+  const bounded = (await bridge.inspector("root")).turnUsage!;
+  assert.equal(bounded.totalTurns, 303);
+  assert.equal(bounded.omittedTurns, 3);
+  assert.equal(bounded.rows.length, 300);
+  assert.equal(bounded.rows[0]?.turn, 4);
+  assert.equal(bounded.rows.at(-1)?.turn, 303);
+});
+
+test("inspector withholds per-turn usage when message evidence cannot reconcile with session totals", async () => {
+  const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
+  const state = { activeSessionId: "root", cwd: "C:\\work", thinkingLevel: "high", serviceTier: "auto", availableThinkingLevels: [], isStreaming: false, isCompacting: false, isBashRunning: false, retryAttempt: 0, steeringMode: "all", followUpMode: "all", sessionId: "chat", leafId: null, autoCompactionEnabled: true, messageCount: 1, sessionActions: {}, compactionCount: 0, goal: {}, scopedModels: [], activeToolNames: [] };
+  const messages = [{ role: "assistant", content: [], timestamp: 10, stopReason: "stop", usage: { input: 4, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 6, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } }];
+  let statsTokens = { input: 99, output: 2, cacheRead: 0, cacheWrite: 0, total: 101 };
+  const connection = { async getInitialSnapshot() { return { state, messages, children: [], lastEventCursor: { generation: "generation-1", sequence: 1 } }; }, async getState() { return state; }, async getMessages() { return messages; }, async getQueue() { return {}; }, async getSessionContext() { return { messages }; }, async getModelCatalog() { return { models: [] }; }, async getResourceSnapshot() { return {}; }, async getSessionStats() { return { tokens: statsTokens, cost: 0 }; }, async getToolDefinition() { return undefined; }, async prompt() {}, async steer() {}, async followUp() {}, async abort() {}, async dispose() {} };
+  const bridge = new PrimeDaemonBridge({ identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] }, client: { async connect() {}, async waitForHello() { return { type: "daemon_hello" as const, socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request() { throw new Error("not used"); }, close() {} }, attach: async () => connection });
+
+  await bridge.attach("root");
+  const details = await bridge.inspector("root");
+  assert.equal((details as unknown as { turnUsage?: unknown }).turnUsage, undefined);
+
+  delete (messages[0]!.usage as Partial<typeof messages[0]["usage"]>).output;
+  statsTokens = { input: 4, output: 0, cacheRead: 0, cacheWrite: 0, total: 4 };
+  await assert.rejects(() => bridge.inspector("root"), /assistant usage is incomplete/u);
 });
 
 test("resident creation recovers a lost create response by stable creation identity", async () => {

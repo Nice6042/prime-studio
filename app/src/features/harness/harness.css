@@ -192,11 +192,21 @@
 .usage-chart-heading { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; padding: 9px 11px 2px; }
 .usage-chart-heading h2 { margin: 0; font-size: 11.5px; font-weight: 500; }
 .usage-chart-heading span { color: var(--hi-muted); font-size: 10.5px; font-variant-numeric: tabular-nums; }
-.usage-line-chart, .usage-sparkline { display: block; inline-size: 100%; block-size: 68px; padding: 6px 10px 3px; overflow: visible; }
+.usage-turn-chart, .usage-sparkline { display: block; inline-size: 100%; block-size: 68px; padding: 6px 10px 3px; overflow: visible; }
 .usage-sparkline { block-size: 52px; }
-.usage-line-chart polyline, .usage-sparkline polyline { fill: none; stroke: var(--hi-accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.usage-sparkline polyline { fill: none; stroke: var(--hi-accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.usage-turn-input { fill: var(--hi-accent); }
+.usage-turn-output { fill: #666674; }
+.usage-turn-cacheRead { fill: #4f9f84; }
+.usage-turn-cacheWrite { fill: #a77a4d; }
+.usage-chart-legend { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 4px 11px 0; color: var(--hi-muted); font-size: 9.75px; }
+.usage-chart-legend span::before { display: inline-block; inline-size: 7px; block-size: 3px; margin-inline-end: 4px; border-radius: 2px; background: var(--hi-accent); content: ""; vertical-align: middle; }
+.usage-chart-legend span:nth-child(2)::before { background: #666674; }
+.usage-chart-legend span:nth-child(3)::before { background: #4f9f84; }
+.usage-chart-legend span:nth-child(4)::before { background: #a77a4d; }
+.usage-bounded-note { margin: 0; padding: 0 11px 7px; color: var(--hi-muted); font-size: 10px; }
 .usage-table-scroll { max-block-size: 124px; overflow: auto; border-block-start: 1px solid var(--hi-line); }
-.usage-turn-table { inline-size: 100%; border-collapse: collapse; font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.usage-turn-table { inline-size: 100%; min-inline-size: 410px; border-collapse: collapse; font-size: 10.5px; font-variant-numeric: tabular-nums; }
 .usage-turn-table th, .usage-turn-table td { padding: 4px 8px; border-block-end: 1px solid var(--hi-line); text-align: end; }
 .usage-turn-table th:first-child { text-align: start; }
 .usage-turn-table thead th { position: sticky; inset-block-start: 0; background: var(--hi-card); color: var(--hi-muted); font-weight: 500; }

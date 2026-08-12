@@ -62,6 +62,14 @@ export interface PrimeHarnessInspectorDetails {
   readonly observedAtMs: number;
   readonly startedAtMs: number | null;
   readonly context: Readonly<{ usedTokens: number; capacityTokens: number; turns?: number; samples?: readonly number[] }> | null;
+  readonly turnUsage?: Readonly<{
+    totalTurns: number;
+    omittedTurns: number;
+    rows: readonly Readonly<{
+      turn: number; occurredAtMs: number; input: number; output: number;
+      cacheRead: number; cacheWrite: number; totalTokens: number;
+    }>[];
+  }>;
   readonly contributions: readonly Readonly<{ id: string; label: string; tokens: number }>[];
   readonly notices: readonly Readonly<{ id: string; kind: "info" | "warning" | "error"; title: string; detail: string; retryable: boolean; dismissible: boolean }>[];
   readonly activity: readonly Readonly<{
@@ -133,6 +141,62 @@ function safeInteger(value: unknown): number {
 function optionalSafeInteger(value: unknown): number | null {
   if (value === undefined || value === null) return null;
   return safeInteger(value);
+}
+
+const MAX_TURN_USAGE_ROWS = 300;
+
+function checkedAdd(left: number, right: number): number {
+  const total = left + right;
+  if (!Number.isSafeInteger(total)) throw new TypeError("daemon token usage is invalid");
+  return total;
+}
+
+function projectTurnUsage(
+  messages: readonly unknown[],
+  statsTokens: Record<string, unknown>,
+): PrimeHarnessInspectorDetails["turnUsage"] {
+  const totals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  const rows: Array<NonNullable<PrimeHarnessInspectorDetails["turnUsage"]>["rows"][number]> = [];
+  let previousOccurredAtMs = 0;
+  for (const raw of messages) {
+    if (!plain(raw) || raw.role !== "assistant") continue;
+    const rawUsage = raw.usage;
+    if (!plain(rawUsage)) throw new TypeError("daemon assistant usage is invalid");
+    const usageFields = ["input", "output", "cacheRead", "cacheWrite", "totalTokens"] as const;
+    if (!usageFields.every((field) => Object.hasOwn(rawUsage, field)) || !Object.hasOwn(raw, "timestamp")) {
+      throw new TypeError("daemon assistant usage is incomplete");
+    }
+    const input = safeInteger(rawUsage.input);
+    const output = safeInteger(rawUsage.output);
+    const cacheRead = safeInteger(rawUsage.cacheRead);
+    const cacheWrite = safeInteger(rawUsage.cacheWrite);
+    const categoryTotal = checkedAdd(checkedAdd(input, output), checkedAdd(cacheRead, cacheWrite));
+    const totalTokens = safeInteger(rawUsage.totalTokens);
+    if (totalTokens !== categoryTotal) throw new TypeError("daemon assistant usage total is invalid");
+    const occurredAtMs = safeInteger(raw.timestamp);
+    if (occurredAtMs < previousOccurredAtMs) return undefined;
+    previousOccurredAtMs = occurredAtMs;
+    totals.input = checkedAdd(totals.input, input);
+    totals.output = checkedAdd(totals.output, output);
+    totals.cacheRead = checkedAdd(totals.cacheRead, cacheRead);
+    totals.cacheWrite = checkedAdd(totals.cacheWrite, cacheWrite);
+    rows.push(Object.freeze({
+      turn: rows.length + 1, occurredAtMs, input, output, cacheRead, cacheWrite, totalTokens,
+    }));
+  }
+  const reported = {
+    input: safeInteger(statsTokens.input), output: safeInteger(statsTokens.output),
+    cacheRead: safeInteger(statsTokens.cacheRead), cacheWrite: safeInteger(statsTokens.cacheWrite),
+  };
+  if (Object.keys(reported).some((key) => totals[key as keyof typeof totals] !== reported[key as keyof typeof reported])) return undefined;
+  const reportedTotal = checkedAdd(checkedAdd(reported.input, reported.output), checkedAdd(reported.cacheRead, reported.cacheWrite));
+  if (statsTokens.total !== undefined && safeInteger(statsTokens.total) !== reportedTotal) return undefined;
+  const retained = rows.slice(-MAX_TURN_USAGE_ROWS);
+  return Object.freeze({
+    totalTurns: rows.length,
+    omittedTurns: rows.length - retained.length,
+    rows: Object.freeze(retained),
+  });
 }
 
 const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const);
@@ -473,6 +537,7 @@ export class PrimeDaemonBridge {
     const initial = plain(initialRaw) ? initialRaw : {};
     const context = plain(contextRaw) ? contextRaw : {};
     const stats = plain(statsRaw) ? statsRaw : {};
+    const statsTokens = plain(stats.tokens) ? stats.tokens : {};
     const initialState = plain(initial.state) ? initial.state : {};
     const contextUsage = plain(stats.contextUsage) ? stats.contextUsage : plain(initialState.contextUsage) ? initialState.contextUsage : null;
     const usedTokens = contextUsage ? optionalSafeInteger(contextUsage.tokens) : null;
@@ -584,9 +649,11 @@ export class PrimeDaemonBridge {
         }
       : null;
     const startedAtMs = optionalSafeInteger(stats.startedAtMs ?? initial.startedAtMs ?? initialState.startedAtMs);
+    const turnUsage = projectTurnUsage(messages, statsTokens);
     return Object.freeze({
       observedAtMs: Date.now(), startedAtMs,
       context: contextDetails,
+      ...(turnUsage ? { turnUsage } : {}),
       contributions: Object.freeze(Object.entries(children).flatMap(([id, child]) => child.context ? [{ id, label: child.summary, tokens: child.context.usedTokens }] : [])),
       notices: Object.freeze([]), activity: Object.freeze(activity.slice(-300)), outputs: Object.freeze(outputs),
       sources: Object.freeze(sources.slice(0, 512)), children: Object.freeze(children),

@@ -35,6 +35,22 @@ export interface HarnessContributionPartition {
   readonly contributions: readonly HarnessContribution[];
 }
 
+export interface HarnessTurnUsageRow {
+  readonly turn: number;
+  readonly occurredAtMs: number;
+  readonly input: number;
+  readonly output: number;
+  readonly cacheRead: number;
+  readonly cacheWrite: number;
+  readonly totalTokens: number;
+}
+
+export interface HarnessTurnUsageSeries {
+  readonly totalTurns: number;
+  readonly omittedTurns: number;
+  readonly rows: readonly HarnessTurnUsageRow[];
+}
+
 export interface HarnessNotice {
   readonly id: string;
   readonly kind: "info" | "warning" | "error";
@@ -91,8 +107,8 @@ export interface HarnessPanelDetails {
   readonly observedAtMs: number;
   readonly startedAtMs: number | null;
   readonly context: HarnessContextWindow | null;
-  /** Per-turn token evidence. Absent means the runtime did not expose it. */
-  readonly turnUsage?: readonly Readonly<{ turn: number; input: number; output: number; totalTokens: number }>[];
+  /** Bounded finalized assistant-call usage. Absent means exact runtime evidence did not reconcile. */
+  readonly turnUsage?: HarnessTurnUsageSeries;
   /** Present only when the verified daemon supplies same-unit partition provenance. */
   readonly contributionPartition?: HarnessContributionPartition;
   readonly contributions: readonly HarnessContribution[];

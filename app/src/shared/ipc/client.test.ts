@@ -292,6 +292,14 @@ describe("Harness IPC client", () => {
       observedAtMs: 10,
       startedAtMs: null,
       context: { usedTokens: 2, capacityTokens: 100, turns: 1, samples: [2] },
+      turnUsage: {
+        totalTurns: 2,
+        omittedTurns: 0,
+        rows: [
+          { turn: 1, occurredAtMs: 5, input: 10, output: 4, cacheRead: 2, cacheWrite: 1, totalTokens: 17 },
+          { turn: 2, occurredAtMs: 8, input: 12, output: 6, cacheRead: 3, cacheWrite: 0, totalTokens: 21 },
+        ],
+      },
       contributions: [{ id: "main", label: "Main agent", tokens: 2 }],
       notices: [],
       activity: [
@@ -349,6 +357,12 @@ describe("Harness IPC client", () => {
     await expect(loadHarnessInspector("root")).rejects.toThrow("Harness projection unavailable");
 
     mocks.invoke.mockResolvedValueOnce(JSON.stringify({ ...details, outputs: [{ id: "output-1", label: "Report", path: "C:\\secrets.txt", kind: "file" }] }));
+    await expect(loadHarnessInspector("root")).rejects.toThrow("Harness projection unavailable");
+
+    mocks.invoke.mockResolvedValueOnce(JSON.stringify({ ...details, turnUsage: { ...details.turnUsage, rows: [{ ...details.turnUsage.rows[0], totalTokens: 18 }] } }));
+    await expect(loadHarnessInspector("root")).rejects.toThrow("Harness projection unavailable");
+
+    mocks.invoke.mockResolvedValueOnce(JSON.stringify({ ...details, turnUsage: { ...details.turnUsage, rows: [...details.turnUsage.rows].reverse() } }));
     await expect(loadHarnessInspector("root")).rejects.toThrow("Harness projection unavailable");
   });
 

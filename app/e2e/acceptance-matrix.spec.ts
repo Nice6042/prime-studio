@@ -79,7 +79,11 @@ test("Harness overview, usage, and activity expose every truthful fixture projec
   await expect(tabs.getByRole("tab", { name: "Usage" })).toBeFocused();
   await expect(harness.getByText("Current chat", { exact: true })).toBeVisible();
   await expect(harness.getByText("2,400", { exact: true })).toBeVisible();
-  await expect(harness.getByText("Per-turn token history is unavailable.")).toBeVisible();
+  await expect(harness.getByRole("img", { name: "Tokens by turn" })).toBeVisible();
+  const turnTable = harness.getByRole("table", { name: "Tokens by turn data" });
+  await expect(turnTable).toBeVisible();
+  await expect(turnTable.getByRole("columnheader", { name: "Cache read" })).toBeVisible();
+  await expect(turnTable.getByRole("rowheader", { name: "3" })).toBeVisible();
   await expect(harness.getByText("Context history is unavailable.")).toBeVisible();
   await expect(harness.getByText("Parent and child attribution is unavailable. Totals are not guessed.")).toBeVisible();
   await tabs.getByRole("tab", { name: "Usage" }).press("ArrowRight");

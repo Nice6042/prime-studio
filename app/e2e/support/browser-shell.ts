@@ -255,6 +255,14 @@ export const test = base.extend<ShellFixtures>({
           case "harness_inspector":
             return JSON.stringify({
               observedAtMs: 1_775_995_220_000, startedAtMs: null, context: null,
+              turnUsage: {
+                totalTurns: 3, omittedTurns: 0,
+                rows: [
+                  { turn: 1, occurredAtMs: 1_775_995_200_000, input: 400, output: 120, cacheRead: 200, cacheWrite: 30, totalTokens: 750 },
+                  { turn: 2, occurredAtMs: 1_775_995_210_000, input: 400, output: 140, cacheRead: 200, cacheWrite: 30, totalTokens: 770 },
+                  { turn: 3, occurredAtMs: 1_775_995_219_000, input: 440, output: 170, cacheRead: 240, cacheWrite: 30, totalTokens: 880 },
+                ],
+              },
               contributions: [], notices: [], activity: [],
               outputs: [{ id: "output-browser", label: "Harness report", candidateId: "candidate-browser-output", kind: "file" }],
               sources: [{ id: "source-browser", label: "Harness contract", detail: "Verified fixture source", candidateId: "candidate-browser-source", kind: "file" }],

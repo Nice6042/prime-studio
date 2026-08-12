@@ -11,11 +11,15 @@ const details: HarnessPanelDetails = {
   observedAtMs: Date.UTC(2026, 7, 12, 12, 10),
   startedAtMs: Date.UTC(2026, 7, 12, 12, 0),
   context: { usedTokens: 15_200, capacityTokens: 40_000, turns: 3, samples: [0.2, 0.28, 0.38] },
-  turnUsage: [
-    { turn: 1, input: 20, output: 10, totalTokens: 30 },
-    { turn: 2, input: 35, output: 15, totalTokens: 50 },
-    { turn: 3, input: 45, output: 15, totalTokens: 60 },
-  ],
+  turnUsage: {
+    totalTurns: 3,
+    omittedTurns: 0,
+    rows: [
+      { turn: 1, occurredAtMs: 1, input: 20, output: 10, cacheRead: 4, cacheWrite: 1, totalTokens: 35 },
+      { turn: 2, occurredAtMs: 2, input: 35, output: 15, cacheRead: 3, cacheWrite: 2, totalTokens: 55 },
+      { turn: 3, occurredAtMs: 3, input: 45, output: 15, cacheRead: 5, cacheWrite: 0, totalTokens: 65 },
+    ],
+  },
   contributions: [], notices: [], activity: [], outputs: [], sources: [], children: {},
 };
 
@@ -23,11 +27,15 @@ describe("ChatUsage", () => {
   it("renders evidence-backed turn and context charts with an accessible data table", () => {
     render(<ChatUsage usage={usage} details={details} onRefresh={vi.fn()} refreshing={false} />);
 
-    expect(screen.getByRole("img", { name: "Tokens by turn" })).toBeVisible();
+    const turnChart = screen.getByRole("img", { name: "Tokens by turn" });
+    expect(turnChart).toBeVisible();
+    expect(turnChart.querySelectorAll("rect")).toHaveLength(12);
     expect(screen.getByRole("img", { name: "Context utilization history" })).toBeVisible();
     const table = screen.getByRole("table", { name: "Tokens by turn data" });
     expect(within(table).getByRole("columnheader", { name: "Turn" })).toBeVisible();
-    expect(within(table).getByRole("cell", { name: "60" })).toBeVisible();
+    expect(within(table).getByRole("cell", { name: "65" })).toBeVisible();
+    expect(within(table).getByRole("columnheader", { name: "Cache read" })).toBeVisible();
+    expect(within(table).getByRole("columnheader", { name: "Cache write" })).toBeVisible();
     expect(screen.getByText("10m")).toBeVisible();
   });
 
@@ -84,5 +92,12 @@ describe("ChatUsage", () => {
     expect(screen.getByText("Chat usage unavailable")).toBeVisible();
     expect(screen.getByText("Token-type usage is unavailable.")).toBeVisible();
     expect(screen.queryByText("0%")) .not.toBeInTheDocument();
+  });
+
+  it("labels a bounded series without presenting retained rows as the full chat", () => {
+    render(<ChatUsage usage={usage} details={{ ...details, turnUsage: { ...details.turnUsage!, totalTurns: 8, omittedTurns: 5, rows: details.turnUsage!.rows.map((row) => ({ ...row, turn: row.turn + 5 })) } }} onRefresh={vi.fn()} refreshing={false} />);
+
+    expect(screen.getByText("8 turns · last 3 shown")).toBeVisible();
+    expect(screen.getByText("5 earlier turns are omitted from this bounded view.")).toBeVisible();
   });
 });

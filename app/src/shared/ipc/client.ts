@@ -475,6 +475,19 @@ export interface HarnessInspectorDetails {
     turns?: number;
     samples?: readonly number[];
   }> | null;
+  readonly turnUsage?: Readonly<{
+    totalTurns: number;
+    omittedTurns: number;
+    rows: readonly Readonly<{
+      turn: number;
+      occurredAtMs: number;
+      input: number;
+      output: number;
+      cacheRead: number;
+      cacheWrite: number;
+      totalTokens: number;
+    }>[];
+  }>;
   readonly contributions: readonly Readonly<{
     id: string;
     label: string;
@@ -578,7 +591,7 @@ function inspectorContext(value: unknown): HarnessInspectorDetails["context"] {
 }
 
 export function decodeHarnessInspectorDetails(value: unknown): HarnessInspectorDetails {
-  const source = record(detach(value), ["observedAtMs", "startedAtMs", "context", "contributions", "notices", "activity", "outputs", "sources", "children"]);
+  const source = recordWithOptional(detach(value), ["observedAtMs", "startedAtMs", "context", "contributions", "notices", "activity", "outputs", "sources", "children"], ["turnUsage"]);
   const childrenSource = source.children;
   if (!childrenSource || typeof childrenSource !== "object" || Array.isArray(childrenSource) || Object.getPrototypeOf(childrenSource) !== Object.prototype) fail();
   const childrenEntries = Object.entries(childrenSource);
@@ -630,6 +643,30 @@ export function decodeHarnessInspectorDetails(value: unknown): HarnessInspectorD
       }),
       error,
     };
+  }
+  let turnUsage: HarnessInspectorDetails["turnUsage"];
+  if (source.turnUsage !== undefined) {
+    const series = record(source.turnUsage, ["totalTurns", "omittedTurns", "rows"]);
+    const totalTurns = safeInteger(series.totalTurns);
+    const omittedTurns = safeInteger(series.omittedTurns);
+    const rows = array(series.rows, 300).map((entry) => {
+      const row = record(entry, ["turn", "occurredAtMs", "input", "output", "cacheRead", "cacheWrite", "totalTokens"]);
+      const projected = {
+        turn: safeInteger(row.turn), occurredAtMs: safeInteger(row.occurredAtMs),
+        input: safeInteger(row.input), output: safeInteger(row.output),
+        cacheRead: safeInteger(row.cacheRead), cacheWrite: safeInteger(row.cacheWrite),
+        totalTokens: safeInteger(row.totalTokens),
+      };
+      if (projected.totalTokens !== projected.input + projected.output + projected.cacheRead + projected.cacheWrite) fail();
+      return projected;
+    });
+    if (totalTurns !== omittedTurns + rows.length) fail();
+    let previousOccurredAtMs = 0;
+    for (const [index, row] of rows.entries()) {
+      if (row.turn !== omittedTurns + index + 1 || row.occurredAtMs < previousOccurredAtMs) fail();
+      previousOccurredAtMs = row.occurredAtMs;
+    }
+    turnUsage = { totalTurns, omittedTurns, rows };
   }
   const result: HarnessInspectorDetails = {
     observedAtMs: safeInteger(source.observedAtMs),
@@ -704,6 +741,7 @@ export function decodeHarnessInspectorDetails(value: unknown): HarnessInspectorD
       };
     }),
     children,
+    ...(turnUsage ? { turnUsage } : {}),
   };
   return deepFreeze(result);
 }

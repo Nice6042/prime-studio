@@ -1460,6 +1460,7 @@ fn sanitize_inspector_artifacts(
     if root.contains_key("activityEvidence") {
         return Err(HarnessError::ProtocolViolation);
     }
+    validate_inspector_turn_usage(root)?;
     let activity_evidence = mint_activity_attention_evidence(
         root.get("activity")
             .ok_or(HarnessError::ProtocolViolation)?,
@@ -1576,6 +1577,86 @@ fn sanitize_inspector_artifacts(
         return Err(HarnessError::ProtocolViolation);
     }
     Ok((sanitized, candidates, activity_evidence))
+}
+
+fn validate_inspector_turn_usage(
+    root: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(), HarnessError> {
+    let Some(series) = root.get("turnUsage") else {
+        return Ok(());
+    };
+    let series = series.as_object().ok_or(HarnessError::ProtocolViolation)?;
+    let expected_series_keys = BTreeSet::from(["omittedTurns", "rows", "totalTurns"]);
+    if series.keys().map(String::as_str).collect::<BTreeSet<_>>() != expected_series_keys {
+        return Err(HarnessError::ProtocolViolation);
+    }
+    let total_turns = series
+        .get("totalTurns")
+        .and_then(serde_json::Value::as_u64)
+        .filter(|value| *value <= MAX_SAFE_INTEGER)
+        .ok_or(HarnessError::ProtocolViolation)?;
+    let omitted_turns = series
+        .get("omittedTurns")
+        .and_then(serde_json::Value::as_u64)
+        .filter(|value| *value <= MAX_SAFE_INTEGER)
+        .ok_or(HarnessError::ProtocolViolation)?;
+    let rows = series
+        .get("rows")
+        .and_then(serde_json::Value::as_array)
+        .filter(|rows| rows.len() <= 300)
+        .ok_or(HarnessError::ProtocolViolation)?;
+    if omitted_turns
+        .checked_add(rows.len() as u64)
+        .filter(|value| *value == total_turns)
+        .is_none()
+    {
+        return Err(HarnessError::ProtocolViolation);
+    }
+    let expected_row_keys = BTreeSet::from([
+        "cacheRead",
+        "cacheWrite",
+        "input",
+        "occurredAtMs",
+        "output",
+        "totalTokens",
+        "turn",
+    ]);
+    let mut previous_occurred_at_ms = 0;
+    for (index, row) in rows.iter().enumerate() {
+        let row = row.as_object().ok_or(HarnessError::ProtocolViolation)?;
+        if row.keys().map(String::as_str).collect::<BTreeSet<_>>() != expected_row_keys {
+            return Err(HarnessError::ProtocolViolation);
+        }
+        let value = |key: &str| {
+            row.get(key)
+                .and_then(serde_json::Value::as_u64)
+                .filter(|value| *value <= MAX_SAFE_INTEGER)
+                .ok_or(HarnessError::ProtocolViolation)
+        };
+        let turn = value("turn")?;
+        if turn != omitted_turns + index as u64 + 1 {
+            return Err(HarnessError::ProtocolViolation);
+        }
+        let occurred_at_ms = value("occurredAtMs")?;
+        if occurred_at_ms < previous_occurred_at_ms {
+            return Err(HarnessError::ProtocolViolation);
+        }
+        previous_occurred_at_ms = occurred_at_ms;
+        let input = value("input")?;
+        let output = value("output")?;
+        let cache_read = value("cacheRead")?;
+        let cache_write = value("cacheWrite")?;
+        let category_total = input
+            .checked_add(output)
+            .and_then(|total| total.checked_add(cache_read))
+            .and_then(|total| total.checked_add(cache_write))
+            .filter(|total| *total <= MAX_SAFE_INTEGER)
+            .ok_or(HarnessError::ProtocolViolation)?;
+        if category_total != value("totalTokens")? {
+            return Err(HarnessError::ProtocolViolation);
+        }
+    }
+    Ok(())
 }
 
 fn canonical_json(value: &serde_json::Value) -> serde_json::Value {
@@ -1762,6 +1843,28 @@ mod artifact_candidate_tests {
         assert_ne!(
             changed_evidence, evidence,
             "a real activity status change must advance evidence"
+        );
+    }
+
+    #[test]
+    fn inspector_rejects_malformed_or_non_chronological_turn_usage() {
+        let source = r#"{"observedAtMs":1,"startedAtMs":null,"context":null,"turnUsage":{"totalTurns":2,"omittedTurns":0,"rows":[{"turn":1,"occurredAtMs":10,"input":4,"output":2,"cacheRead":1,"cacheWrite":0,"totalTokens":7},{"turn":2,"occurredAtMs":20,"input":5,"output":3,"cacheRead":0,"cacheWrite":0,"totalTokens":8}]},"contributions":[],"notices":[],"activity":[],"outputs":[],"sources":[],"children":{}}"#;
+        let cursor = HarnessCursor {
+            runtime_generation: "generation-a".to_owned(),
+            sequence: 1,
+        };
+        assert!(sanitize_inspector_artifacts(source, "session-a", "project-a", &cursor).is_ok());
+
+        let wrong_total = source.replace("\"totalTokens\":7", "\"totalTokens\":8");
+        assert!(
+            sanitize_inspector_artifacts(&wrong_total, "session-a", "project-a", &cursor).is_err()
+        );
+        let wrong_order = source.replace(
+            "\"turn\":2,\"occurredAtMs\":20",
+            "\"turn\":2,\"occurredAtMs\":5",
+        );
+        assert!(
+            sanitize_inspector_artifacts(&wrong_order, "session-a", "project-a", &cursor).is_err()
         );
     }
 

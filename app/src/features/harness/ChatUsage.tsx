@@ -25,14 +25,15 @@ function points(values: readonly number[], width: number, height: number, maximu
 }
 
 function validTurnUsage(details: HarnessPanelDetails | null) {
-  const rows = details?.turnUsage;
-  if (!rows?.length || rows.length > 1_000) return null;
-  let previous = 0;
-  for (const row of rows) {
-    if (!Number.isSafeInteger(row.turn) || row.turn <= previous || !Number.isSafeInteger(row.input) || row.input < 0 || !Number.isSafeInteger(row.output) || row.output < 0 || !Number.isSafeInteger(row.totalTokens) || row.totalTokens < 0 || row.totalTokens !== row.input + row.output) return null;
-    previous = row.turn;
+  const series = details?.turnUsage;
+  if (!series || !Number.isSafeInteger(series.totalTurns) || series.totalTurns < 0 || !Number.isSafeInteger(series.omittedTurns) || series.omittedTurns < 0 || series.rows.length > 300 || series.totalTurns !== series.omittedTurns + series.rows.length) return null;
+  let previousOccurredAtMs = 0;
+  for (const [index, row] of series.rows.entries()) {
+    const categories = [row.input, row.output, row.cacheRead, row.cacheWrite];
+    if (row.turn !== series.omittedTurns + index + 1 || !Number.isSafeInteger(row.occurredAtMs) || row.occurredAtMs < previousOccurredAtMs || categories.some((value) => !Number.isSafeInteger(value) || value < 0) || !Number.isSafeInteger(row.totalTokens) || row.totalTokens < 0 || row.totalTokens !== categories.reduce((sum, value) => sum + value, 0)) return null;
+    previousOccurredAtMs = row.occurredAtMs;
   }
-  return rows;
+  return series;
 }
 
 function contextRatios(details: HarnessPanelDetails | null): readonly number[] | null {
@@ -63,14 +64,26 @@ function reconciledContributions(details: HarnessPanelDetails | null, totalToken
 function UsageCharts({ details }: { readonly details: HarnessPanelDetails | null }) {
   const turns = validTurnUsage(details);
   const contextSamples = contextRatios(details);
-  const turnMaximum = turns ? Math.max(1, ...turns.map((row) => row.totalTokens)) : 1;
+  const plottedTurns = turns?.rows.slice(-24) ?? [];
+  const turnMaximum = Math.max(1, ...plottedTurns.flatMap((row) => [row.input, row.output, row.cacheRead, row.cacheWrite]));
+  const chartBars = plottedTurns.flatMap((row, index) => {
+    const groupWidth = 300 / plottedTurns.length;
+    const barWidth = Math.max(1, Math.min(8, (groupWidth - 2) / 4));
+    const groupStart = index * groupWidth + (groupWidth - barWidth * 4) / 2;
+    return (["input", "output", "cacheRead", "cacheWrite"] as const).map((category, categoryIndex) => {
+      const height = row[category] / turnMaximum * 68;
+      return <rect key={`${row.turn}-${category}`} className={`usage-turn-${category}`} x={(groupStart + categoryIndex * barWidth).toFixed(2)} y={(74 - height).toFixed(2)} width={barWidth.toFixed(2)} height={height.toFixed(2)} rx="1" />;
+    });
+  });
   return <div className="usage-history">
     <section className="usage-chart-card" aria-labelledby="usage-turn-history-title">
-      <div className="usage-chart-heading"><h2 id="usage-turn-history-title">Tokens by turn</h2><span>{turns ? `${turns.length} turns` : "Unavailable"}</span></div>
-      {turns ? <>
-        <svg className="usage-line-chart" role="img" aria-label="Tokens by turn" viewBox="0 0 300 84" preserveAspectRatio="none"><polyline points={points(turns.map((row) => row.totalTokens), 300, 72, turnMaximum)} /></svg>
-        <div className="usage-table-scroll"><table className="usage-turn-table" aria-label="Tokens by turn data"><thead><tr><th>Turn</th><th>Input</th><th>Output</th><th>Total</th></tr></thead><tbody>{turns.map((row) => <tr key={row.turn}><th scope="row">{row.turn}</th><td>{row.input.toLocaleString()}</td><td>{row.output.toLocaleString()}</td><td>{row.totalTokens.toLocaleString()}</td></tr>)}</tbody></table></div>
-      </> : <p className="usage-unavailable">Per-turn token history is unavailable.</p>}
+      <div className="usage-chart-heading"><h2 id="usage-turn-history-title">Tokens by turn</h2><span>{turns ? turns.omittedTurns > 0 ? `${turns.totalTurns} turns · last ${turns.rows.length} shown` : `${turns.totalTurns} turns` : "Unavailable"}</span></div>
+      {turns?.rows.length ? <>
+        <div className="usage-chart-legend" aria-hidden="true"><span>Input</span><span>Output</span><span>Cache read</span><span>Cache write</span></div>
+        <svg className="usage-turn-chart" role="img" aria-label="Tokens by turn" viewBox="0 0 300 80" preserveAspectRatio="none">{chartBars}</svg>
+        {turns.omittedTurns > 0 && <p className="usage-bounded-note">{turns.omittedTurns} earlier {turns.omittedTurns === 1 ? "turn is" : "turns are"} omitted from this bounded view.</p>}
+        <div className="usage-table-scroll"><table className="usage-turn-table" aria-label="Tokens by turn data"><thead><tr><th>Turn</th><th>Input</th><th>Output</th><th>Cache read</th><th>Cache write</th><th>Total</th></tr></thead><tbody>{turns.rows.map((row) => <tr key={row.turn}><th scope="row">{row.turn}</th><td>{row.input.toLocaleString()}</td><td>{row.output.toLocaleString()}</td><td>{row.cacheRead.toLocaleString()}</td><td>{row.cacheWrite.toLocaleString()}</td><td>{row.totalTokens.toLocaleString()}</td></tr>)}</tbody></table></div>
+      </> : turns ? <p className="usage-unavailable">No completed turn usage yet.</p> : <p className="usage-unavailable">Per-turn token history is unavailable.</p>}
     </section>
     <section className="usage-chart-card" aria-labelledby="usage-context-history-title">
       <div className="usage-chart-heading"><h2 id="usage-context-history-title">Context history</h2><span>{contextSamples ? `${Math.round(contextSamples[contextSamples.length - 1]! * 100)}% latest` : "Unavailable"}</span></div>
