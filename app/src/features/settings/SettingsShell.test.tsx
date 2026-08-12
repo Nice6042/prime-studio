@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { HarnessCompatibility } from "../../shared/ipc/harness.generated";
+import { createInitialProjectChatState, transitionProjectChatState } from "../../domain/projectChats";
 import { SettingsShell } from "./SettingsShell";
 
 const unavailable: HarnessCompatibility = { status: "unavailable", reason: "security_verification_failed" };
@@ -63,5 +64,18 @@ describe("SettingsShell", () => {
     expect(screen.getByRole("heading", { name: "Environments", level: 1 })).toBeVisible();
     rerender(<SettingsShell section="privacy" onBack={() => undefined} onSection={() => undefined} compatibility={unavailable} />);
     expect(screen.getByRole("heading", { name: "Privacy & security", level: 1 })).toBeVisible();
+  });
+
+  it("routes archived catalog records through the settings shell", () => {
+    const archived = transitionProjectChatState(
+      transitionProjectChatState(createInitialProjectChatState(), {
+        type: "chat.create", projectId: "project:personal", chatId: "chat:old", title: "Old chat",
+      }).state,
+      { type: "chat.archive", projectId: "project:personal", chatId: "chat:old" },
+    ).state;
+    render(<SettingsShell section="archived" onBack={() => undefined} onSection={() => undefined} compatibility={unavailable}
+      projectCatalog={archived} catalogOperation={{ phase: "idle" }} onRestoreProject={() => undefined} onRestoreChat={() => undefined} />);
+    expect(screen.getByRole("heading", { name: "Archived chats", level: 1 })).toBeVisible();
+    expect(screen.getByText("Old chat")).toBeVisible();
   });
 });

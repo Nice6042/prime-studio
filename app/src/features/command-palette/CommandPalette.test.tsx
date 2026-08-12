@@ -31,6 +31,20 @@ describe("CommandPalette", () => {
     expect(run).toHaveBeenCalledWith("chat.new");
   });
 
+  it("routes durable project creation and the archived catalog while offline", async () => {
+    const run = vi.fn();
+    render(<CommandPalette admissionConnected={false} onRun={run} onClose={() => undefined} />);
+    const query = screen.getByRole("combobox", { name: "Search commands, chats, and messages" });
+    await userEvent.type(query, "new project");
+    await userEvent.click(screen.getByRole("option", { name: /New project/ }));
+    expect(run).toHaveBeenCalledWith("project.new");
+
+    await userEvent.clear(query);
+    await userEvent.type(query, "archived chats");
+    await userEvent.click(screen.getByRole("option", { name: /Archived chats/ }));
+    expect(run).toHaveBeenCalledWith("archived.open");
+  });
+
   it("closes on Escape", async () => {
     const close = vi.fn();
     render(<CommandPalette admissionConnected={false} onRun={() => undefined} onClose={close} />);

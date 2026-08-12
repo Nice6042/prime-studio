@@ -76,8 +76,12 @@ describe("Studio operation contract", () => {
 
   it("catalogues all controls with a non-noop authority and a result contract", () => {
     const descriptors = Object.values(STUDIO_ACTIONS);
-    expect(descriptors).toHaveLength(121);
+    expect(descriptors).toHaveLength(122);
     expect(descriptors.every((descriptor) => String(descriptor.owner.kind) !== "noop")).toBe(true);
     expect(descriptors.every((descriptor) => descriptor.outcomes.length > 0)).toBe(true);
+  });
+
+  it("routes archived project restoration through the durable catalog owner", () => {
+    expect(STUDIO_ACTIONS["catalog.project.restore"].owner).toEqual({ kind: "studio_durable", store: "project_catalog" });
   });
 });

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -38,14 +38,29 @@ describe("ProjectSidebar", () => {
     const onOpenSettings = vi.fn();
     render(<ProjectSidebar projects={projects} query="" onSearch={onSearch} onSelectChat={() => undefined} onToggleProject={() => undefined} onNewChat={onNewChat} onOpenSettings={onOpenSettings} />);
 
-    await userEvent.keyboard("{Control>}f{/Control}");
+    fireEvent.keyDown(window, { key: "f", ctrlKey: true });
     const search = screen.getByRole("searchbox", { name: "Search chats" });
     expect(search).toHaveFocus();
-    await userEvent.type(search, "x".repeat(220));
+    fireEvent.change(search, { target: { value: "x".repeat(220) } });
     expect(onSearch).toHaveBeenLastCalledWith("x".repeat(200));
-    await userEvent.click(screen.getByRole("button", { name: "New chat" }));
-    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(onNewChat).toHaveBeenCalledOnce();
     expect(onOpenSettings).toHaveBeenCalledOnce();
+  });
+
+  it("collects a project name and folder before requesting durable creation", async () => {
+    const onNewProject = vi.fn();
+    render(<ProjectSidebar projects={projects} onSelectChat={() => undefined} onToggleProject={() => undefined}
+      onNewChat={() => undefined} onOpenSettings={() => undefined} onNewProject={onNewProject} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "New project" }));
+    const dialog = screen.getByRole("dialog", { name: "Create project" });
+    fireEvent.change(screen.getByRole("textbox", { name: "Project name" }), { target: { value: "Studio source" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Folder path" }), { target: { value: "C:\\src\\prime-studio" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create project" }));
+
+    expect(onNewProject).toHaveBeenCalledWith("Studio source", "C:\\src\\prime-studio");
+    expect(dialog).not.toBeInTheDocument();
   });
 });

@@ -29,7 +29,7 @@
 .conversation-dialog { inline-size: min(420px, 100%); padding: 18px; border: 1px solid rgb(255 255 255 / 10%); border-radius: 12px; color: #e9e9ee; background: #17171c; box-shadow: 0 24px 70px rgb(0 0 0 / 60%); }
 .conversation-dialog h2 { margin: 0 0 16px; font-size: 16px; }
 .conversation-dialog label { display: grid; gap: 7px; color: #9a9aa6; font-size: 12px; }
-.conversation-dialog input { min-block-size: 36px; padding: 7px 9px; border: 1px solid rgb(255 255 255 / 11%); border-radius: 7px; color: #e9e9ee; background: #101014; font: inherit; }
+.conversation-dialog input, .conversation-dialog select { min-block-size: 36px; padding: 7px 9px; border: 1px solid rgb(255 255 255 / 11%); border-radius: 7px; color: #e9e9ee; background: #101014; font: inherit; }
 .conversation-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-block-start: 18px; }
 .conversation-dialog-actions button { min-block-size: 32px; padding: 5px 12px; border: 1px solid rgb(255 255 255 / 11%); border-radius: 7px; color: #c9c9d1; background: transparent; }
 .conversation-dialog-actions .primary { border-color: transparent; color: #0d0d10; background: #8e85f0; font-weight: 600; }

@@ -34,6 +34,7 @@ export interface StudioActionPayloadMap {
   "route.external-docs.open": Readonly<{ document: "prime-agent" | "licenses" | "support" }>;
 
   "catalog.project.create": Readonly<{ title: string }>;
+  "catalog.project.restore": IdentifierPayload<"projectId">;
   "catalog.project.toggle": IdentifierPayload<"projectId">;
   "catalog.chat.create": IdentifierPayload<"projectId">;
   "catalog.chat.select": Readonly<{ projectId: string; chatId: string }>;
@@ -187,7 +188,7 @@ export const STUDIO_ACTIONS = Object.freeze({
   "layout.editor.toggle": R("layout_preferences"), "layout.editor.resize": R("layout_preferences"), "layout.editor.close": R("layout_preferences"), "overlay.topmost.close": R(),
   "surface.popover.toggle": R(), "surface.accordion.toggle": R(),
   "route.workspace.open": R(), "route.settings.open": R(), "route.settings.back": R(), "route.archived.open": R(), "route.external-docs.open": N("external_url"),
-  "catalog.project.create": D("project_catalog"), "catalog.project.toggle": R("layout_preferences"), "catalog.chat.create": D("project_catalog"), "catalog.chat.select": R(),
+  "catalog.project.create": D("project_catalog"), "catalog.project.restore": D("project_catalog"), "catalog.project.toggle": R("layout_preferences"), "catalog.chat.create": D("project_catalog"), "catalog.chat.select": R(),
   "catalog.chat.rename": D("project_catalog"), "catalog.chat.duplicate": D("project_catalog"), "catalog.chat.move": D("project_catalog"), "catalog.chat.pin-toggle": D("project_catalog"),
   "catalog.chat.archive": D("project_catalog"), "catalog.chat.restore": D("project_catalog"), "catalog.chat.delete": D("project_catalog"), "catalog.chat.unread-clear": D("project_catalog"),
   "workspace.switch": D("settings"), "workspace.sign-out": D("settings"),

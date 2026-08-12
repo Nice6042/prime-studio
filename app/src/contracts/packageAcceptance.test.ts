@@ -30,7 +30,7 @@ describe("Prime Studio package acceptance catalog", () => {
 
   it("uniquely maps every feature ID and package control ID", () => {
     expect(new Set(FEATURE_ACCEPTANCE.map((row) => row.id)).size).toBe(115);
-    expect(PACKAGE_CONTROLS).toHaveLength(153);
+    expect(PACKAGE_CONTROLS).toHaveLength(154);
     expect(new Set(PACKAGE_CONTROLS.map((control) => control.controlId)).size).toBe(PACKAGE_CONTROLS.length);
     expect(PACKAGE_CONTROLS.every((control) => FEATURE_ACCEPTANCE.some(
       (feature) => feature.id === control.featureId && feature.actions.includes(control.action),

@@ -8,6 +8,7 @@ describe("settings registry", () => {
     expect(searchSettingsSections("billing").map((section) => section.id)).toEqual(["usage"]);
     expect(searchSettingsSections("runtime identity").map((section) => section.id)).toEqual(["privacy"]);
     expect(searchSettingsSections("keyboard").map((section) => section.id)).toEqual(["shortcuts"]);
+    expect(searchSettingsSections("restore conversations").map((section) => section.id)).toEqual(["archived"]);
   });
 
   it("keeps account usage settings-only and names unsupported surfaces truthfully", () => {
@@ -19,7 +20,7 @@ describe("settings registry", () => {
 
   it("accounts for every destination in the supplied desktop prototype", () => {
     expect(settingsSections.map((section) => section.id)).toEqual([
-      "general", "appearance", "composer", "harness", "usage", "models", "accounts",
+      "general", "appearance", "composer", "archived", "harness", "usage", "models", "accounts",
       "tools", "git", "environments", "privacy", "shortcuts", "about",
     ]);
     expect(searchSettingsSections("repository source control").map((section) => section.id)).toEqual(["git"]);

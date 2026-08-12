@@ -8,7 +8,7 @@ import { RuntimeStatusBar } from "../features/shell/RuntimeStatusBar";
 import { TitleBar } from "../features/shell/TitleBar";
 import { WorkspaceShell } from "../features/shell/WorkspaceShell";
 import { CollapsedSidebar } from "../features/navigation/CollapsedSidebar";
-import { NavigationIcon, ProjectSidebar } from "../features/navigation/ProjectSidebar";
+import { CreateProjectDialog, NavigationIcon, ProjectSidebar } from "../features/navigation/ProjectSidebar";
 import { selectNavigationProjects } from "../features/navigation/navigationSelectors";
 import { applyProjectCatalogCommand, loadProjectCatalog } from "../features/navigation/projectCatalogClient";
 import { ParentConversation } from "../features/conversation/ParentConversation";
@@ -86,6 +86,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const [settings, setSettings] = useState<AppSettings>({});
   const [accounts, setAccounts] = useState<readonly Account[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [createProjectOpen, setCreateProjectOpen] = useState(false);
   const [paletteOpener, setPaletteOpener] = useState<HTMLElement | null>(null);
   const [activeSheet, setActiveSheet] = useState<"sidebar" | "inspector" | "editor" | null>(null);
   const sheetOpener = useRef<HTMLElement | null>(null);
@@ -223,9 +224,15 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     void applyCatalog({ type: "chat.create", projectId, chatId: `chat-${crypto.randomUUID()}`, title: "New chat" }, "Creating chat");
   };
 
+  const createProject = (name: string, folderPath: string) => {
+    void applyCatalog({ type: "project.create", projectId: `project-${crypto.randomUUID()}`, name, folderPath }, "Creating project");
+  };
+
   const runCommand = (id: StudioCommandId) => {
     switch (id) {
       case "chat.new": createChat(); return;
+      case "project.new": setCreateProjectOpen(true); return;
+      case "archived.open": store.dispatch({ type: "route/settings", section: "archived" }); return;
       case "palette.open": openPalette(); return;
       case "settings.open": store.dispatch({ type: "route/settings" }); return;
       case "settings.usage": store.dispatch({ type: "route/settings", section: "usage" }); return;
@@ -286,6 +293,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
           return next;
         })}
         onNewChat={createChat}
+        onNewProject={createProject}
         newChatDisabledReason={catalogOperation.phase === "pending" ? catalogOperation.label : undefined}
         onOpenSearch={openPalette}
         onOpenArchived={() => store.dispatch({ type: "route/settings", section: "archived" })}
@@ -315,6 +323,10 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       compatibility={compatibility}
       settings={settings}
       accounts={accounts}
+      projectCatalog={projectCatalog}
+      catalogOperation={catalogOperation}
+      onRestoreProject={(projectId) => { void applyCatalog({ type: "project.restore", projectId }, "Restoring project"); }}
+      onRestoreChat={(projectId, chatId) => { void applyCatalog({ type: "chat.restore", projectId, chatId }, "Restoring chat"); }}
       onAccountsChanged={(next) => {
         if (next) setAccounts(next);
         else void rpc.listAccounts().then(setAccounts).catch(() => undefined);
@@ -322,7 +334,8 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       onSetting={(key, value) => {
         void rpc.setAppSetting(key, value).then(setSettings).catch(() => undefined);
       }}
-    />{paletteOpen && <CommandPalette admissionConnected={admissionConnected} onRun={runCommand} onClose={() => setPaletteOpen(false)} restoreFocusTo={paletteOpener} chats={paletteChats} messages={paletteMessages} onOpenChat={openCatalogChat} onOpenMessage={(chatId) => openCatalogChat(chatId)} />}</>;
+    />{paletteOpen && <CommandPalette admissionConnected={admissionConnected} onRun={runCommand} onClose={() => setPaletteOpen(false)} restoreFocusTo={paletteOpener} chats={paletteChats} messages={paletteMessages} onOpenChat={openCatalogChat} onOpenMessage={(chatId) => openCatalogChat(chatId)} />}
+    {createProjectOpen && <CreateProjectDialog onCancel={() => setCreateProjectOpen(false)} onCreate={(name, folderPath) => { createProject(name, folderPath); setCreateProjectOpen(false); }} />}</>;
   }
 
   const title = selectedChat?.title ?? "Prime Studio";
@@ -440,13 +453,14 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
             projectName={project?.name ?? "Personal"}
             chat={{ id: selectedChat.id, title: selectedChat.title, pinned: catalogChat?.pinned ?? false }}
             chats={project?.chats.filter((candidate) => !candidate.archived).map((candidate) => ({ id: candidate.id, title: candidate.title })) ?? []}
+            moveTargets={projectCatalog.projects.filter((candidate) => !candidate.archived && candidate.id !== project?.id).map((candidate) => ({ id: candidate.id, name: candidate.name }))}
             operation={catalogOperation}
             inspectorHidden={!layout.inspectorOpen}
             onSelectChat={(chatId) => { if (project) store.dispatch({ type: "project-chat/command", command: { type: "selection.select-chat", projectId: project.id, chatId } }); }}
             onSetPinned={(pinned) => { if (project) void applyCatalog({ type: "chat.set-pinned", projectId: project.id, chatId: selectedChat.id, pinned }, pinned ? "Pinning chat" : "Unpinning chat"); }}
             onRename={(nextTitle) => { if (project) void applyCatalog({ type: "chat.rename", projectId: project.id, chatId: selectedChat.id, title: nextTitle }, "Renaming chat"); }}
             onDuplicate={() => { if (project) void applyCatalog({ type: "chat.duplicate", projectId: project.id, chatId: selectedChat.id, newChatId: `chat-${crypto.randomUUID()}`, title: `${selectedChat.title} copy` }, "Duplicating chat"); }}
-            onMove={() => setCatalogOperation({ phase: "disabled", reason: "Choose a destination project from the project menu before moving this chat." })}
+            onMove={(targetProjectId) => { if (project) void applyCatalog({ type: "chat.move", projectId: project.id, chatId: selectedChat.id, targetProjectId }, "Moving chat"); }}
             onArchive={() => { if (project) void applyCatalog({ type: "chat.archive", projectId: project.id, chatId: selectedChat.id }, "Archiving chat"); }}
             onDelete={() => { if (project) void applyCatalog({ type: "chat.delete", projectId: project.id, chatId: selectedChat.id }, "Deleting chat"); }}
             onOpenInspector={() => changeLayout({ inspectorOpen: true })}
@@ -531,5 +545,6 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     />
     <RuntimeStatusBar session={selectedSession} />
     {paletteOpen && <CommandPalette admissionConnected={admissionConnected} onRun={runCommand} onClose={() => setPaletteOpen(false)} restoreFocusTo={paletteOpener} chats={paletteChats} messages={paletteMessages} onOpenChat={openCatalogChat} onOpenMessage={(chatId) => openCatalogChat(chatId)} />}
+    {createProjectOpen && <CreateProjectDialog onCancel={() => setCreateProjectOpen(false)} onCreate={(name, folderPath) => { createProject(name, folderPath); setCreateProjectOpen(false); }} />}
   </div>;
 }

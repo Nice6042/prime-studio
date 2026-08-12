@@ -19,6 +19,7 @@ export function WorkspaceHeader({
   projectName,
   chat,
   chats,
+  moveTargets = [],
   operation,
   inspectorHidden = false,
   onSelectChat,
@@ -33,19 +34,22 @@ export function WorkspaceHeader({
   readonly projectName: string;
   readonly chat: ActiveWorkspaceChat;
   readonly chats: readonly WorkspaceChatSummary[];
+  readonly moveTargets?: readonly Readonly<{ id: string; name: string }>[];
   readonly operation: WorkspaceOperationState;
   readonly inspectorHidden?: boolean;
   readonly onSelectChat: (chatId: string) => void;
   readonly onSetPinned: (pinned: boolean) => void;
   readonly onRename: (title: string) => void;
   readonly onDuplicate: () => void;
-  readonly onMove: () => void;
+  readonly onMove: (targetProjectId: string) => void;
   readonly onArchive: () => void;
   readonly onDelete: () => void;
   readonly onOpenInspector: () => void;
 }) {
   const [menu, setMenu] = useState<"switcher" | "actions" | null>(null);
   const [renaming, setRenaming] = useState(false);
+  const [moving, setMoving] = useState(false);
+  const [moveTargetId, setMoveTargetId] = useState("");
   const [renameDraft, setRenameDraft] = useState(chat.title);
   const menuRoot = useRef<HTMLDivElement>(null);
   const busy = operation.phase === "pending";
@@ -87,7 +91,7 @@ export function WorkspaceHeader({
         {menu === "actions" && <div className="conversation-popover conversation-action-menu" role="menu" aria-label="Chat options">
           <button type="button" role="menuitem" {...controlBinding("chat-rename", "catalog.chat.rename")} onClick={() => { setMenu(null); setRenaming(true); }}>Rename</button>
           <button type="button" role="menuitem" {...controlBinding("chat-duplicate", "catalog.chat.duplicate")} onClick={() => run(onDuplicate)}>Duplicate</button>
-          <button type="button" role="menuitem" {...controlBinding("chat-move", "catalog.chat.move")} onClick={() => run(onMove)}>Move to project</button>
+          <button type="button" role="menuitem" {...controlBinding("chat-move", "catalog.chat.move")} disabled={moveTargets.length === 0} title={moveTargets.length === 0 ? "No other active projects" : undefined} onClick={() => { setMenu(null); setMoving(true); }}>Move to project</button>
           <hr />
           <button type="button" role="menuitem" {...controlBinding("chat-archive", "catalog.chat.archive")} onClick={() => run(onArchive)}>Archive chat</button>
           <button type="button" role="menuitem" {...controlBinding("chat-delete", "catalog.chat.delete")} className="conversation-menu-danger" onClick={() => run(onDelete)}>Delete chat</button>
@@ -106,6 +110,23 @@ export function WorkspaceHeader({
         <div className="conversation-dialog-actions">
           <button type="button" onClick={() => { setRenameDraft(chat.title); setRenaming(false); }}>Cancel</button>
           <button type="button" className="primary" {...controlBinding("chat-rename-save", "catalog.chat.rename")} disabled={!renameDraft.trim() || renameDraft.trim() === chat.title} onClick={() => { onRename(renameDraft.trim()); setRenaming(false); }}>Save name</button>
+        </div>
+      </section>
+    </div>}
+    {moving && <div className="conversation-dialog-backdrop" role="presentation">
+      <section className="conversation-dialog" role="dialog" aria-modal="true" aria-label="Move chat">
+        <h2>Move chat</h2>
+        <label>Destination project<select autoFocus aria-label="Destination project" value={moveTargetId} onChange={(event) => setMoveTargetId(event.currentTarget.value)}>
+          <option value="">Choose a project</option>
+          {moveTargets.map((target) => <option key={target.id} value={target.id}>{target.name}</option>)}
+        </select></label>
+        <div className="conversation-dialog-actions">
+          <button type="button" onClick={() => { setMoveTargetId(""); setMoving(false); }}>Cancel</button>
+          <button type="button" className="primary" {...controlBinding("chat-move-save", "catalog.chat.move")} disabled={!moveTargetId} onClick={() => {
+            onMove(moveTargetId);
+            setMoveTargetId("");
+            setMoving(false);
+          }}>Move chat</button>
         </div>
       </section>
     </div>}

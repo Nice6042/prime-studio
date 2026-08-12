@@ -1,5 +1,7 @@
 export type StudioCommandId =
   | "chat.new"
+  | "project.new"
+  | "archived.open"
   | "palette.open"
   | "settings.open"
   | "settings.usage"
@@ -24,6 +26,8 @@ const enabled = () => ({ enabled: true }) as const;
 
 export const studioCommands: readonly StudioCommand[] = Object.freeze([
   { id: "chat.new", action: "catalog.chat.create", label: "New chat", group: "Chat", shortcuts: ["Ctrl+N"], keywords: ["create", "conversation"], availability: enabled },
+  { id: "project.new", action: "catalog.project.create", label: "New project", group: "Chat", shortcuts: [], keywords: ["create", "folder", "workspace"], availability: enabled },
+  { id: "archived.open", action: "route.archived.open", label: "Archived chats", group: "Chat", shortcuts: [], keywords: ["restore", "projects", "conversations"], availability: enabled },
   { id: "palette.open", action: "palette.open", label: "Open command palette", group: "View", shortcuts: ["Ctrl+K"], keywords: ["search", "actions"], availability: enabled },
   { id: "sidebar.toggle", action: "layout.sidebar.toggle", label: "Toggle projects", group: "View", shortcuts: ["Ctrl+B"], keywords: ["sidebar", "navigation"], availability: enabled },
   { id: "inspector.toggle", action: "layout.inspector.toggle", label: "Toggle Harness", group: "View", shortcuts: ["Ctrl+J"], keywords: ["agents", "usage", "activity", "right panel"], availability: enabled },

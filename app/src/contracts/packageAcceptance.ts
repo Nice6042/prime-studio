@@ -28,7 +28,7 @@ export const FEATURE_ACCEPTANCE: readonly PackageFeatureAcceptance[] = Object.fr
   row("NV-02", "Search row opens the global command and content palette", "partial", ["palette.open"]),
   row("NV-03", "pinned section and pin toggle persist truthfully", "missing", ["catalog.chat.pin-toggle"]),
   row("NV-04", "expandable project tree groups chats and preserves expansion", "partial", ["catalog.project.toggle", "catalog.chat.select"]),
-  row("NV-05", "Archived chats route lists and restores archived records", "partial", ["route.archived.open", "catalog.chat.restore"]),
+  row("NV-05", "Archived chats route lists and restores archived records", "partial", ["route.archived.open", "catalog.project.restore", "catalog.chat.restore"]),
   row("NV-06", "inactive-chat completion sets unread and selection clears it", "missing", ["catalog.chat.unread-clear"]),
   row("NV-07", "chat rows show authoritative working, live, and error status", "partial"),
   row("NV-08", "footer reports configured workspace identity and opens its menu", "partial", ["surface.popover.toggle", "workspace.switch", "route.settings.open", "workspace.sign-out"]),

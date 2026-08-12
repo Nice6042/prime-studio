@@ -72,3 +72,14 @@
 @media (max-width:760px) { .studio-settings { grid-template-columns:1fr; overflow:auto; }.studio-settings-nav { border-right:0; border-bottom:1px solid var(--line,#323232); max-height:42vh; }.studio-settings-page { width:calc(100% - 28px); padding-top:28px; }.studio-setting-row { align-items:flex-start; flex-direction:column; gap:10px; }.studio-theme-options { grid-template-columns:1fr; }.studio-usage-summary { align-items:flex-start; flex-direction:column; }.studio-usage-controls { align-items:flex-start; flex-direction:column; }.studio-usage-stats { grid-template-columns:repeat(2,minmax(0,1fr)); }.studio-usage-stats > div:nth-child(odd) { border-left:0; }.studio-usage-chart svg { height:130px; }.studio-usage-chart>header{align-items:flex-start;flex-direction:column}.studio-chart-legend{flex-wrap:wrap} }
 @media(prefers-reduced-motion:reduce){.studio-settings *{transition-duration:.001ms!important}}
 @media(forced-colors:active){.studio-switch[aria-checked=true]{border:2px solid Highlight!important;background:Canvas!important}.studio-switch[aria-checked=true] span{background:Highlight}.studio-chart-line{stroke:CanvasText}.studio-chart-area{fill:transparent}}
+.studio-archived-catalog { display: grid; gap: 22px; }
+.studio-archived-catalog section > h2 { margin: 0 0 8px; color: #b8b8c1; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+.studio-archived-list { overflow: hidden; border: 1px solid rgb(255 255 255 / 7%); border-radius: 10px; background: #17171c; }
+.studio-archived-list article { display: flex; align-items: center; gap: 16px; min-block-size: 58px; padding: 10px 12px; }
+.studio-archived-list article + article { border-block-start: 1px solid rgb(255 255 255 / 6%); }
+.studio-archived-list article > span { display: grid; gap: 3px; min-inline-size: 0; flex: 1; }
+.studio-archived-list strong, .studio-archived-list small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studio-archived-list small, .studio-archived-empty { color: #8f8f99; }
+.studio-archived-list button { min-block-size: 30px; padding: 5px 11px; border: 1px solid rgb(255 255 255 / 11%); border-radius: 7px; color: #d2d2da; background: transparent; }
+.studio-archived-list button:hover:not(:disabled) { background: #23232a; }
+.studio-archived-list button:disabled { opacity: .45; }
