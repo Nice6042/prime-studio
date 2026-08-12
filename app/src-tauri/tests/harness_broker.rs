@@ -249,7 +249,10 @@ fn resident_branch_admits_a_distinct_authoritative_root_and_reconciles_exact_rep
         source_session_id: "root".to_owned(),
         entry_id: "different-message".to_owned(),
         name: "Branch of Source".to_owned(),
-        expected_cursor: HarnessCursor { runtime_generation: "generation-source".to_owned(), sequence: 1 },
+        expected_cursor: HarnessCursor {
+            runtime_generation: "generation-source".to_owned(),
+            sequence: 1,
+        },
     }));
     assert!(matches!(conflict, Err(HarnessError::OwnershipViolation)));
 }

@@ -9,7 +9,8 @@ use crate::harness::broker::{
     ResidentCreateRequest, SessionCommandRequest, StudioOperationRequest,
 };
 use crate::harness::generated::{
-    CommandOutcome, HarnessCursor, HarnessStudioAction, SessionCommandKind, StudioOperationStatus,
+    CommandOutcome, HarnessCursor, HarnessStudioAction, ParentMessage, SessionCommandKind,
+    StudioOperationStatus,
 };
 use crate::harness::projections::{BootProjection, RootSessionProjection};
 use crate::project_catalog::{
@@ -310,6 +311,14 @@ pub(crate) async fn harness_branch_resident_chat(
                     .ok_or_else(|| "Catalog branch Harness session is unavailable".to_owned())?;
                 if binding.account_id != session.account_id
                     || binding.agent_id.as_deref() != Some(session.chat_id.as_str())
+                    || binding.session_id == source_binding.session_id
+                    || session.account_id != source_binding.account_id
+                    || session.project_id != daemon_project_id(&project_workspace(project)?)
+                    || !session.parent_messages.iter().any(|message| match message {
+                        ParentMessage::User { id, .. }
+                        | ParentMessage::Assistant { id, .. }
+                        | ParentMessage::Notice { id, .. } => id == &request.message_id,
+                    })
                     || branch_chat_id == session.session_id
                     || branch_chat_id == session.chat_id
                 {
@@ -328,16 +337,15 @@ pub(crate) async fn harness_branch_resident_chat(
         let mut broker = broker
             .lock()
             .map_err(|_| "Harness broker is unavailable".to_owned())?;
-        let branched = tauri::async_runtime::block_on(broker.branch_resident(
-            ResidentBranchRequest {
+        let branched =
+            tauri::async_runtime::block_on(broker.branch_resident(ResidentBranchRequest {
                 creation_id: branch_chat_id.clone(),
                 source_session_id: request.source_session_id,
                 entry_id: request.message_id,
                 name: branch_title(&source_title),
                 expected_cursor: request.expected_cursor,
-            },
-        ))
-        .map_err(|error| format!("Harness resident branch failed: {}", error.code()))?;
+            }))
+            .map_err(|error| format!("Harness resident branch failed: {}", error.code()))?;
         if branched.session.account_id != source_binding.account_id
             || branched.session.project_id != daemon_project_id(&project_workspace(project)?)
             || branch_chat_id == branched.session.session_id
@@ -392,11 +400,18 @@ pub(crate) async fn harness_branch_resident_chat(
             .projects
             .iter()
             .find(|candidate| candidate.id == latest_project_id)
-            .and_then(|candidate| candidate.chats.iter().find(|chat| chat.id == branch_chat_id))
+            .and_then(|candidate| {
+                candidate
+                    .chats
+                    .iter()
+                    .find(|chat| chat.id == branch_chat_id)
+            })
             .ok_or_else(|| "Catalog branch chat was not created".to_owned())?;
         if let Some(existing) = &branch.binding {
             if existing != &binding {
-                return Err("Catalog branch chat is bound to a different Harness session".to_owned());
+                return Err(
+                    "Catalog branch chat is bound to a different Harness session".to_owned(),
+                );
             }
         } else {
             persisted = catalog
@@ -746,7 +761,10 @@ mod resident_composition_tests {
     #[test]
     fn studio_branch_identity_is_deterministic_and_never_reuses_daemon_or_source_ids() {
         let id = branch_chat_id("project:personal", "studio-source", "message-1");
-        assert_eq!(id, branch_chat_id("project:personal", "studio-source", "message-1"));
+        assert_eq!(
+            id,
+            branch_chat_id("project:personal", "studio-source", "message-1")
+        );
         assert!(id.starts_with("chat-branch-"));
         assert_ne!(id, "studio-source");
         assert_ne!(id, "daemon-active-branch");

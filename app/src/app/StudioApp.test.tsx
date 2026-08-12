@@ -455,7 +455,7 @@ describe("Studio application state", () => {
     expect(store.getSnapshot().navigation.route).toBe("workspace");
   });
 
-  it("creates and selects a distinct native-bound catalog chat for both message branching and Harness slash commands", async () => {
+  it("creates and selects a distinct native-bound catalog chat when branching from a message", async () => {
     const operations: StudioOperation[] = [];
     const branchSession: RootSessionProjection = {
       ...rootSession,
@@ -531,6 +531,72 @@ describe("Studio application state", () => {
     fireEvent.keyDown(composer, { key: "Enter" });
     await waitFor(() => expect(operations).toContainEqual({ action: "harness.session.compact", payload: { sessionId: "session-1" } }));
     branchSpy.mockRestore();
+  }, 20_000);
+
+  it("routes /fork through the same native resident branch transaction", async () => {
+    const operations: StudioOperation[] = [];
+    const sourceCatalog = catalogBoundToRootSession();
+    const branchSession: RootSessionProjection = {
+      ...rootSession,
+      sessionId: "session-slash-branch",
+      chatId: "daemon-chat-slash-branch",
+      cursor: { runtimeGeneration: "g-slash-branch", sequence: 1 },
+    };
+    const created = transitionProjectChatState(sourceCatalog, {
+      type: "chat.create", projectId: "project:personal", chatId: "chat-slash-branch", title: "Branch of Harness architecture",
+    });
+    if (created.status !== "applied") throw new Error("test branch create failed");
+    const bound = transitionProjectChatState(created.state, {
+      type: "chat.bind-prime-session", projectId: "project:personal", chatId: "chat-slash-branch",
+      binding: { kind: "prime-session", accountId: branchSession.accountId, sessionId: branchSession.sessionId, sessionFile: "slash-branch.jsonl", agentId: branchSession.chatId },
+    });
+    if (bound.status !== "applied") throw new Error("test branch bind failed");
+    const branchSpy = vi.spyOn(projectCatalogClient, "branchResidentCatalogChat").mockResolvedValue({
+      branchChatId: "chat-slash-branch",
+      catalog: { revision: 3, state: bound.state },
+      session: branchSession,
+    });
+    const store = createStudioStore(initialStudioState({
+      projectCatalog: sourceCatalog,
+      sessions: [rootSession],
+      compatibility: { status: "ready", profile: "verified", capabilities: ["resident_sessions", "model_catalog"] },
+    }));
+    store.dispatch({ type: "project-catalog/loaded", snapshot: { revision: 2, state: sourceCatalog } });
+    store.dispatch({ type: "chat/open", chatId: chat.id });
+    render(<AppProviders store={store}><StudioApp harnessAdapter={conversationAdapter(operations)} /></AppProviders>);
+
+    act(() => store.dispatch({ type: "draft/change", chatId: chat.id, draft: "/fork" }));
+    const composer = screen.getByRole("textbox", { name: "Message Prime Studio" });
+    await waitFor(() => expect(composer).toHaveValue("/fork"));
+    fireEvent.keyDown(composer, { key: "Enter" });
+
+    await waitFor(() => expect(store.getSnapshot().navigation.selectedChatId).toBe("chat-slash-branch"));
+    expect(branchSpy).toHaveBeenCalledWith(expect.objectContaining({ messageId: "a1", sourceChatId: "chat-1", sourceSessionId: "session-1" }));
+    expect(operations).not.toContainEqual(expect.objectContaining({ action: "conversation.branch.create" }));
+    branchSpy.mockRestore();
+  }, 20_000);
+
+  it("keeps the parent selected and reports failure when a resident branch cannot be reconciled", async () => {
+    const sourceCatalog = catalogBoundToRootSession();
+    const loadSpy = vi.spyOn(projectCatalogClient, "loadProjectCatalog").mockResolvedValue({ revision: 2, state: sourceCatalog });
+    const branchSpy = vi.spyOn(projectCatalogClient, "branchResidentCatalogChat").mockRejectedValue(new Error("daemon branch outcome is unknown"));
+    const store = createStudioStore(initialStudioState({
+      projectCatalog: sourceCatalog,
+      sessions: [rootSession],
+      compatibility: { status: "ready", profile: "verified", capabilities: ["resident_sessions"] },
+    }));
+    store.dispatch({ type: "project-catalog/loaded", snapshot: { revision: 2, state: sourceCatalog } });
+    store.dispatch({ type: "chat/open", chatId: chat.id });
+    render(<AppProviders store={store}><StudioApp harnessAdapter={conversationAdapter([])} /></AppProviders>);
+
+    await userEvent.click(screen.getByRole("button", { name: "Branch chat from message" }));
+
+    expect(await screen.findByRole("alert", { name: "Studio operation failed" })).toHaveTextContent(/could not be verified.*parent chat remains selected/i);
+    expect(store.getSnapshot().navigation.selectedChatId).toBe("chat-1");
+    expect(Object.keys(store.getSnapshot().sessions)).toEqual(["session-1"]);
+    expect(branchSpy).toHaveBeenCalledTimes(2);
+    branchSpy.mockRestore();
+    loadSpy.mockRestore();
   }, 20_000);
 
   it("keeps renderer-owned Harness navigation out of the Harness adapter", async () => {

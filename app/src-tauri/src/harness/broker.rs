@@ -9,8 +9,7 @@ use super::compatibility::decide_compatibility;
 use super::generated::{
     CommandOutcome, HarnessCapability, HarnessCompatibility, HarnessCursor, HarnessEvent,
     HarnessStudioAction, ParentMessage, RootSessionSnapshot, SessionCommandKind,
-    StudioOperationStatus,
-    StudioRequest, StudioResponse,
+    StudioOperationStatus, StudioRequest, StudioResponse,
 };
 pub use super::projections::{BootProjection, ProjectionFreshness, RootSessionProjection};
 use super::recovery::{RecoveredSession, RecoveryRecord};
@@ -26,11 +25,14 @@ const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 const MAX_INSPECTOR_ARTIFACT_CANDIDATES: usize = 2_048;
 
 fn snapshot_contains_message(snapshot: &RootSessionSnapshot, message_id: &str) -> bool {
-    snapshot.parent_messages.iter().any(|message| match message {
-        ParentMessage::User { id, .. }
-        | ParentMessage::Assistant { id, .. }
-        | ParentMessage::Notice { id, .. } => id == message_id,
-    })
+    snapshot
+        .parent_messages
+        .iter()
+        .any(|message| match message {
+            ParentMessage::User { id, .. }
+            | ParentMessage::Assistant { id, .. }
+            | ParentMessage::Notice { id, .. } => id == message_id,
+        })
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -704,7 +706,10 @@ impl HarnessBroker {
             || snapshot.chat_id == source.chat_id
             || self.ownership.contains_key(&session_id)
             || self.committed.contains_key(&session_id)
-            || self.ownership.values().any(|owner| owner.chat_id == snapshot.chat_id)
+            || self
+                .ownership
+                .values()
+                .any(|owner| owner.chat_id == snapshot.chat_id)
             || self.committed.len() >= 256
             || self
                 .retired_generations
@@ -735,7 +740,9 @@ impl HarnessBroker {
         );
         Ok(ResidentBranchResult {
             creation_id: request.creation_id,
-            session: self.project(&session_id).ok_or(HarnessError::OwnershipViolation)?,
+            session: self
+                .project(&session_id)
+                .ok_or(HarnessError::OwnershipViolation)?,
         })
     }
 
