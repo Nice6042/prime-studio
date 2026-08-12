@@ -23,4 +23,34 @@ describe("EditorPane", () => {
     expect(onCanvasApply).toHaveBeenCalledWith("Edited answer");
     expect(screen.getByText(/does not rewrite Harness history/)).toBeVisible();
   });
+
+  it("switches an identity-bound artifact between structured diff and edit, then saves through its adapter", async () => {
+    const onArtifactSave = vi.fn(async () => ({ kind: "saved" as const, revision: 8, identity: "sha256:new" }));
+    render(<EditorPane onClose={() => undefined} artifact={{
+      label: "src/app.ts", ref: { brokerId: "broker", rootSessionId: "root", artifactId: "artifact", revision: 7 },
+      identity: "sha256:old", content: "const next = true;", writable: true,
+      diff: [
+        { kind: "delete", oldLine: 4, newLine: null, text: "const next = false;" },
+        { kind: "add", oldLine: null, newLine: 4, text: "const next = true;" },
+      ],
+    }} onArtifactSave={onArtifactSave} />);
+    expect(screen.getByRole("tab", { name: "Diff" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("const next = false;")).toHaveAttribute("data-diff-kind", "delete");
+    await userEvent.click(screen.getByRole("tab", { name: "Edit" }));
+    const editor = screen.getByRole("textbox", { name: "File content" });
+    await userEvent.type(editor, "\nexport default next;");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(onArtifactSave).toHaveBeenCalledWith(expect.objectContaining({ expectedRevision: 7, expectedIdentity: "sha256:old", content: expect.stringContaining("export default") }));
+    expect(await screen.findByText("Saved revision 8")).toBeVisible();
+  });
+
+  it("keeps dirty content visible when the native save reports a conflict", async () => {
+    render(<EditorPane onClose={() => undefined} artifact={{ label: "README.md", ref: { brokerId: "b", rootSessionId: "s", artifactId: "a", revision: 1 }, identity: "old", content: "old", writable: true, diff: [] }}
+      onArtifactSave={async () => ({ kind: "conflict", message: "The file changed on disk. Reopen it before saving." })} />);
+    await userEvent.click(screen.getByRole("tab", { name: "Edit" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "File content" }), " changed");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("changed on disk");
+    expect(screen.getByRole("textbox", { name: "File content" })).toHaveValue("old changed");
+  });
 });

@@ -1,69 +1,72 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+import { createControlBinding } from "../../contracts/studioOperations";
 import type { HarnessCompatibility } from "../../shared/ipc/harness.generated";
 import type { Account, AppSettings } from "../../types";
-import {
-  AboutSettings,
-  AccountsSettings,
-  AppearanceSettings,
-  ComposerSettings,
-  GeneralSettings,
-  HarnessSettings,
-  IntegrationsSettings,
-  ModelsSettings,
-  SecuritySettings,
-  ShortcutsSettings,
-} from "./SettingsPages";
 import { AccountUsageSettings } from "./AccountUsageSettings";
+import {
+  AboutSettings, AccountsSettings, AppearanceSettings, ComposerSettings, EnvironmentsSettings,
+  GeneralSettings, GitSettings, HarnessSettings, ModelsSettings, PrivacySettings, ShortcutsSettings, ToolsSettings,
+} from "./SettingsPages";
 import { isStudioSettingsSection, searchSettingsSections, settingsSections, type StudioSettingsSectionId } from "./settingsRegistry";
 import "./settings.css";
 
-function SettingsPage({ section, compatibility, settings, onSetting, accounts = [], onAccountsChanged }: {
-  readonly section: StudioSettingsSectionId;
+const controls = {
+  back: createControlBinding("settings.back", "route.settings.back"),
+  search: createControlBinding("settings.search", "settings.search.change"),
+  section: createControlBinding("settings.section", "settings.section.select"),
+};
+
+interface SettingsSharedProps {
   readonly compatibility: HarnessCompatibility;
   readonly settings?: AppSettings;
   readonly onSetting?: (key: keyof AppSettings, value: string | null) => void;
   readonly accounts?: readonly Account[];
   readonly onAccountsChanged?: (accounts?: Account[]) => void;
-}) {
+  readonly onExportUsageCsv?: (csv: string, rangeDays: 7 | 30 | 90) => Promise<void>;
+}
+
+function SettingsPage({ section, compatibility, settings = {}, onSetting, accounts = [], onAccountsChanged, onExportUsageCsv }: SettingsSharedProps & { readonly section: StudioSettingsSectionId }) {
   switch (section) {
-    case "general": return <GeneralSettings />;
-    case "appearance": return <AppearanceSettings theme={settings?.theme ?? "system"} onTheme={(value) => onSetting?.("theme", value)} />;
-    case "composer": return <ComposerSettings />;
-    case "accounts": return <AccountsSettings accounts={accounts} defaultAccount={settings?.defaultAccount ?? null} onChanged={onAccountsChanged ?? (() => undefined)} onDefaultAccount={(accountId) => onSetting?.("defaultAccount", accountId)} />;
-    case "usage": return <AccountUsageSettings accounts={accounts} />;
-    case "harness": return <HarnessSettings compatibility={compatibility} />;
-    case "models": return <ModelsSettings compatibility={compatibility} />;
-    case "integrations": return <IntegrationsSettings />;
-    case "security": return <SecuritySettings compatibility={compatibility} />;
+    case "general": return <GeneralSettings settings={settings} onSetting={onSetting} />;
+    case "appearance": return <AppearanceSettings settings={settings} onSetting={onSetting} />;
+    case "composer": return <ComposerSettings settings={settings} onSetting={onSetting} />;
+    case "harness": return <HarnessSettings compatibility={compatibility} settings={settings} onSetting={onSetting} />;
+    case "usage": return <AccountUsageSettings accounts={accounts} onExportCsv={onExportUsageCsv} />;
+    case "models": return <ModelsSettings compatibility={compatibility} settings={settings} onSetting={onSetting} />;
+    case "accounts": return <AccountsSettings accounts={accounts} defaultAccount={settings.defaultAccount ?? null} onChanged={onAccountsChanged ?? (() => undefined)} onDefaultAccount={(accountId) => onSetting?.("defaultAccount", accountId)} />;
+    case "tools": return <ToolsSettings compatibility={compatibility} settings={settings} onSetting={onSetting} />;
+    case "git": return <GitSettings settings={settings} onSetting={onSetting} />;
+    case "environments": return <EnvironmentsSettings settings={settings} onSetting={onSetting} />;
+    case "privacy": return <PrivacySettings compatibility={compatibility} settings={settings} onSetting={onSetting} />;
     case "shortcuts": return <ShortcutsSettings />;
     case "about": return <AboutSettings compatibility={compatibility} />;
   }
 }
 
-export function SettingsShell({ section, onSection, onBack, compatibility, settings, onSetting, accounts = [], onAccountsChanged }: {
+export function SettingsShell({ section, onSection, onBack, compatibility, settings, onSetting, accounts = [], onAccountsChanged, onExportUsageCsv }: SettingsSharedProps & {
   readonly section: string | null;
   readonly onSection: (section: StudioSettingsSectionId) => void;
   readonly onBack: () => void;
-  readonly compatibility: HarnessCompatibility;
-  readonly settings?: AppSettings;
-  readonly onSetting?: (key: keyof AppSettings, value: string | null) => void;
-  readonly accounts?: readonly Account[];
-  readonly onAccountsChanged?: (accounts?: Account[]) => void;
 }) {
   const active = isStudioSettingsSection(section) ? section : "general";
   const [query, setQuery] = useState("");
   const visible = useMemo(() => searchSettingsSections(query), [query]);
   const definition = settingsSections.find((candidate) => candidate.id === active)!;
   const groups = [...new Set(visible.map((candidate) => candidate.group))];
+
+  useEffect(() => {
+    const selected = settings?.theme ?? "system";
+    const resolved = selected === "system" && typeof window.matchMedia === "function" ? (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark") : selected;
+    document.documentElement.dataset.theme = resolved === "light" ? "light" : "dark";
+  }, [settings?.theme]);
+
   return <main className="studio-settings" aria-label="Settings">
     <aside className="studio-settings-nav" aria-label="Settings navigation">
-      <button type="button" className="studio-settings-back" aria-label="Back to chat" onClick={onBack}>← <span>Back to chat</span></button>
-      <label className="studio-settings-search"><span className="sr-only">Search settings</span><input type="search" aria-label="Search settings" value={query} onChange={(event) => setQuery(event.target.value.slice(0, 200))} placeholder="Search settings" /></label>
-      <nav aria-label="Settings sections">{groups.map((group) => <section key={group}><h2>{group}</h2>{visible.filter((candidate) => candidate.group === group).map((candidate) => <button type="button" key={candidate.id} aria-current={active === candidate.id ? "page" : undefined} onClick={() => onSection(candidate.id)}><span>{candidate.label}</span><small>{candidate.description}</small></button>)}</section>)}</nav>
+      <button type="button" className="studio-settings-back" aria-label="Back to chat" data-control-id={controls.back.controlId} data-action={controls.back.action} onClick={onBack}><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6" /></svg><span>Back to chat</span></button>
+      <label className="studio-settings-search"><span className="sr-only">Search settings</span><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" /><path d="m16 16 5 5" /></svg><input type="search" aria-label="Search settings" data-control-id={controls.search.controlId} data-action={controls.search.action} value={query} onChange={(event) => setQuery(event.currentTarget.value.slice(0, 200))} placeholder="Search settings" /></label>
+      <nav aria-label="Settings sections">{groups.map((group) => <section key={group}><h2>{group}</h2>{visible.filter((candidate) => candidate.group === group).map((candidate) => <button type="button" key={candidate.id} data-control-id={`${controls.section.controlId}.${candidate.id}`} data-action={controls.section.action} aria-current={active === candidate.id ? "page" : undefined} onClick={() => onSection(candidate.id)}><span>{candidate.label}</span><small>{candidate.description}</small></button>)}</section>)}</nav>
     </aside>
-    <section className="studio-settings-content" aria-labelledby="studio-settings-title">
-      <div className="studio-settings-page"><header><p>Settings</p><h1 id="studio-settings-title">{definition.label}</h1><span>{definition.description}</span></header><SettingsPage section={active} compatibility={compatibility} settings={settings} onSetting={onSetting} accounts={accounts} onAccountsChanged={onAccountsChanged} /></div>
-    </section>
+    <section className="studio-settings-content" aria-labelledby="studio-settings-title"><div className="studio-settings-page"><header><h1 id="studio-settings-title">{definition.label}</h1><span>{definition.description}</span></header><SettingsPage section={active} compatibility={compatibility} settings={settings} onSetting={onSetting} accounts={accounts} onAccountsChanged={onAccountsChanged} onExportUsageCsv={onExportUsageCsv} /></div></section>
   </main>;
 }

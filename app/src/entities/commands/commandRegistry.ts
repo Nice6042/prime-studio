@@ -16,18 +16,19 @@ export interface StudioCommand {
   readonly group: "Chat" | "View" | "Settings";
   readonly shortcuts: readonly string[];
   readonly keywords: readonly string[];
+  readonly action: StudioActionId;
   availability(context: CommandAvailabilityContext): Readonly<{ enabled: boolean; reason?: string }>;
 }
 
 const enabled = () => ({ enabled: true }) as const;
 
 export const studioCommands: readonly StudioCommand[] = Object.freeze([
-  { id: "chat.new", label: "New chat", group: "Chat", shortcuts: ["Ctrl+N"], keywords: ["create", "conversation"], availability: enabled },
-  { id: "palette.open", label: "Open command palette", group: "View", shortcuts: ["Ctrl+K"], keywords: ["search", "actions"], availability: enabled },
-  { id: "sidebar.toggle", label: "Toggle projects", group: "View", shortcuts: ["Ctrl+B"], keywords: ["sidebar", "navigation"], availability: enabled },
-  { id: "inspector.toggle", label: "Toggle Harness", group: "View", shortcuts: ["Ctrl+J"], keywords: ["agents", "usage", "activity", "right panel"], availability: enabled },
-  { id: "settings.open", label: "Open settings", group: "Settings", shortcuts: ["Ctrl+,"], keywords: ["preferences", "configuration"], availability: enabled },
-  { id: "settings.usage", label: "Open account usage", group: "Settings", shortcuts: [], keywords: ["billing", "cost", "tokens"], availability: enabled },
+  { id: "chat.new", action: "catalog.chat.create", label: "New chat", group: "Chat", shortcuts: ["Ctrl+N"], keywords: ["create", "conversation"], availability: (context) => context.admissionConnected ? enabled() : { enabled: false, reason: "New chat activation is not connected yet." } },
+  { id: "palette.open", action: "palette.open", label: "Open command palette", group: "View", shortcuts: ["Ctrl+K"], keywords: ["search", "actions"], availability: enabled },
+  { id: "sidebar.toggle", action: "layout.sidebar.toggle", label: "Toggle projects", group: "View", shortcuts: ["Ctrl+B"], keywords: ["sidebar", "navigation"], availability: enabled },
+  { id: "inspector.toggle", action: "layout.inspector.toggle", label: "Toggle Harness", group: "View", shortcuts: ["Ctrl+J"], keywords: ["agents", "usage", "activity", "right panel"], availability: enabled },
+  { id: "settings.open", action: "route.settings.open", label: "Open settings", group: "Settings", shortcuts: ["Ctrl+,"], keywords: ["preferences", "configuration"], availability: enabled },
+  { id: "settings.usage", action: "usage.account.open", label: "Open account usage", group: "Settings", shortcuts: [], keywords: ["billing", "cost", "tokens"], availability: enabled },
 ]);
 
 export function searchStudioCommands(query: string): readonly StudioCommand[] {
@@ -38,3 +39,4 @@ export function searchStudioCommands(query: string): readonly StudioCommand[] {
   });
   return commands.slice(0, 100);
 }
+import type { StudioActionId } from "../../contracts/studioOperations";

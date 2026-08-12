@@ -418,6 +418,25 @@ struct Settings {
     default_cwd: Option<String>,
     /// The settings section to reopen on.
     last_section: Option<String>,
+    file_open_destination: Option<String>,
+    language: Option<String>,
+    bottom_panel: Option<String>,
+    density: Option<String>,
+    reduced_motion: Option<String>,
+    send_shortcut: Option<String>,
+    prompt_suggestions: Option<String>,
+    token_estimate: Option<String>,
+    drafts: Option<String>,
+    max_concurrent_agents: Option<String>,
+    autonomous_max_turns: Option<String>,
+    retry_silent_workers: Option<String>,
+    context_discovery: Option<String>,
+    tools_enabled: Option<String>,
+    git_auto_refresh: Option<String>,
+    environment_mode: Option<String>,
+    telemetry: Option<String>,
+    crash_reports: Option<String>,
+    local_only: Option<String>,
     /// `--daemon-socket` for every spawn/attach/list/stop. Unset = prime's
     /// default socket, so the app shares a fleet with the terminal CLI.
     daemon_socket: Option<String>,
@@ -425,7 +444,7 @@ struct Settings {
 
 /// Settable through `set_app_setting`. An allowlist, so a typo'd key is an error
 /// the UI can show rather than a value silently dropped on the next round-trip.
-const SETTING_KEYS: [&str; 8] = [
+const SETTING_KEYS: [&str; 27] = [
     "theme",
     "defaultAccount",
     "defaultProvider",
@@ -433,6 +452,25 @@ const SETTING_KEYS: [&str; 8] = [
     "defaultThinking",
     "defaultCwd",
     "lastSection",
+    "fileOpenDestination",
+    "language",
+    "bottomPanel",
+    "density",
+    "reducedMotion",
+    "sendShortcut",
+    "promptSuggestions",
+    "tokenEstimate",
+    "drafts",
+    "maxConcurrentAgents",
+    "autonomousMaxTurns",
+    "retrySilentWorkers",
+    "contextDiscovery",
+    "toolsEnabled",
+    "gitAutoRefresh",
+    "environmentMode",
+    "telemetry",
+    "crashReports",
+    "localOnly",
     "daemonSocket",
 ];
 
@@ -4804,11 +4842,15 @@ mod tests {
         );
         set_app_setting_impl("theme".into(), Some("light".into())).unwrap();
         set_app_setting_impl("defaultThinking".into(), Some("medium".into())).unwrap();
+        set_app_setting_impl("sendShortcut".into(), Some("ctrl-enter".into())).unwrap();
+        set_app_setting_impl("promptSuggestions".into(), Some("disabled".into())).unwrap();
         // set_prime_cli must not clobber the rest of the file.
         set_prime_cli_impl(Some("  C:\\nope\\dist  ".into())).unwrap();
         let s = get_app_settings();
         assert_eq!(s.theme.as_deref(), Some("light"));
         assert_eq!(s.default_thinking.as_deref(), Some("medium"));
+        assert_eq!(s.send_shortcut.as_deref(), Some("ctrl-enter"));
+        assert_eq!(s.prompt_suggestions.as_deref(), Some("disabled"));
         assert_eq!(
             s.cli_path.as_deref(),
             Some("C:\\nope\\dist"),

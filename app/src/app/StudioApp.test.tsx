@@ -125,11 +125,11 @@ describe("Studio application state", () => {
   it("renders routed settings and preserves the selected chat when returning", async () => {
     const store = createStudioStore(initialStudioState({ chats: [chat] }));
     store.dispatch({ type: "chat/open", chatId: chat.id });
-    store.dispatch({ type: "route/settings", section: "security" });
+    store.dispatch({ type: "route/settings", section: "privacy" });
 
     render(<AppProviders store={store}><StudioApp /></AppProviders>);
     expect(screen.getByRole("main", { name: "Settings" })).toBeVisible();
-    expect(screen.getByRole("heading", { name: "Security", level: 1 })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Privacy & security", level: 1 })).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "Back to chat" }));
     expect(store.getSnapshot().navigation.selectedChatId).toBe(chat.id);
     expect(screen.getByRole("main", { name: "Harness architecture" })).toBeVisible();
@@ -142,7 +142,7 @@ describe("Studio application state", () => {
 
     await userEvent.keyboard("{Control>}k{/Control}");
     expect(screen.getByRole("dialog", { name: "Command palette" })).toBeVisible();
-    await userEvent.type(screen.getByRole("combobox", { name: "Search commands" }), "account usage");
+    await userEvent.type(screen.getByRole("combobox", { name: "Search commands, chats, and messages" }), "account usage");
     await userEvent.click(screen.getByRole("option", { name: /Open account usage/ }));
     expect(screen.getByRole("heading", { name: "Usage", level: 1 })).toBeVisible();
   });

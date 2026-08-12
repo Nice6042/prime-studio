@@ -14,9 +14,9 @@ describe("SettingsShell", () => {
     render(<SettingsShell section="general" onBack={onBack} onSection={onSection} compatibility={unavailable} />);
 
     expect(screen.getByRole("main", { name: "Settings" })).toBeVisible();
-    expect(screen.getByRole("heading", { name: "General" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "General", level: 1 })).toBeVisible();
     await userEvent.type(screen.getByRole("searchbox", { name: "Search settings" }), "runtime identity");
-    expect(screen.getByRole("button", { name: /Security/ })).toBeVisible();
+    expect(screen.getByRole("button", { name: /Privacy & security/ })).toBeVisible();
     expect(screen.queryByRole("button", { name: /Appearance/ })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Back to chat" }));
     expect(onBack).toHaveBeenCalledOnce();
@@ -42,5 +42,26 @@ describe("SettingsShell", () => {
     expect(screen.getByText("Work")).toBeVisible();
     expect(screen.getByRole("button", { name: "New session" })).toBeDisabled();
     expect(screen.getByRole("textbox", { name: "Account name" })).toBeVisible();
+  });
+
+  it("wires preference controls to typed persistence instead of local cosmetic state", async () => {
+    const onSetting = vi.fn();
+    render(<SettingsShell section="composer" onBack={() => undefined} onSection={() => undefined} compatibility={unavailable}
+      settings={{ sendShortcut: "enter", promptSuggestions: "enabled", tokenEstimate: "enabled" }} onSetting={onSetting} />);
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Send shortcut" }), "ctrl-enter");
+    await userEvent.click(screen.getByRole("switch", { name: "Suggested prompts" }));
+    expect(onSetting).toHaveBeenCalledWith("sendShortcut", "ctrl-enter");
+    expect(onSetting).toHaveBeenCalledWith("promptSuggestions", "disabled");
+  });
+
+  it("shows each tools and safety destination as its own route", () => {
+    const { rerender } = render(<SettingsShell section="tools" onBack={() => undefined} onSection={() => undefined} compatibility={unavailable} />);
+    expect(screen.getByRole("heading", { name: "Tools", level: 1 })).toBeVisible();
+    rerender(<SettingsShell section="git" onBack={() => undefined} onSection={() => undefined} compatibility={unavailable} />);
+    expect(screen.getByRole("heading", { name: "Git", level: 1 })).toBeVisible();
+    rerender(<SettingsShell section="environments" onBack={() => undefined} onSection={() => undefined} compatibility={unavailable} />);
+    expect(screen.getByRole("heading", { name: "Environments", level: 1 })).toBeVisible();
+    rerender(<SettingsShell section="privacy" onBack={() => undefined} onSection={() => undefined} compatibility={unavailable} />);
+    expect(screen.getByRole("heading", { name: "Privacy & security", level: 1 })).toBeVisible();
   });
 });
