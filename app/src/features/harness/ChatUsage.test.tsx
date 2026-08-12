@@ -41,6 +41,16 @@ describe("ChatUsage", () => {
     expect(screen.getByText("Elapsed unavailable")).toBeVisible();
   });
 
+  it("withholds a contribution breakdown when categories cannot reconcile without double counting", () => {
+    render(<ChatUsage usage={usage} details={{ ...details, contributions: [
+      { id: "main", label: "Main chat", tokens: 165 },
+      { id: "children", label: "Subagents", tokens: 40 },
+    ] }} onRefresh={vi.fn()} refreshing={false} />);
+
+    expect(screen.getByText("Parent and child attribution is unavailable. Totals are not guessed.")).toBeVisible();
+    expect(screen.queryByText("Subagents")).not.toBeInTheDocument();
+  });
+
   it("normalizes observed token-count context samples against the real capacity", () => {
     render(<ChatUsage usage={usage} details={{ ...details, context: { usedTokens: 15_200, capacityTokens: 40_000, samples: [4_000, 8_000, 12_000] } }} onRefresh={vi.fn()} refreshing={false} />);
 

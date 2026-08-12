@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -89,7 +89,10 @@ const compatibility = {
   capabilities: ["queue_management", "resource_snapshot"] as const,
 };
 
-afterEach(() => localStorage.clear());
+afterEach(() => {
+  localStorage.clear();
+  vi.useRealTimers();
+});
 
 describe("HarnessInspector", () => {
   it("uses the product dispatcher seam for actions while retaining the adapter for projections", async () => {
@@ -273,6 +276,43 @@ describe("HarnessInspector", () => {
     const loading: HarnessInspectorAdapter = { availability: { status: "available" }, load: vi.fn(() => never), execute: vi.fn() };
     render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={loading} />);
     expect(screen.getByRole("status", { name: "Loading Harness details" })).toBeVisible();
+  });
+
+  it("refreshes an idle live inspector from the verified adapter without overlapping polls", async () => {
+    vi.useFakeTimers();
+    const source = adapter();
+    const idle = { ...session, state: "idle" as const };
+    render(<HarnessInspector chatId="chat-a" session={idle} compatibility={compatibility} adapter={source} />);
+    expect(source.load).toHaveBeenCalledTimes(1);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(source.load).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["stale", "unknown_outcome"] as const)("does not poll a %s inspector projection", async (freshness) => {
+    vi.useFakeTimers();
+    const source = adapter();
+    render(<HarnessInspector chatId="chat-a" session={{ ...session, state: "idle", freshness }} compatibility={compatibility} adapter={source} />);
+    expect(source.load).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(source.load).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits for an idle refresh to settle before starting another poll", async () => {
+    vi.useFakeTimers();
+    let settle: ((value: HarnessPanelDetails) => void) | null = null;
+    const source: HarnessInspectorAdapter = {
+      availability: { status: "available" },
+      load: vi.fn(() => new Promise<HarnessPanelDetails>((resolve) => { settle = resolve; })),
+      execute: vi.fn(),
+    };
+    render(<HarnessInspector chatId="chat-a" session={{ ...session, state: "idle" }} compatibility={compatibility} adapter={source} />);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(source.load).toHaveBeenCalledOnce();
+    await act(async () => { settle?.(details); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(source.load).toHaveBeenCalledTimes(2);
   });
 
   it("shows the production silent-worker recovery blocker instead of a working retry claim", async () => {

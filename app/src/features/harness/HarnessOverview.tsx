@@ -13,10 +13,11 @@ function formatElapsed(startedAtMs: number | null | undefined, observedAtMs: num
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
-export function HarnessOverview({ session, compatibility, details, pendingKey, hiddenNoticeIds, onOpenChild, onOpenActivity, onAction }: {
+export function HarnessOverview({ session, compatibility, details, nowMs, pendingKey, hiddenNoticeIds, onOpenChild, onOpenActivity, onAction }: {
   readonly session: RootSessionProjection;
   readonly compatibility: HarnessCompatibility;
   readonly details: HarnessPanelDetails | null;
+  readonly nowMs: number;
   readonly pendingKey: string | null;
   readonly hiddenNoticeIds: ReadonlySet<string>;
   readonly onOpenChild: (childId: string) => void;
@@ -28,7 +29,7 @@ export function HarnessOverview({ session, compatibility, details, pendingKey, h
   const controlsEnabled = (compatibility.status === "ready" || compatibility.status === "degraded") && session.freshness === "live";
   const queueEnabled = controlsEnabled && compatibility.capabilities.includes("queue_management");
   const percent = contextPercent(details?.context ?? null);
-  const observedAtMs = details?.observedAtMs ?? Date.now();
+  const observedAtMs = nowMs;
   const totalTokens = details?.context?.usedTokens ?? session.usage.totalTokens;
   const compactBinding = createControlBinding("harness.session.compact", "harness.session.compact");
   const activeViewAll = createControlBinding("harness.tab.select:active-view-all", "harness.tab.select");

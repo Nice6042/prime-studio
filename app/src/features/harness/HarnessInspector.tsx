@@ -12,6 +12,7 @@ import { HarnessOverview } from "./HarnessOverview";
 import { InspectorTabs } from "./InspectorTabs";
 import { HarnessIcon } from "./HarnessIcon";
 import { createInspectorState, reduceInspector, type InspectorRoute } from "./inspectorStore";
+import { useMonotonicNow } from "./monotonicClock";
 import "./harness.css";
 
 const storageKey = (chatId: string) => `prime-studio-harness-inspector-v1:${chatId}`;
@@ -57,6 +58,8 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
   const [hiddenNoticeIds, setHiddenNoticeIds] = useState<ReadonlySet<string>>(new Set());
   const childReturnFocus = useRef<HTMLElement | null>(null);
   const activitySeenAttempt = useRef<string | null>(null);
+  const detailsLoadInFlight = useRef(false);
+  const now = useMonotonicNow();
   const activityAttention = chatId ? activityAttentionForChat(chatId, activityEvidence, attention) : { status: "unavailable" as const, reason: "Activity content evidence is unavailable for this chat." };
 
   const loadDetails = async () => {
@@ -66,7 +69,9 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
       setLoadPhase(session ? "unavailable" : "idle");
       return;
     }
-    setLoadPhase("loading");
+    if (detailsLoadInFlight.current) return;
+    detailsLoadInFlight.current = true;
+    if (details === null) setLoadPhase("loading");
     setActivityEvidence(undefined);
     try {
       setDetails(await adapter.load(session.sessionId));
@@ -75,10 +80,17 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
     } catch (error) {
       setLoadPhase("error");
       setFeedback({ kind: "alert", text: error instanceof Error ? error.message : "Harness details could not be loaded." });
+    } finally {
+      detailsLoadInFlight.current = false;
     }
   };
 
   useEffect(() => { void loadDetails(); }, [session?.sessionId, session?.cursor.runtimeGeneration, session?.cursor.sequence, adapter]);
+  useEffect(() => {
+    if (!session || session.state !== "idle" || session.freshness !== "live" || adapter.availability.status === "unavailable") return;
+    const timer = window.setInterval(() => { void loadDetails(); }, 5_000);
+    return () => window.clearInterval(timer);
+  }, [adapter, session?.sessionId, session?.state, session?.freshness]);
   useEffect(() => {
     dispatch({ type: "children/reconciled", childIds: session?.children.map((child) => child.id) ?? [] });
   }, [session?.children]);
@@ -148,10 +160,10 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
       {!session && <div className="harness-no-session"><strong>Harness unavailable</strong><p>No Harness session is attached to this chat.</p></div>}
       {session && loadPhase === "loading" && <div className="harness-loading" role="status" aria-label="Loading Harness details"><span /><span /><span /></div>}
       {session && loadPhase === "unavailable" && <p className="harness-detail-unavailable" role="status">{adapter.availability.status === "unavailable" ? adapter.availability.reason : "Harness details are unavailable."}</p>}
-      {session && state.route.kind === "overview" && <HarnessOverview session={session} compatibility={compatibility} details={details} pendingKey={pendingKey} hiddenNoticeIds={hiddenNoticeIds} onOpenChild={openChild} onOpenActivity={() => selectTopRoute("activity")} onAction={runAction} />}
-      {session && state.route.kind === "usage" && <ChatUsage usage={session.usage} details={details} refreshing={pendingKey === "usage-refresh"} onRefresh={() => void runAction({ action: "usage.current.refresh", payload: { sessionId: session.sessionId } }, "usage-refresh")} onOpenAccountUsage={onOpenAccountUsage ? () => { void runAction({ action: "usage.account.open", payload: {} }, "usage-account", true); onOpenAccountUsage(); } : undefined} />}
+      {session && state.route.kind === "overview" && <HarnessOverview session={session} compatibility={compatibility} details={details} nowMs={now} pendingKey={pendingKey} hiddenNoticeIds={hiddenNoticeIds} onOpenChild={openChild} onOpenActivity={() => selectTopRoute("activity")} onAction={runAction} />}
+      {session && state.route.kind === "usage" && <ChatUsage usage={session.usage} details={details} nowMs={now} refreshing={pendingKey === "usage-refresh"} onRefresh={() => void runAction({ action: "usage.current.refresh", payload: { sessionId: session.sessionId } }, "usage-refresh")} onOpenAccountUsage={onOpenAccountUsage ? () => { void runAction({ action: "usage.account.open", payload: {} }, "usage-account", true); onOpenAccountUsage(); } : undefined} />}
       {session && state.route.kind === "activity" && <>{activityAttention?.status === "unavailable" && <p className="activity-evidence-note" role="status">{activityAttention.reason}</p>}<ActivityFeed sessionId={session.sessionId} details={details} filter={state.activityFilter} expandedId={state.expandedActivityId} onFilter={(filter) => { dispatch({ type: "activity/filter", filter }); if (chatId) void runAction({ action: "activity.filter.select", payload: { chatId, filter: filter === "agent" ? "agents" : filter === "tool" ? "tools" : filter === "file" ? "files" : "all" } }, `activity-filter:${filter}`, true); }} onToggle={(activityId) => { dispatch({ type: "activity/toggle", activityId }); if (chatId) void runAction({ action: "activity.row.toggle", payload: { chatId, activityId } }, `activity-row:${activityId}`, true); }} onOpenChild={openChild} onAction={runAction} /></>}
-      {session && state.route.kind === "child" && child && <ChildDetail sessionId={session.sessionId} child={child} details={details?.children[child.id] ?? null} observedAtMs={details?.observedAtMs ?? Date.now()} tab={state.route.tab} pendingKey={pendingKey} onBack={backFromChild} onTab={(tab) => dispatch({ type: "child/tab", tab })} onAction={runAction} />}
+      {session && state.route.kind === "child" && child && <ChildDetail sessionId={session.sessionId} child={child} details={details?.children[child.id] ?? null} observedAtMs={now} tab={state.route.tab} pendingKey={pendingKey} onBack={backFromChild} onTab={(tab) => dispatch({ type: "child/tab", tab })} onAction={runAction} />}
     </div>
   </div>;
 }

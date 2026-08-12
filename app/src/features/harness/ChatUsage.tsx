@@ -44,6 +44,20 @@ function contextRatios(details: HarnessPanelDetails | null): readonly number[] |
   return samples.map((sample) => sample / context.capacityTokens);
 }
 
+function reconciledContributions(details: HarnessPanelDetails | null, totalTokens: number) {
+  const contributions = details?.contributions ?? [];
+  if (!contributions.length || !Number.isSafeInteger(totalTokens) || totalTokens < 0) return null;
+  const ids = new Set<string>();
+  let total = 0;
+  for (const contribution of contributions) {
+    if (!contribution.id || ids.has(contribution.id) || !Number.isSafeInteger(contribution.tokens) || contribution.tokens < 0) return null;
+    ids.add(contribution.id);
+    total += contribution.tokens;
+    if (!Number.isSafeInteger(total) || total > totalTokens) return null;
+  }
+  return total === totalTokens ? contributions : null;
+}
+
 function UsageCharts({ details }: { readonly details: HarnessPanelDetails | null }) {
   const turns = validTurnUsage(details);
   const contextSamples = contextRatios(details);
@@ -63,9 +77,10 @@ function UsageCharts({ details }: { readonly details: HarnessPanelDetails | null
   </div>;
 }
 
-export function ChatUsage({ usage, details, onRefresh, refreshing, onOpenAccountUsage }: {
+export function ChatUsage({ usage, details, nowMs, onRefresh, refreshing, onOpenAccountUsage }: {
   readonly usage: CurrentChatUsage;
   readonly details: HarnessPanelDetails | null;
+  readonly nowMs?: number;
   readonly onRefresh: () => void;
   readonly refreshing: boolean;
   readonly onOpenAccountUsage?: () => void;
@@ -74,16 +89,16 @@ export function ChatUsage({ usage, details, onRefresh, refreshing, onOpenAccount
   const categoryTotal = categories.reduce((sum, [, value]) => sum + value, 0);
   const tokenEvidence = categoryTotal > 0;
   const percent = contextPercent(details?.context ?? null);
-  const contributions = details?.contributions ?? [];
-  const contributionTotal = contributions.reduce((sum, item) => sum + item.tokens, 0);
+  const contributions = reconciledContributions(details, usage.totalTokens);
+  const contributionTotal = contributions?.reduce((sum, item) => sum + item.tokens, 0) ?? 0;
   const refresh = createControlBinding("usage.current.refresh", "usage.current.refresh");
   const account = createControlBinding("usage.account.open", "usage.account.open");
   return <div className="chat-usage">
     <div className="usage-toolbar"><div><span>Scope</span><strong>Current chat</strong></div><button type="button" data-control-id={refresh.controlId} onClick={onRefresh} disabled={refreshing} aria-label="Refresh current-chat usage">{refreshing ? "Refreshing…" : "Refresh"}</button></div>
     <section className="usage-context"><div><span>Context window</span><span>{percent === null ? "Unavailable" : `${percent}%`}</span></div><strong>{details?.context ? `${compactTokenCount(details.context.usedTokens)} / ${compactTokenCount(details.context.capacityTokens)}` : "Denominator unavailable"}</strong>{percent === null ? <p>Current utilization is unavailable.</p> : <span className="harness-progress" aria-hidden="true"><i style={{ inlineSize: `${percent}%` }} /></span>}</section>
-    <div className="usage-metrics"><Metric label="Chat tokens" value={tokenEvidence ? usage.totalTokens.toLocaleString() : "Chat usage unavailable"} /><Metric label="Turns" value={String(details?.context?.turns ?? "—")} /><Metric label="Elapsed" value={formatElapsed(details?.startedAtMs ?? null, details?.observedAtMs)} /><Metric label="Cost" value={usage.cost === null ? "Cost unavailable" : `$${usage.cost.toFixed(4)}`} /></div>
+    <div className="usage-metrics"><Metric label="Chat tokens" value={tokenEvidence ? usage.totalTokens.toLocaleString() : "Chat usage unavailable"} /><Metric label="Turns" value={String(details?.context?.turns ?? "—")} /><Metric label="Elapsed" value={formatElapsed(details?.startedAtMs ?? null, nowMs ?? details?.observedAtMs)} /><Metric label="Cost" value={usage.cost === null ? "Cost unavailable" : `$${usage.cost.toFixed(4)}`} /></div>
     <UsageCharts details={details} />
-    <section className="usage-breakdown" aria-labelledby="contribution-title"><div className="usage-table-heading"><h2 id="contribution-title">Contribution breakdown</h2><span>Share</span><span>Tokens</span></div>{contributions.length ? contributions.map((item) => { const share = contributionTotal ? Math.round(item.tokens / contributionTotal * 100) : 0; return <div className="usage-breakdown-row" key={item.id}><div><span>{item.label}</span><span className="usage-bar" aria-hidden="true"><i style={{ inlineSize: `${share}%` }} /></span></div><span>{share}%</span><strong>{item.tokens.toLocaleString()}</strong></div>; }) : <p className="harness-empty">Parent and child attribution is unavailable. Totals are not guessed.</p>}</section>
+    <section className="usage-breakdown" aria-labelledby="contribution-title"><div className="usage-table-heading"><h2 id="contribution-title">Contribution breakdown</h2><span>Share</span><span>Tokens</span></div>{contributions ? contributions.map((item) => { const share = contributionTotal ? Math.round(item.tokens / contributionTotal * 100) : 0; return <div className="usage-breakdown-row" key={item.id}><div><span>{item.label}</span><span className="usage-bar" aria-hidden="true"><i style={{ inlineSize: `${share}%` }} /></span></div><span>{share}%</span><strong>{item.tokens.toLocaleString()}</strong></div>; }) : <p className="harness-empty">Parent and child attribution is unavailable. Totals are not guessed.</p>}</section>
     <section className="usage-breakdown" aria-labelledby="token-breakdown-title"><div className="usage-table-heading"><h2 id="token-breakdown-title">Token types</h2><span>Share</span><span>Tokens</span></div>{tokenEvidence ? categories.map(([label, value]) => { const share = Math.round(value / categoryTotal * 100); return <div className="usage-breakdown-row" key={label}><div><span>{label}</span><span className="usage-bar" aria-hidden="true"><i style={{ inlineSize: `${share}%` }} /></span></div><span>{share}%</span><strong>{value.toLocaleString()}</strong></div>; }) : <p className="usage-unavailable">Token-type usage is unavailable.</p>}</section>
     <p className="usage-note">Subagent usage is included only when it belongs to this chat.</p>
     <button className="usage-account-link" type="button" data-control-id={account.controlId} disabled={!onOpenAccountUsage} title={onOpenAccountUsage ? undefined : "Account usage navigation is unavailable in this host."} onClick={onOpenAccountUsage}>Open account-wide usage in Settings → Usage</button>
