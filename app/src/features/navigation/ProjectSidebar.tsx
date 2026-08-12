@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import type { NavigationProject } from "./navigationSelectors";
 import { controlBinding } from "../conversation/controlBinding";
@@ -7,6 +7,7 @@ import { useTopmostSurfaceEscape } from "../../surfaceEscape";
 import type { StudioOperation, StudioOperationOutcome } from "../../contracts/studioOperations";
 import { WorkspaceFooter } from "./WorkspaceFooter";
 import type { WorkspaceIdentityProjection } from "./workspaceIdentity";
+import type { NavigationChat } from "./navigationSelectors";
 import "./navigation.css";
 
 export function CreateProjectDialog({ onCreate, onCancel, restoreFocusTo }: {
@@ -54,6 +55,37 @@ export function NavigationIcon({ kind }: { readonly kind: "add" | "search" | "fo
     collapse: <><path d="m11 7-5 5 5 5M18 7l-5 5 5 5" /></>,
   };
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{paths[kind]}</svg>;
+}
+
+function ChatLifecycleIndicator({ chat, descriptionId }: { readonly chat: NavigationChat; readonly descriptionId: string }) {
+  const { status, label, detail } = chat.lifecycle;
+  const description = `${label}: ${detail}`;
+  return <>
+    <span className={`chat-lifecycle chat-lifecycle-${status}`} title={description} aria-hidden="true">
+      <span className="chat-lifecycle-mark" />
+      <span className="chat-lifecycle-label">{label}</span>
+    </span>
+    <span id={descriptionId} role="tooltip" className="sr-only">{description}</span>
+  </>;
+}
+
+function ChatRow({ chat, pinned = false, onSelect }: { readonly chat: NavigationChat; readonly pinned?: boolean; readonly onSelect: () => void }) {
+  const lifecycleDescriptionId = useId();
+  return <button
+    type="button"
+    {...controlBinding(`${pinned ? "sidebar-pinned" : "sidebar-chat"}-${chat.id}`, "catalog.chat.select")}
+    className={`chat-row${pinned ? " pinned-chat-row" : ""}`}
+    data-session-status={chat.lifecycle.status}
+    aria-label={`${chat.title}${pinned ? ", pinned" : ""}, status: ${chat.lifecycle.label}${chat.unread ? ", unread" : ""}`}
+    aria-describedby={lifecycleDescriptionId}
+    aria-current={chat.selected ? "page" : undefined}
+    onClick={onSelect}
+  >
+    <NavigationIcon kind="chat" />
+    <span className="chat-title">{chat.title}</span>
+    <ChatLifecycleIndicator chat={chat} descriptionId={lifecycleDescriptionId} />
+    {chat.unread && <span className="chat-unread" title="Unread" aria-hidden="true" />}
+  </button>;
 }
 
 export function ProjectSidebar({
@@ -139,9 +171,7 @@ export function ProjectSidebar({
     <div className="project-list" aria-label="Projects">
       <div className="project-section-label"><NavigationIcon kind="pin" /><span>Pinned</span></div>
       <div className="project-pinned-list">
-        {projects.flatMap((project) => project.chats.filter((chat) => chat.pinned).map((chat) => ({ ...chat, projectName: project.name }))).map((chat) => <button key={chat.id} type="button" {...controlBinding(`sidebar-pinned-${chat.id}`, "catalog.chat.select")} className="chat-row pinned-chat-row" aria-label={`${chat.title}, pinned${chat.unread ? ", unread" : ""}`} aria-current={chat.selected ? "page" : undefined} onClick={() => onSelectChat(chat.id)}>
-          <NavigationIcon kind="chat" /><span className="chat-title">{chat.title}</span>{chat.unread && <span className="chat-unread" aria-hidden="true" />}
-        </button>)}
+        {projects.flatMap((project) => project.chats.filter((chat) => chat.pinned)).map((chat) => <ChatRow key={chat.id} chat={chat} pinned onSelect={() => onSelectChat(chat.id)} />)}
       </div>
       <div className="project-section-heading"><span>Projects</span>{onNewProject && <button ref={newProjectRef} type="button" {...controlBinding("sidebar-new-project", "catalog.project.create")} aria-label="New project" onClick={() => setCreatingProject(true)}><NavigationIcon kind="add" /></button>}</div>
       {projects.map((project) => <section className="project-group" key={project.id}>
@@ -158,27 +188,7 @@ export function ProjectSidebar({
           {project.pinned && <span className="project-pin" title="Pinned"><NavigationIcon kind="pin" /></span>}
         </button>
         {project.expanded && <div className="chat-list" role="list" aria-label={`${project.name} chats`}>
-          {project.chats.map((chat) => {
-            const state = chat.status === "idle" ? "" : `, ${chat.status}`;
-            const unread = chat.unread ? ", unread" : "";
-            return <div role="listitem" key={chat.id}>
-              <button
-                type="button"
-                {...controlBinding(`sidebar-chat-${chat.id}`, "catalog.chat.select")}
-                className="chat-row"
-                data-session-status={chat.status}
-                aria-label={`${chat.title}${state}${unread}`}
-                aria-current={chat.selected ? "page" : undefined}
-                onClick={() => onSelectChat(chat.id)}
-              >
-                <NavigationIcon kind="chat" />
-                <span className="chat-title">{chat.title}</span>
-                {chat.status === "working" && <span className="chat-working" aria-hidden="true" />}
-                {chat.status !== "idle" && chat.status !== "working" && <span className={`chat-status chat-status-${chat.status}`}>{chat.status}</span>}
-                {chat.unread && <span className="chat-unread" aria-hidden="true" />}
-              </button>
-            </div>;
-          })}
+          {project.chats.map((chat) => <div role="listitem" key={chat.id}><ChatRow chat={chat} onSelect={() => onSelectChat(chat.id)} /></div>)}
         </div>}
       </section>)}
       {projects.length === 0 && <p className="project-empty">No matching chats</p>}

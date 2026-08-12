@@ -11,8 +11,8 @@ const projects: readonly NavigationProject[] = [{
   expanded: true,
   pinned: true,
   chats: [
-    { id: "chat-1", projectId: "project-a", title: "Harness integration", pinned: false, selected: true, unread: false, status: "working", lastActivityMs: 2 },
-    { id: "chat-2", projectId: "project-a", title: "Release checks", pinned: false, selected: false, unread: true, status: "idle", lastActivityMs: 1 },
+    { id: "chat-1", projectId: "project-a", title: "Harness integration", pinned: false, selected: true, unread: false, lifecycle: { status: "working", label: "Working", detail: "Harness is processing this chat." }, lastActivityMs: 2 },
+    { id: "chat-2", projectId: "project-a", title: "Release checks", pinned: false, selected: false, unread: true, lifecycle: { status: "idle", label: "Idle", detail: "No Harness session has been started for this chat." }, lastActivityMs: 1 },
   ],
 }];
 const workspaceProps = {
@@ -28,9 +28,13 @@ describe("ProjectSidebar", () => {
     render(<ProjectSidebar {...workspaceProps} projects={projects} onSelectChat={onSelectChat} onToggleProject={onToggleProject} onNewChat={() => undefined} onOpenSettings={() => undefined} />);
 
     expect(screen.getByRole("button", { name: /Prime Studio/i })).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("button", { name: /Harness integration.*working/i })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("button", { name: /Harness integration.*working/i })).toHaveAttribute("data-session-status", "working");
+    const activeChat = screen.getAllByRole("button", { name: /Harness integration.*status: working/i })[0];
+    expect(activeChat).toHaveAttribute("aria-current", "page");
+    expect(activeChat).toHaveAttribute("data-session-status", "working");
+    expect(activeChat).toHaveAccessibleDescription("Working: Harness is processing this chat.");
+    expect(screen.getAllByTitle("Working: Harness is processing this chat.")).not.toHaveLength(0);
     expect(screen.getByRole("button", { name: /Release checks.*unread/i })).toBeVisible();
+    expect(screen.getByRole("button", { name: /Release checks.*status: idle.*unread/i })).toContainElement(screen.getByTitle("Idle: No Harness session has been started for this chat."));
 
     await userEvent.click(screen.getByRole("button", { name: /Release checks.*unread/i }));
     expect(onSelectChat).toHaveBeenCalledWith("chat-2");

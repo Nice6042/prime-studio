@@ -375,7 +375,7 @@ describe("Studio application state", () => {
     );
 
     expect(screen.getByRole("navigation", { name: "Projects and chats" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Harness architecture" })).toBeVisible();
+    expect(screen.getByRole("button", { name: /Harness architecture.*status: Idle/i })).toBeVisible();
     expect(screen.getByRole("main", { name: "Harness architecture" })).toBeVisible();
     expect(screen.getByRole("button", { name: "New chat" })).toBeEnabled();
   });

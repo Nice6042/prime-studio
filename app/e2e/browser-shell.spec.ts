@@ -32,6 +32,21 @@ test("configured workspace footer owns a keyboard menu with explicit operation o
   await expect(shellPage.getByRole("main", { name: "Settings" })).toBeVisible();
 });
 
+test("sidebar reports admitted chat lifecycle without starting an inactive chat", async ({ shellPage }, testInfo) => {
+  const working = shellPage.getByRole("button", { name: /Prime Harness architecture.*status: Working/i });
+  await expect(working.first()).toHaveAttribute("data-session-status", "working");
+  await expect(working.first()).toHaveAccessibleDescription("Working: Harness is processing this chat.");
+  await expect(working.first().locator(".chat-lifecycle")).toHaveAttribute("title", "Working: Harness is processing this chat.");
+  const idle = shellPage.getByRole("button", { name: /Inactive planning notes.*status: Idle/i });
+  await expect(idle).toHaveAttribute("data-session-status", "idle");
+  await expect(idle).toHaveAccessibleDescription("Idle: No Harness session has been started for this chat.");
+  await expect(idle.locator(".chat-lifecycle")).toHaveAttribute("title", "Idle: No Harness session has been started for this chat.");
+  const providerStarts = await shellPage.evaluate(() => (window as typeof window & { __PRIME_STUDIO_BROWSER_INVOKES__?: string[] }).__PRIME_STUDIO_BROWSER_INVOKES__?.filter((command) => command === "start_session").length ?? -1);
+  expect(providerStarts).toBe(0);
+  await shellPage.screenshot({ path: testInfo.outputPath("chat-lifecycle-wide.png"), fullPage: true });
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-chat-lifecycle-wide");
+});
+
 test("workspace menu transfers focus across pane and rail replacements without reopening", async ({ shellPage }) => {
   const trigger = shellPage.getByRole("button", { name: "Prime Studio workspace menu" });
   await trigger.click();

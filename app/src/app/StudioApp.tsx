@@ -146,19 +146,13 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const adapterConnected = harnessAdapter.availability.status === "available";
   const hasCapability = (capability: string) => compatibility.status !== "unavailable" && compatibility.status !== "read_only" && compatibility.capabilities.includes(capability as typeof compatibility.capabilities[number]);
 
-  const sessionStates = useMemo(() => Object.fromEntries(
-    projectCatalog.projects.flatMap((project) => project.chats).flatMap((chat) => {
-      const session = chat.binding ? sessions[chat.binding.sessionId] : null;
-      return session ? [[chat.id, session.state] as const] : [];
-    }),
-  ), [projectCatalog.projects, sessions]);
   const projects = useMemo(() => selectNavigationProjects(projectCatalog, {
     expandedProjectIds,
     activityMs: {},
     unreadChatIds: deriveUnreadChatIds(projectCatalog, sessions, navigation.selectedChatId, attention),
-    sessionStates,
+    sessions,
     query,
-  }), [attention, expandedProjectIds, navigation.selectedChatId, projectCatalog, query, sessionStates, sessions]);
+  }), [attention, expandedProjectIds, navigation.selectedChatId, projectCatalog, query, sessions]);
   const paletteChats = useMemo<readonly PaletteChat[]>(() => projectCatalog.projects.flatMap((project) =>
     project.chats.map((chat) => ({ id: chat.id, title: chat.title, project: project.name, archived: project.archived || chat.archived })),
   ), [projectCatalog]);

@@ -1,6 +1,6 @@
 import type { ProjectChatState } from "../../domain/projectChats";
-
-export type NavigationChatStatus = "idle" | "working" | "blocked" | "failed" | "disconnected" | "stopped";
+import type { SessionEntities } from "../../entities/sessions/sessionStore";
+import { projectChatLifecycle, type ChatLifecycleProjection } from "./chatLifecycle";
 
 export interface NavigationChat {
   readonly id: string;
@@ -9,7 +9,7 @@ export interface NavigationChat {
   readonly pinned: boolean;
   readonly selected: boolean;
   readonly unread: boolean;
-  readonly status: NavigationChatStatus;
+  readonly lifecycle: ChatLifecycleProjection;
   readonly lastActivityMs: number;
 }
 
@@ -25,7 +25,7 @@ export interface NavigationSelectorInput {
   readonly expandedProjectIds: ReadonlySet<string>;
   readonly activityMs: Readonly<Record<string, number>>;
   readonly unreadChatIds: ReadonlySet<string>;
-  readonly sessionStates: Readonly<Record<string, NavigationChatStatus>>;
+  readonly sessions: SessionEntities;
   readonly query: string;
 }
 
@@ -52,7 +52,7 @@ export function selectNavigationProjects(
           pinned: chat.pinned,
           selected: state.selectedProjectId === project.id && project.selectedChatId === chat.id,
           unread: input.unreadChatIds.has(chat.id),
-          status: input.sessionStates[chat.id] ?? "idle",
+          lifecycle: projectChatLifecycle(chat, input.sessions),
           lastActivityMs: input.activityMs[chat.id] ?? 0,
         }));
       return {

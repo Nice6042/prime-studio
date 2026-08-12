@@ -45,6 +45,22 @@ test("projects, Harness, and editor become controlled sheets", async ({ shellPag
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-narrow-sheets");
 });
 
+test("narrow project sheet keeps lifecycle labels and tooltips readable", async ({ shellPage }, testInfo) => {
+  await shellPage.setViewportSize({ width: 320, height: 600 });
+  await shellPage.getByRole("button", { name: "Projects" }).click();
+  const sheet = shellPage.locator('[data-studio-sheet="sidebar"]');
+  const working = sheet.getByRole("button", { name: /Prime Harness architecture.*status: Working/i }).first();
+  const idle = sheet.getByRole("button", { name: /Inactive planning notes.*status: Idle/i });
+  await expect(working).toBeVisible();
+  await expect(working).toHaveAttribute("data-session-status", "working");
+  await expect(idle).toBeVisible();
+  await expect(idle).toHaveAttribute("data-session-status", "idle");
+  const geometry = await sheet.locator(".project-list").evaluate((element) => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth }));
+  expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth + 1);
+  await shellPage.screenshot({ path: testInfo.outputPath("chat-lifecycle-narrow.png"), fullPage: true });
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-chat-lifecycle-narrow");
+});
+
 test("collapsed workspace footer keeps its menu in-view and restores keyboard focus", async ({ shellPage }, testInfo) => {
   const trigger = shellPage.getByRole("button", { name: "Prime Studio workspace menu" });
   await activateWithKeyboard(trigger);

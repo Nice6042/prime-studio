@@ -46,12 +46,14 @@ export const test = base.extend<ShellFixtures>({
       };
 
       const global = window as typeof window & {
+        __PRIME_STUDIO_BROWSER_INVOKES__?: string[];
         __TAURI_INTERNALS__?: TauriInternals;
         __TAURI_EVENT_PLUGIN_INTERNALS__?: {
           unregisterListener: (event: string, id: number) => void;
         };
       };
       const callbacks = new Map<number, Callback>();
+      global.__PRIME_STUDIO_BROWSER_INVOKES__ = [];
       const listeners = new Map<string, number[]>();
       let nextCallback = 1;
       let projectedHarnessSessions = scenario.sessions.map((session) => ({
@@ -142,6 +144,7 @@ export const test = base.extend<ShellFixtures>({
       };
 
       const invoke = async (command: string, args: Record<string, unknown> = {}) => {
+        global.__PRIME_STUDIO_BROWSER_INVOKES__?.push(command);
         if (command === "plugin:event|listen") {
           const event = String(args.event ?? "");
           const handler = Number(args.handler);
@@ -330,6 +333,13 @@ export const test = base.extend<ShellFixtures>({
                     pinned: true,
                     archived: false,
                     binding: { kind: "prime-session", accountId: "account-e2e", sessionId: "session-e2e", sessionFile: "session-e2e.jsonl", agentId: null },
+                  }, {
+                    id: "chat-idle",
+                    projectId: "project:personal",
+                    title: "Inactive planning notes",
+                    pinned: false,
+                    archived: false,
+                    binding: null,
                   }],
                 }],
               },
