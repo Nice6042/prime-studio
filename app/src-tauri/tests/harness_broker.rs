@@ -104,6 +104,22 @@ fn live_quarantine_broker() -> HarnessBroker {
 }
 
 #[test]
+fn production_bootstrap_attaches_only_catalog_owned_sessions() {
+    let mut broker = HarnessBroker::new(
+        sidecar("broker-owned-bootstrap"),
+        "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900".to_owned(),
+        "prime-agent-daemon-v7-schema13-816309b1cd50".to_owned(),
+        vec![ownership("root", "project", "chat")],
+        None,
+    )
+    .unwrap();
+    let boot = tauri::async_runtime::block_on(broker.bootstrap_owned()).unwrap();
+    assert_eq!(broker.state(), BrokerState::Live);
+    assert_eq!(boot.sessions.len(), 1);
+    assert_eq!(boot.sessions[0].session_id, "root");
+}
+
+#[test]
 fn resident_creation_admits_a_new_authoritative_session_and_reconciles_exact_replay() {
     let mut broker = HarnessBroker::new(
         sidecar("broker-resident-create"),

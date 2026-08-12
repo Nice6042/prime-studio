@@ -259,6 +259,19 @@ fn main() {
                 }
             }));
         }
+        "broker-owned-bootstrap" => {
+            let discovery = read_frame();
+            assert_eq!(discovery["payload"]["type"], "discover_runtime");
+            write_frame(
+                &json!({"studioProtocol":1,"requestId":discovery["requestId"],"payload":{"type":"discover_runtime_result","runtime":broker_runtime(),"compatibility":broker_compatibility("prime-agent-daemon-v7-schema13-816309b1cd50")}}),
+            );
+            let attach = read_frame();
+            assert_eq!(attach["payload"]["type"], "attach_session");
+            assert_eq!(attach["payload"]["sessionId"], "root");
+            write_frame(
+                &json!({"studioProtocol":1,"requestId":attach["requestId"],"payload":{"type":"snapshot_result","snapshot":{"sessionId":"root","accountId":"account","projectId":"project","chatId":"chat","cursor":{"runtimeGeneration":"generation","sequence":1},"state":"idle","parentMessages":[],"children":[],"queue":[],"tools":[],"resources":[],"usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null}}}}),
+            );
+        }
         "broker-quarantine" => {
             let discovery = read_frame();
             write_frame(&json!({
