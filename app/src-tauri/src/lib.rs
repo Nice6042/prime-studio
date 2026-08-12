@@ -3799,6 +3799,89 @@ fn install_explicit_debug_harness_fixture(app: &AppHandle) -> std::io::Result<()
         .map_err(std::io::Error::other)
 }
 
+fn production_resource_root(app: &AppHandle) -> Result<PathBuf, String> {
+    let root = app
+        .path()
+        .resource_dir()
+        .map_err(|_| "Harness resource directory is unavailable".to_owned())?;
+    let candidates = [
+        root.join("harness-sidecar").join("dist").join("src"),
+        root.join("_up_")
+            .join("harness-sidecar")
+            .join("dist")
+            .join("src"),
+    ];
+    candidates
+        .into_iter()
+        .find(|path| path.join("index.js").is_file())
+        .ok_or_else(|| "Harness resources are not installed".to_owned())
+}
+
+fn production_node() -> Result<PathBuf, String> {
+    #[cfg(windows)]
+    {
+        let program_files = std::env::var_os("ProgramFiles")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(r"C:\Program Files"));
+        let node = program_files.join("nodejs").join("node.exe");
+        if node.is_file() {
+            return Ok(node);
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        for node in [
+            PathBuf::from("/usr/local/bin/node"),
+            PathBuf::from("/usr/bin/node"),
+        ] {
+            if node.is_file() {
+                return Ok(node);
+            }
+        }
+    }
+    Err("Pinned Node runtime is unavailable".to_owned())
+}
+
+fn start_production_harness_activation(app: &AppHandle) {
+    use harness::activation::{activate_production, ActivationError, ProductionActivationInput};
+
+    let harness = app.state::<AppState>().harness.clone();
+    let input: Result<ProductionActivationInput, ActivationError> = (|| {
+        let daemon_cli = prime_cli().map_err(|_| ActivationError::NotInstalled)?.cli;
+        let node = production_node().map_err(|_| ActivationError::EnvironmentUnavailable)?;
+        let resource_root = production_resource_root(app)
+            .map_err(|_| ActivationError::ResourceVerificationFailed)?;
+        let catalog = app
+            .state::<AppState>()
+            .project_catalog
+            .load()
+            .map_err(|_| ActivationError::CatalogBindingInvalid)?;
+        Ok(ProductionActivationInput {
+            daemon_cli,
+            node,
+            resource_root,
+            catalog,
+        })
+    })();
+    match input {
+        Err(error) => {
+            let _ = harness.mark_unavailable(error.unavailable_reason());
+        }
+        Ok(input) => {
+            tauri::async_runtime::spawn(async move {
+                match activate_production(input).await {
+                    Ok(broker) => {
+                        let _ = harness.install(broker);
+                    }
+                    Err(error) => {
+                        let _ = harness.mark_unavailable(error.unavailable_reason());
+                    }
+                }
+            });
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     std::fs::create_dir_all(config_dir()).unwrap_or_else(|error| {
@@ -3817,6 +3900,9 @@ pub fn run() {
             #[cfg(debug_assertions)]
             if tauri::is_dev() {
                 install_explicit_debug_harness_fixture(app.handle())?;
+            }
+            if app.state::<AppState>().harness.broker().is_none() {
+                start_production_harness_activation(app.handle());
             }
             let config = app
                 .config()

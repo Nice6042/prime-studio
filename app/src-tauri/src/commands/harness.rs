@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use tauri::State;
 
 use crate::harness::broker::{
@@ -18,7 +19,9 @@ use std::path::{Path, PathBuf};
 
 #[tauri::command]
 pub(crate) fn harness_bootstrap(state: State<'_, crate::AppState>) -> BootProjection {
-    state.harness.bootstrap_projection()
+    state
+        .harness
+        .wait_bootstrap_projection(Duration::from_secs(6))
 }
 
 #[tauri::command]

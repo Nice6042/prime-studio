@@ -2,6 +2,7 @@
 //!
 //! Live Harness authority remains unavailable until a verified activation receipt is installed.
 
+pub mod activation;
 pub mod broker;
 pub mod compatibility;
 #[rustfmt::skip]

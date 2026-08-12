@@ -228,6 +228,102 @@ impl HarnessBroker {
         result
     }
 
+    /// Production startup reconciles only sessions already named by immutable
+    /// Studio catalog bindings. It deliberately does not ask the daemon for its
+    /// global session list: unrelated or client-owned daemon sessions are not
+    /// authority for this Studio instance.
+    pub async fn bootstrap_owned(&mut self) -> Result<BootProjection, HarnessError> {
+        if self.state != BrokerState::Disconnected {
+            return Err(HarnessError::StateViolation);
+        }
+        self.state = BrokerState::Handshaking;
+        let result = self.bootstrap_owned_inner().await;
+        if result.is_err() {
+            self.staged.clear();
+            self.expected_snapshots = None;
+            self.state = BrokerState::Failed;
+        }
+        result
+    }
+
+    async fn bootstrap_owned_inner(&mut self) -> Result<BootProjection, HarnessError> {
+        let sidecar = self.sidecar.clone().ok_or(HarnessError::StateViolation)?;
+        let discovery = sidecar
+            .request(
+                StudioRequest::DiscoverRuntime,
+                Instant::now() + Duration::from_secs(5),
+            )
+            .await?;
+        let StudioResponse::DiscoverRuntimeResult {
+            runtime,
+            compatibility: reported_compatibility,
+        } = discovery
+        else {
+            return Err(HarnessError::ProtocolViolation);
+        };
+        let Some(runtime) = runtime else {
+            if !matches!(
+                reported_compatibility,
+                HarnessCompatibility::Unavailable { .. }
+            ) {
+                return Err(HarnessError::ProtocolViolation);
+            }
+            self.compatibility = Some(reported_compatibility.clone());
+            self.begin_snapshot(0)?;
+            self.finish_snapshot()?;
+            return Ok(BootProjection {
+                compatibility: reported_compatibility,
+                sessions: Vec::new(),
+            });
+        };
+        let compatibility = decide_compatibility(&runtime);
+        if compatibility != reported_compatibility || runtime.package_digest != self.runtime_digest
+        {
+            return Err(HarnessError::ProtocolViolation);
+        }
+        if matches!(
+            compatibility,
+            HarnessCompatibility::ReadOnly { .. } | HarnessCompatibility::Unavailable { .. }
+        ) {
+            self.compatibility = Some(compatibility.clone());
+            self.begin_snapshot(0)?;
+            self.finish_snapshot()?;
+            return Ok(BootProjection {
+                compatibility,
+                sessions: Vec::new(),
+            });
+        }
+        if !compatibility_uses_profile(&compatibility, &self.profile) {
+            return Err(HarnessError::ProtocolViolation);
+        }
+        let session_ids = self.ownership.keys().cloned().collect::<Vec<_>>();
+        self.compatibility = Some(compatibility.clone());
+        self.begin_snapshot(session_ids.len())?;
+        for session_id in session_ids {
+            let response = sidecar
+                .request(
+                    StudioRequest::AttachSession {
+                        session_id: session_id.clone(),
+                    },
+                    Instant::now() + Duration::from_secs(5),
+                )
+                .await?;
+            let StudioResponse::SnapshotResult { snapshot } = response else {
+                return Err(HarnessError::ProtocolViolation);
+            };
+            if snapshot.session_id != session_id {
+                return Err(HarnessError::OwnershipViolation);
+            }
+            let admission = self.admit_snapshot(*snapshot)?;
+            self.apply_snapshot(admission)?;
+        }
+        self.finish_snapshot()?;
+        Ok(BootProjection {
+            compatibility,
+            sessions: self.projects(),
+        })
+    }
+
     async fn bootstrap_inner(&mut self) -> Result<BootProjection, HarnessError> {
         let sidecar = self.sidecar.clone().ok_or(HarnessError::StateViolation)?;
         let discovery = sidecar
