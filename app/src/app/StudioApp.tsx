@@ -17,6 +17,7 @@ import { deriveComposerState } from "../features/conversation/composerModel";
 import { HarnessInspector } from "../features/harness/HarnessInspector";
 import { SettingsShell } from "../features/settings/SettingsShell";
 import { CommandPalette } from "../features/command-palette/CommandPalette";
+import type { PaletteChat, PaletteMessage } from "../features/command-palette/searchIndex";
 import type { StudioCommandId } from "../entities/commands/commandRegistry";
 import { EditorPane } from "../features/editor/EditorPane";
 import { useStudioSelector, useStudioStore } from "./AppProviders";
@@ -97,6 +98,23 @@ export function StudioApp() {
     sessionStates,
     query,
   }), [expandedProjectIds, projectCatalog, query, sessionStates]);
+  const paletteChats = useMemo<readonly PaletteChat[]>(() => projectCatalog.projects.flatMap((project) =>
+    project.chats.map((chat) => ({ id: chat.id, title: chat.title, project: project.name, archived: project.archived || chat.archived })),
+  ), [projectCatalog]);
+  const paletteMessages = useMemo<readonly PaletteMessage[]>(() => Object.values(sessions).flatMap((session) => {
+    const project = projectCatalog.projects.find((candidate) => candidate.id === session.projectId);
+    return session.parentMessages.map((message) => {
+      const excerpt = message.kind === "assistant"
+        ? message.blocks.filter((block) => block.kind === "text").map((block) => block.text).join(" ")
+        : message.text;
+      return { id: message.id, chatId: session.chatId, project: project?.name ?? "Personal", excerpt, channel: "parent" as const };
+    });
+  }), [projectCatalog.projects, sessions]);
+
+  const openCatalogChat = (chatId: string) => {
+    const project = projectCatalog.projects.find((candidate) => candidate.chats.some((chat) => chat.id === chatId && !chat.archived));
+    if (project) store.dispatch({ type: "project-chat/command", command: { type: "selection.select-chat", projectId: project.id, chatId } });
+  };
 
   useEffect(() => {
     let active = true;
@@ -277,7 +295,7 @@ export function StudioApp() {
       onSetting={(key, value) => {
         void rpc.setAppSetting(key, value).then(setSettings).catch(() => undefined);
       }}
-    />{paletteOpen && <CommandPalette admissionConnected={admissionConnected} onRun={runCommand} onClose={() => setPaletteOpen(false)} restoreFocusTo={paletteOpener} />}</>;
+    />{paletteOpen && <CommandPalette admissionConnected={admissionConnected} onRun={runCommand} onClose={() => setPaletteOpen(false)} restoreFocusTo={paletteOpener} chats={paletteChats} messages={paletteMessages} onOpenChat={openCatalogChat} onOpenMessage={(chatId) => openCatalogChat(chatId)} />}</>;
   }
 
   const title = selectedChat?.title ?? "Prime Studio";
@@ -411,6 +429,6 @@ export function StudioApp() {
       />}
     />
     <RuntimeStatusBar session={selectedSession} />
-    {paletteOpen && <CommandPalette admissionConnected={admissionConnected} onRun={runCommand} onClose={() => setPaletteOpen(false)} restoreFocusTo={paletteOpener} />}
+    {paletteOpen && <CommandPalette admissionConnected={admissionConnected} onRun={runCommand} onClose={() => setPaletteOpen(false)} restoreFocusTo={paletteOpener} chats={paletteChats} messages={paletteMessages} onOpenChat={openCatalogChat} onOpenMessage={(chatId) => openCatalogChat(chatId)} />}
   </div>;
 }
