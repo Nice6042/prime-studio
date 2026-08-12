@@ -77,7 +77,7 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
   const now = useMonotonicNow();
   const activityAttention = chatId ? activityAttentionForChat(chatId, activityEvidence, attention) : { status: "unavailable" as const, reason: "Activity content evidence is unavailable for this chat." };
 
-  const loadDetails = async () => {
+  const loadDetails = async (mode: "foreground" | "background" = "foreground") => {
     const requestedSession = session;
     const requestedScope = sessionScope;
     const requestedIdentity = requestIdentity;
@@ -103,8 +103,10 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
     const epoch = requestEpoch.current;
     if (detailsLoadsInFlight.current.has(epoch)) return;
     detailsLoadsInFlight.current.add(epoch);
-    if (details === null) setLoadPhase("loading");
-    setActivityEvidenceSnapshot(null);
+    if (mode === "foreground") {
+      if (details === null) setLoadPhase("loading");
+      setActivityEvidenceSnapshot(null);
+    }
     try {
       const nextDetails = await adapter.load(requestedSession.sessionId);
       if (currentRequestIdentity.current !== requestedIdentity || requestEpoch.current !== epoch || adapterIsUnavailable(adapter)) return;
@@ -125,7 +127,7 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
   useEffect(() => { void loadDetails(); }, [requestIdentity, adapter]);
   useEffect(() => {
     if (!session || session.state !== "idle" || session.freshness !== "live") return;
-    const timer = window.setInterval(() => { void loadDetails(); }, 5_000);
+    const timer = window.setInterval(() => { void loadDetails("background"); }, 5_000);
     return () => window.clearInterval(timer);
   }, [adapter, requestIdentity, session?.state, session?.freshness]);
   useEffect(() => {

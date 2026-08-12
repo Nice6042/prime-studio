@@ -289,6 +289,29 @@ describe("HarnessInspector", () => {
     expect(source.load).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps ready content presented without a loading announcement during an idle refresh", async () => {
+    vi.useFakeTimers();
+    let resolveRefresh: ((value: HarnessPanelDetails) => void) | null = null;
+    const source: HarnessInspectorAdapter = {
+      availability: { status: "available" },
+      load: vi.fn()
+        .mockResolvedValueOnce(details)
+        .mockImplementationOnce(() => new Promise<HarnessPanelDetails>((resolve) => { resolveRefresh = resolve; })),
+      execute: vi.fn(),
+    };
+    const view = render(<HarnessInspector chatId="chat-a" session={{ ...session, state: "idle" }} compatibility={compatibility} adapter={source} />);
+    await act(async () => { await Promise.resolve(); });
+    expect(view.container.querySelector(".harness-inspector")).toHaveAttribute("data-load-phase", "ready");
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+
+    expect(source.load).toHaveBeenCalledTimes(2);
+    expect(view.container.querySelector(".harness-inspector")).toHaveAttribute("data-load-phase", "ready");
+    expect(screen.queryByRole("status", { name: "Loading Harness details" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Harness inspector content" })).toHaveTextContent("This chat");
+    await act(async () => { resolveRefresh?.(details); });
+  });
+
   it.each(["stale", "unknown_outcome"] as const)("does not poll a %s inspector projection", async (freshness) => {
     vi.useFakeTimers();
     const source = adapter();
