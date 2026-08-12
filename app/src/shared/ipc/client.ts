@@ -726,7 +726,10 @@ export interface HarnessStudioOperationRequest {
   readonly idempotencyKey?: string | null;
 }
 
-export async function executeHarnessStudioOperation(request: HarnessStudioOperationRequest): Promise<StudioOperationOutcome> {
+export async function executeHarnessStudioOperation(
+  request: HarnessStudioOperationRequest,
+  onProjection?: (session: RootSessionProjection) => void,
+): Promise<StudioOperationOutcome> {
   const sessionId = id(request.sessionId);
   const operationId = id(request.operation.operationId ?? crypto.randomUUID());
   const payload = detach(request.operation.payload);
@@ -764,6 +767,7 @@ export async function executeHarnessStudioOperation(request: HarnessStudioOperat
     if (projected.sessionId !== sessionId) fail();
     if (expectedCursor && (projected.cursor.runtimeGeneration !== expectedCursor.runtimeGeneration || projected.cursor.sequence !== expectedCursor.sequence + 1)) fail();
     sessionCursors.set(sessionId, projected.cursor);
+    onProjection?.(deepFreeze(projected));
   }
   if (status === "accepted" && commandId) return deepFreeze({ status, commandId });
   if (status === "queued" && commandId) return deepFreeze({ status, commandId, position });
