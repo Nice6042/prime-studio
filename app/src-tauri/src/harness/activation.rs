@@ -218,10 +218,7 @@ fn derive_catalog_ownership_for_runtime(
             (ProjectKind::Personal, ProjectRootKind::StudioManagedEmpty, None)
                 if personal_workspace.is_absolute() && personal_workspace.is_dir() =>
             {
-                personal_workspace
-                    .to_str()
-                    .ok_or(ActivationError::CatalogBindingInvalid)?
-                    .to_owned()
+                canonical_workspace_identity(personal_workspace)?
             }
             _ => return Err(ActivationError::CatalogBindingInvalid),
         };
@@ -263,6 +260,34 @@ fn derive_catalog_ownership_for_runtime(
 fn stable_id(prefix: &str, value: &str) -> String {
     let digest = format!("{:x}", Sha256::digest(value.as_bytes()));
     format!("{prefix}-{}", &digest[..24])
+}
+
+pub(crate) fn canonical_workspace_identity(path: &Path) -> Result<String, ActivationError> {
+    for ancestor in path.ancestors() {
+        let metadata =
+            fs::symlink_metadata(ancestor).map_err(|_| ActivationError::CatalogBindingInvalid)?;
+        if metadata.file_type().is_symlink() || workspace_metadata_is_reparse(&metadata) {
+            return Err(ActivationError::CatalogBindingInvalid);
+        }
+    }
+    let canonical = path
+        .canonicalize()
+        .map_err(|_| ActivationError::CatalogBindingInvalid)?;
+    if !canonical.is_absolute() || !canonical.is_dir() {
+        return Err(ActivationError::CatalogBindingInvalid);
+    }
+    Ok(child_process_path(&canonical))
+}
+
+#[cfg(windows)]
+fn workspace_metadata_is_reparse(metadata: &fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    metadata.file_attributes() & 0x0000_0400 != 0
+}
+
+#[cfg(not(windows))]
+fn workspace_metadata_is_reparse(_: &fs::Metadata) -> bool {
+    false
 }
 
 #[cfg(windows)]

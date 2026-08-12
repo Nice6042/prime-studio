@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tauri::State;
 
+use crate::harness::activation::canonical_workspace_identity;
 use crate::harness::broker::{
     AttachRequest, InspectorRequest, RefreshSessionRequest, ResidentCreateRequest,
     SessionCommandRequest, StudioOperationRequest,
@@ -109,33 +110,7 @@ fn session_file_metadata(daemon_chat_id: &str) -> String {
 }
 
 fn canonical_workspace(path: &Path) -> Result<String, String> {
-    for ancestor in path.ancestors() {
-        let metadata = std::fs::symlink_metadata(ancestor)
-            .map_err(|_| "Harness workspace is unavailable".to_owned())?;
-        if metadata.file_type().is_symlink() || metadata_is_reparse(&metadata) {
-            return Err("Harness workspace contains an untrusted link".to_owned());
-        }
-    }
-    let canonical =
-        std::fs::canonicalize(path).map_err(|_| "Harness workspace is unavailable".to_owned())?;
-    if !canonical.is_absolute() || !canonical.is_dir() {
-        return Err("Harness workspace is unavailable".to_owned());
-    }
-    canonical
-        .into_os_string()
-        .into_string()
-        .map_err(|_| "Harness workspace identity is unavailable".to_owned())
-}
-
-#[cfg(windows)]
-fn metadata_is_reparse(metadata: &std::fs::Metadata) -> bool {
-    use std::os::windows::fs::MetadataExt;
-    metadata.file_attributes() & 0x0000_0400 != 0
-}
-
-#[cfg(not(windows))]
-fn metadata_is_reparse(_: &std::fs::Metadata) -> bool {
-    false
+    canonical_workspace_identity(path).map_err(|_| "Harness workspace is unavailable".to_owned())
 }
 
 fn project_workspace(project: &crate::project_catalog::Project) -> Result<String, String> {
