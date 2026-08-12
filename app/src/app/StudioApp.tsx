@@ -12,6 +12,7 @@ import { CreateProjectDialog, NavigationIcon, ProjectSidebar } from "../features
 import { selectNavigationProjects } from "../features/navigation/navigationSelectors";
 import { applyProjectCatalogCommand, branchResidentCatalogChat, createResidentForCatalogChat, loadProjectCatalog } from "../features/navigation/projectCatalogClient";
 import { residentCreationDisabledReason } from "../features/navigation/residentCreationPolicy";
+import { ResidentBindingRecovery } from "../features/navigation/ResidentBindingRecovery";
 import { ParentConversation } from "../features/conversation/ParentConversation";
 import { controlBinding } from "../features/conversation/controlBinding";
 import { Composer } from "../features/conversation/Composer";
@@ -123,6 +124,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const [operationFeedback, setOperationFeedback] = useState<string | null>(null);
   const [loadedComposer, setLoadedComposer] = useState<Readonly<{ sessionId: string; projection: HarnessComposerProjection }> | null>(null);
   const [composerUnavailableReason, setComposerUnavailableReason] = useState<string | null>(null);
+  const [residentBindingFailure, setResidentBindingFailure] = useState<Readonly<{ projectId: string; chatId: string; reason: string }> | null>(null);
 
   const adapterConnected = harnessAdapter.availability.status === "available";
   const hasCapability = (capability: string) => compatibility.status !== "unavailable" && compatibility.status !== "read_only" && compatibility.capabilities.includes(capability as typeof compatibility.capabilities[number]);
@@ -327,10 +329,18 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     const revision = store.getSnapshot().catalogRevision;
     if (revision === null) return { status: "unavailable", reason: "Creating chat failed because the project catalog is unavailable." };
     const chatId = `chat-${crypto.randomUUID()}`;
-    setCatalogOperation({ phase: "pending", label: "Creating resident chat" });
+    setCatalogOperation({ phase: "pending", label: "Creating chat" });
+    let created;
     try {
-      const created = await applyProjectCatalogCommand(revision, { type: "chat.create", projectId, chatId, title: "New chat" });
+      created = await applyProjectCatalogCommand(revision, { type: "chat.create", projectId, chatId, title: "New chat" });
       store.dispatch({ type: "project-catalog/loaded", snapshot: created });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "The chat could not be created.";
+      setCatalogOperation({ phase: "error", message: reason });
+      return { status: "rejected", reason, retryable: true };
+    }
+    setCatalogOperation({ phase: "pending", label: "Binding verified resident session" });
+    try {
       let bound;
       try {
         bound = await createResidentForCatalogChat(created.revision, projectId, chatId);
@@ -341,13 +351,41 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       }
       store.dispatch({ type: "project-catalog/loaded", snapshot: bound.catalog });
       store.dispatch({ type: "harness/session-projected", session: bound.session });
+      setResidentBindingFailure(null);
       setCatalogOperation({ phase: "success", message: "Resident chat ready." });
       return { status: "updated", revision: bound.catalog.revision };
-    } catch {
-      const reason = "The chat was preserved, but its verified Harness session is unavailable. Retry creating the resident session.";
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "The verified Harness session is unavailable.";
+      const reason = `The chat was preserved, but resident binding failed: ${detail}`;
+      setResidentBindingFailure({ projectId, chatId, reason });
       setCatalogOperation({ phase: "error", message: reason });
       return { status: "rejected", reason, retryable: true };
     }
+  };
+
+  const retryResidentBinding = async () => {
+    if (!residentBindingFailure) return;
+    const revision = store.getSnapshot().catalogRevision;
+    if (revision === null) return;
+    setCatalogOperation({ phase: "pending", label: "Retrying resident binding" });
+    try {
+      const bound = await createResidentForCatalogChat(revision, residentBindingFailure.projectId, residentBindingFailure.chatId);
+      store.dispatch({ type: "project-catalog/loaded", snapshot: bound.catalog });
+      store.dispatch({ type: "harness/session-projected", session: bound.session });
+      setResidentBindingFailure(null);
+      setCatalogOperation({ phase: "success", message: "Resident chat ready." });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "The verified Harness session is unavailable.";
+      const reason = `Resident binding retry failed: ${detail}`;
+      setResidentBindingFailure({ ...residentBindingFailure, reason });
+      setCatalogOperation({ phase: "error", message: reason });
+    }
+  };
+
+  const rollbackUnboundChat = async () => {
+    if (!residentBindingFailure) return;
+    const outcome = await applyCatalog({ type: "chat.delete", projectId: residentBindingFailure.projectId, chatId: residentBindingFailure.chatId }, "Removing unbound chat");
+    if (operationAccepted(outcome.status)) setResidentBindingFailure(null);
   };
 
   const durableExecutor = async (operation: StudioOperation): Promise<StudioOperationOutcome> => {
@@ -839,6 +877,12 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
             onOpenInspector={() => { if (!layout.inspectorOpen) void dispatchOperation({ action: "layout.inspector.toggle", payload: {} }); }}
           />;
         })()}
+        {residentBindingFailure?.chatId === navigation.selectedChatId && <ResidentBindingRecovery
+          reason={residentBindingFailure.reason}
+          pending={catalogOperation.phase === "pending"}
+          onRetry={() => { void retryResidentBinding(); }}
+          onRollback={() => { void rollbackUnboundChat(); }}
+        />}
         <ParentConversation
           title={title}
           session={selectedSession}
