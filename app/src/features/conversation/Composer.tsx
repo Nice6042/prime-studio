@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+
 
 import { AttachmentChips } from "./AttachmentChips";
 import {
@@ -12,6 +13,8 @@ import {
   type SlashCommand,
 } from "./composerModel";
 import { SlashMenu } from "./SlashMenu";
+import type { ComposerModelId, ComposerRuntimeChoice, ThinkingLevel } from "./workspaceAdapter";
+import { controlBinding } from "./controlBinding";
 
 function SendIcon({ stop = false }: { readonly stop?: boolean }) {
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -29,6 +32,13 @@ export function Composer({
   onOpenUsage,
   onAttachmentsChange,
   statusMessage,
+  models = [],
+  selectedModel,
+  thinking = "off",
+  onSelectModel,
+  onSelectThinking,
+  onVoiceInput,
+  onSlashCommand,
 }: {
   readonly draft: string;
   readonly state: ComposerState;
@@ -39,7 +49,16 @@ export function Composer({
   readonly onOpenUsage: () => void;
   readonly onAttachmentsChange?: (attachments: readonly AttachmentMetadata[]) => void;
   readonly statusMessage?: string;
+  readonly models?: readonly ComposerRuntimeChoice[];
+  readonly selectedModel?: ComposerModelId;
+  readonly thinking?: ThinkingLevel;
+  readonly onSelectModel?: (modelId: ComposerModelId) => void;
+  readonly onSelectThinking?: (level: ThinkingLevel) => void;
+  readonly onVoiceInput?: () => void;
+  readonly onSlashCommand?: (command: SlashCommand["id"]) => void;
 }) {
+  const [thinkingOpen, setThinkingOpen] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const slashCommands = useMemo(() => filterSlashCommands(draft), [draft]);
   const disabledReason = state.kind === "unavailable" ? state.reason : state.kind === "read_only" ? "Archived conversations are read-only." : null;
   const canSubmit = state.kind === "idle" ? state.canSend : state.kind === "working" ? draft.trim().length > 0 && (state.canQueue || state.canSteer) : false;
@@ -47,6 +66,7 @@ export function Composer({
 
   const runSlashCommand = (command: SlashCommand) => {
     if (command.id === "usage") onOpenUsage();
+    else onSlashCommand?.(command.id);
   };
   const submit = () => {
     const exactSlash = slashCommands.find((command) => command.label === draft.trim());
@@ -58,17 +78,24 @@ export function Composer({
     if (canSubmit) onSubmit();
   };
 
+  const droppedFiles = (files: FileList | readonly File[]) => {
+    if (!onAttachmentsChange) return;
+    const candidates = Array.from(files).map((file) => ({ id: `${file.name}:${file.size}:${file.lastModified}`, name: file.name, size: file.size, mediaType: file.type || "application/octet-stream" }));
+    onAttachmentsChange(acceptAttachmentMetadata(attachments, candidates).attachments);
+  };
+
   return <div className="composer-dock">
-    <div className="composer-frame" aria-label="Message composer">
+    <div className="composer-frame" data-dragging={dragging} aria-label="Message composer" onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); droppedFiles(event.dataTransfer.files); }}>
       <SlashMenu commands={slashCommands} onSelect={(command) => {
         onDraftChange(`${command.label} `);
       }} />
       <AttachmentChips attachments={attachments} onRemove={onAttachmentsChange ? (id) => onAttachmentsChange(attachments.filter((attachment) => attachment.id !== id)) : undefined} />
       <textarea
-        aria-label="Message Prime"
+        {...controlBinding("composer-draft", "composer.draft.change")}
+        aria-label="Message Prime Studio"
         value={draft}
         readOnly={state.kind === "read_only"}
-        placeholder="Message Prime"
+        placeholder="Message Prime Studio — try / for commands"
         rows={1}
         onChange={(event) => onDraftChange(boundDraft(event.currentTarget.value))}
         onKeyDown={(event) => {
@@ -86,24 +113,26 @@ export function Composer({
         }}
       />
       <div className="composer-controls">
-        {onAttachmentsChange && <label className="composer-attach" title="Attach files for native validation">
+        {onAttachmentsChange && <label className="composer-attach" {...controlBinding("composer-attachment-pick", "composer.attachment.pick")} title="Attach files">
           <span aria-hidden="true">+</span><span className="sr-only">Attach files</span>
           <input type="file" multiple onChange={(event) => {
-            const candidates = Array.from(event.currentTarget.files ?? []).map((file) => ({
-              id: `${file.name}:${file.size}:${file.lastModified}`,
-              name: file.name,
-              size: file.size,
-              mediaType: file.type || "application/octet-stream",
-            }));
-            onAttachmentsChange(acceptAttachmentMetadata(attachments, candidates).attachments);
+            droppedFiles(event.currentTarget.files ?? []);
             event.currentTarget.value = "";
           }} />
         </label>}
-        <button className="composer-quick-control" type="button" disabled title="Model selection is not connected yet.">Model unavailable</button>
-        <button className="composer-quick-control" type="button" disabled title="Thinking selection is not connected yet.">Thinking unavailable</button>
-        <span className="composer-context" title="Approximate draft tokens">~{approximateDraftTokens(draft).toLocaleString()} tokens</span>
-        {state.kind === "working" && state.canAbort ? <button className="composer-send" type="button" aria-label="Stop response" onClick={onAbort} disabled={busy}><SendIcon stop /></button>
-          : <button className="composer-send" type="button" aria-label="Send message" onClick={submit} disabled={!canSubmit || busy}><SendIcon /></button>}
+        {models.length > 0 ? <div className="composer-model-pills" aria-label="Quick model switcher">
+          {models.map((model) => {
+            return <button key={model.id} type="button" {...controlBinding(`composer-model-${model.id}`, "composer.model.select", model.enabled ? null : (model.disabledReason ?? "This model is unavailable."))} aria-label={`Use ${model.label}`} aria-pressed={model.id === selectedModel} disabled={!model.enabled} title={model.disabledReason} onClick={() => onSelectModel?.(model.id)}>{model.shortLabel ?? model.label}</button>;
+          })}
+        </div> : <button className="composer-quick-control" type="button" disabled title="The verified Harness did not provide a model catalog.">Model unavailable</button>}
+        <div className="composer-thinking-root">
+          <button className="composer-thinking" type="button" {...controlBinding("composer-thinking", "composer.thinking.select")} aria-label={`Thinking ${thinking}`} aria-haspopup="menu" aria-expanded={thinkingOpen} disabled={!onSelectThinking} onClick={() => setThinkingOpen((value) => !value)}><span>Thinking</span><strong>{thinking}</strong><span aria-hidden="true">⌄</span></button>
+          {thinkingOpen && <div className="composer-thinking-menu" role="menu" aria-label="Thinking level">{(["off", "low", "medium", "high", "max"] as const).map((level) => <button key={level} type="button" {...controlBinding(`composer-thinking-${level}`, "composer.thinking.select")} role="menuitemradio" aria-checked={thinking === level} onClick={() => { setThinkingOpen(false); onSelectThinking?.(level); }}>{level[0].toUpperCase() + level.slice(1)}{thinking === level && <span aria-hidden="true">✓</span>}</button>)}</div>}
+        </div>
+        <span className="composer-context" title="Approximate draft tokens">≈ {approximateDraftTokens(draft).toLocaleString()} tokens</span>
+        <button className="composer-voice" type="button" {...controlBinding("composer-voice", "composer.voice.start", "Voice capture is unavailable until the native privacy contract is implemented.")} aria-label="Voice input" disabled={!onVoiceInput} title={onVoiceInput ? "Voice input" : "Voice capture is unavailable until the native privacy contract is implemented."} onClick={onVoiceInput}><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3zM19 10v1a7 7 0 0 1-14 0v-1M12 18v4" /></svg></button>
+        {state.kind === "working" && state.canAbort ? <button className="composer-send" type="button" {...controlBinding("composer-stop", "harness.session.abort")} aria-label="Stop response" onClick={onAbort} disabled={busy}><SendIcon stop /></button>
+          : <button className="composer-send" type="button" {...controlBinding("composer-send", "harness.session.prompt")} aria-label="Send message" onClick={submit} disabled={!canSubmit || busy}><SendIcon /></button>}
       </div>
     </div>
     <div className="composer-explanation" role="status">{disabledReason ?? statusMessage ?? (state.kind === "working" ? "Prime is working. Queue or steer this turn." : "")}</div>

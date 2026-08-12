@@ -22,7 +22,7 @@ export interface StudioCommand {
 const enabled = () => ({ enabled: true }) as const;
 
 export const studioCommands: readonly StudioCommand[] = Object.freeze([
-  { id: "chat.new", label: "New chat", group: "Chat", shortcuts: ["Ctrl+N"], keywords: ["create", "conversation"], availability: (context) => context.admissionConnected ? enabled() : { enabled: false, reason: "New chat activation is not connected yet." } },
+  { id: "chat.new", label: "New chat", group: "Chat", shortcuts: ["Ctrl+N"], keywords: ["create", "conversation"], availability: enabled },
   { id: "palette.open", label: "Open command palette", group: "View", shortcuts: ["Ctrl+K"], keywords: ["search", "actions"], availability: enabled },
   { id: "sidebar.toggle", label: "Toggle projects", group: "View", shortcuts: ["Ctrl+B"], keywords: ["sidebar", "navigation"], availability: enabled },
   { id: "inspector.toggle", label: "Toggle Harness", group: "View", shortcuts: ["Ctrl+J"], keywords: ["agents", "usage", "activity", "right panel"], availability: enabled },

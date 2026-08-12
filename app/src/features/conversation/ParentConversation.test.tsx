@@ -62,4 +62,68 @@ describe("ParentConversation", () => {
     expect(screen.queryByText("The adapter is versioned.")).not.toBeInTheDocument();
     expect(screen.getByText("Display revision 2")).toBeVisible();
   });
+
+  it("routes versions, editing, branching, regeneration, work details, and edited files", async () => {
+    const onEditUserMessage = vi.fn();
+    const onBranchFrom = vi.fn();
+    const onSelectUserVersion = vi.fn();
+    const onSelectAssistantVersion = vi.fn();
+    const onRegenerate = vi.fn();
+    const onUndoEditedFiles = vi.fn();
+    const onReviewEditedFiles = vi.fn();
+    const onOpenEditedFile = vi.fn();
+    render(<ParentConversation
+      title="Harness architecture"
+      session={session}
+      archived={false}
+      presentations={{
+        u1: { userVersions: [{ text: "Map the runtime" }, { text: "Map every runtime" }], selectedUserVersion: 0 },
+        a1: {
+          assistantVersions: [{ text: "The adapter is versioned." }, { text: "The adapter is capability negotiated." }],
+          selectedAssistantVersion: 0,
+          workedFor: "12s",
+          workSteps: ["Mapped the daemon protocol", "Validated the renderer boundary"],
+          editedFiles: [{ path: "app/src/runtime.ts", additions: 18, deletions: 2 }],
+        },
+      }}
+      onEditUserMessage={onEditUserMessage}
+      onBranchFrom={onBranchFrom}
+      onSelectUserVersion={onSelectUserVersion}
+      onSelectAssistantVersion={onSelectAssistantVersion}
+      onRegenerate={onRegenerate}
+      onUndoEditedFiles={onUndoEditedFiles}
+      onReviewEditedFiles={onReviewEditedFiles}
+      onOpenEditedFile={onOpenEditedFile}
+    />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Next user version" }));
+    expect(onSelectUserVersion).toHaveBeenCalledWith("u1", 1);
+    await userEvent.click(screen.getByRole("button", { name: "Edit message" }));
+    const edit = screen.getByRole("textbox", { name: "Edit message text" });
+    await userEvent.clear(edit);
+    await userEvent.type(edit, "Map the verified runtime");
+    await userEvent.click(screen.getByRole("button", { name: "Send edited message" }));
+    expect(onEditUserMessage).toHaveBeenCalledWith("u1", "Map the verified runtime");
+    await userEvent.click(screen.getByRole("button", { name: "Branch chat from message" }));
+    expect(onBranchFrom).toHaveBeenCalledWith("u1");
+    await userEvent.click(screen.getByRole("button", { name: "Next assistant version" }));
+    expect(onSelectAssistantVersion).toHaveBeenCalledWith("a1", 1);
+    await userEvent.click(screen.getByRole("button", { name: "Regenerate response" }));
+    expect(onRegenerate).toHaveBeenCalledWith("a1");
+    await userEvent.click(screen.getByRole("button", { name: "Worked for 12s" }));
+    expect(screen.getByText("Mapped the daemon protocol")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Undo edited files" }));
+    await userEvent.click(screen.getByRole("button", { name: "Review edited files" }));
+    await userEvent.click(screen.getByRole("button", { name: "Open app/src/runtime.ts" }));
+    expect(onUndoEditedFiles).toHaveBeenCalledWith("a1");
+    expect(onReviewEditedFiles).toHaveBeenCalledWith("a1");
+    expect(onOpenEditedFile).toHaveBeenCalledWith("a1", "app/src/runtime.ts");
+  });
+
+  it("fills the composer from the canonical empty-state suggestions", async () => {
+    const onSuggestionFill = vi.fn();
+    render(<ParentConversation title="New chat" session={null} archived={false} onSuggestionFill={onSuggestionFill} />);
+    await userEvent.click(screen.getByRole("button", { name: "Explore this codebase" }));
+    expect(onSuggestionFill).toHaveBeenCalledWith("Explore this codebase and explain its architecture.");
+  });
 });

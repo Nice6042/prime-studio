@@ -8,9 +8,11 @@ import { WorkspaceShell } from "../features/shell/WorkspaceShell";
 import { CollapsedSidebar } from "../features/navigation/CollapsedSidebar";
 import { NavigationIcon, ProjectSidebar } from "../features/navigation/ProjectSidebar";
 import { selectNavigationProjects } from "../features/navigation/navigationSelectors";
-import { loadProjectCatalog } from "../features/navigation/projectCatalogClient";
+import { applyProjectCatalogCommand, loadProjectCatalog } from "../features/navigation/projectCatalogClient";
 import { ParentConversation } from "../features/conversation/ParentConversation";
 import { Composer } from "../features/conversation/Composer";
+import { WorkspaceHeader } from "../features/conversation/WorkspaceHeader";
+import type { WorkspaceOperationState } from "../features/conversation/workspaceAdapter";
 import { deriveComposerState } from "../features/conversation/composerModel";
 import { HarnessInspector } from "../features/harness/HarnessInspector";
 import { SettingsShell } from "../features/settings/SettingsShell";
@@ -82,6 +84,7 @@ export function StudioApp() {
   const [expandedProjectIds, setExpandedProjectIds] = useState<ReadonlySet<string>>(
     () => new Set(projectCatalog.projects.filter((project) => !project.archived).map((project) => project.id)),
   );
+  const [catalogOperation, setCatalogOperation] = useState<WorkspaceOperationState>({ phase: "idle" });
 
   const sessionStates = useMemo(() => Object.fromEntries(
     Object.values(sessions).map((session) => [session.chatId, session.state]),
@@ -149,9 +152,30 @@ export function StudioApp() {
     setPaletteOpen(true);
   };
 
+  const applyCatalog = async (command: Parameters<typeof applyProjectCatalogCommand>[1], label: string) => {
+    const revision = store.getSnapshot().catalogRevision;
+    if (revision === null) {
+      setCatalogOperation({ phase: "error", message: `${label} failed because the project catalog is unavailable.` });
+      return;
+    }
+    setCatalogOperation({ phase: "pending", label });
+    try {
+      const snapshot = await applyProjectCatalogCommand(revision, command);
+      store.dispatch({ type: "project-catalog/loaded", snapshot });
+      setCatalogOperation({ phase: "success", message: `${label} complete.` });
+    } catch {
+      setCatalogOperation({ phase: "error", message: `${label} failed. Retry the action.` });
+    }
+  };
+
+  const createChat = () => {
+    const projectId = store.getSnapshot().projectCatalog.selectedProjectId;
+    void applyCatalog({ type: "chat.create", projectId, chatId: `chat-${crypto.randomUUID()}`, title: "New chat" }, "Creating chat");
+  };
+
   const runCommand = (id: StudioCommandId) => {
     switch (id) {
-      case "chat.new": return;
+      case "chat.new": createChat(); return;
       case "palette.open": openPalette(); return;
       case "settings.open": store.dispatch({ type: "route/settings" }); return;
       case "settings.usage": store.dispatch({ type: "route/settings", section: "usage" }); return;
@@ -195,20 +219,23 @@ export function StudioApp() {
           else next.add(projectId);
           return next;
         })}
-        onNewChat={() => undefined}
-        newChatDisabledReason="New chat activation is not connected yet."
+        onNewChat={createChat}
+        newChatDisabledReason={catalogOperation.phase === "pending" ? catalogOperation.label : undefined}
+        onOpenSearch={openPalette}
+        onOpenArchived={() => store.dispatch({ type: "route/settings", section: "archived" })}
+        onCollapse={() => changeLayout({ sidebarOpen: false })}
         onOpenSettings={openSettings}
       />
     : <CollapsedSidebar
         onExpand={() => changeLayout({ sidebarOpen: true })}
-        onNewChat={() => undefined}
-        newChatDisabledReason="New chat activation is not connected yet."
+        onNewChat={createChat}
+        newChatDisabledReason={catalogOperation.phase === "pending" ? catalogOperation.label : undefined}
         onOpenSettings={openSettings}
       />;
   const sidebarRailContent = <CollapsedSidebar
     onExpand={() => changeLayout({ sidebarOpen: true })}
-    onNewChat={() => undefined}
-    newChatDisabledReason="New chat activation is not connected yet."
+    onNewChat={createChat}
+    newChatDisabledReason={catalogOperation.phase === "pending" ? catalogOperation.label : undefined}
     onOpenSettings={openSettings}
   />;
 
@@ -290,6 +317,25 @@ export function StudioApp() {
       sidebarContent={sidebarContent}
       sidebarRailContent={sidebarRailContent}
       conversation={<div className="conversation-stage">
+        {selectedChat && (() => {
+          const project = projectCatalog.projects.find((candidate) => candidate.id === selectedChat.projectId);
+          const catalogChat = project?.chats.find((candidate) => candidate.id === selectedChat.id);
+          return <WorkspaceHeader
+            projectName={project?.name ?? "Personal"}
+            chat={{ id: selectedChat.id, title: selectedChat.title, pinned: catalogChat?.pinned ?? false }}
+            chats={project?.chats.filter((candidate) => !candidate.archived).map((candidate) => ({ id: candidate.id, title: candidate.title })) ?? []}
+            operation={catalogOperation}
+            inspectorHidden={!layout.inspectorOpen}
+            onSelectChat={(chatId) => { if (project) store.dispatch({ type: "project-chat/command", command: { type: "selection.select-chat", projectId: project.id, chatId } }); }}
+            onSetPinned={(pinned) => { if (project) void applyCatalog({ type: "chat.set-pinned", projectId: project.id, chatId: selectedChat.id, pinned }, pinned ? "Pinning chat" : "Unpinning chat"); }}
+            onRename={(nextTitle) => { if (project) void applyCatalog({ type: "chat.rename", projectId: project.id, chatId: selectedChat.id, title: nextTitle }, "Renaming chat"); }}
+            onDuplicate={() => { if (project) void applyCatalog({ type: "chat.duplicate", projectId: project.id, chatId: selectedChat.id, newChatId: `chat-${crypto.randomUUID()}`, title: `${selectedChat.title} copy` }, "Duplicating chat"); }}
+            onMove={() => setCatalogOperation({ phase: "disabled", reason: "Choose a destination project from the project menu before moving this chat." })}
+            onArchive={() => { if (project) void applyCatalog({ type: "chat.archive", projectId: project.id, chatId: selectedChat.id }, "Archiving chat"); }}
+            onDelete={() => { if (project) void applyCatalog({ type: "chat.delete", projectId: project.id, chatId: selectedChat.id }, "Deleting chat"); }}
+            onOpenInspector={() => changeLayout({ inspectorOpen: true })}
+          />;
+        })()}
         <ParentConversation
           title={title}
           session={selectedSession}
@@ -301,6 +347,7 @@ export function StudioApp() {
             changeLayout({ editorOpen: true });
             setActiveSheet("editor");
           } : undefined}
+          onSuggestionFill={navigation.selectedChatId ? (text) => store.dispatch({ type: "draft/change", chatId: navigation.selectedChatId!, draft: text }) : undefined}
         />
         {navigation.selectedChatId && <Composer
           draft={draft}

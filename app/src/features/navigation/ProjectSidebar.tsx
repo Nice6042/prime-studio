@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { NavigationProject } from "./navigationSelectors";
+import { controlBinding } from "../conversation/controlBinding";
 import "./navigation.css";
 
-export function NavigationIcon({ kind }: { readonly kind: "add" | "search" | "folder" | "chat" | "settings" | "pin" | "chevron" | "menu" | "harness" | "editor" | "command" }) {
+export function NavigationIcon({ kind }: { readonly kind: "add" | "search" | "folder" | "chat" | "settings" | "pin" | "chevron" | "menu" | "harness" | "editor" | "command" | "archive" | "more" | "collapse" }) {
   const paths = {
     add: <path d="M12 5v14M5 12h14" />,
     search: <><circle cx="11" cy="11" r="6" /><path d="m16 16 4 4" /></>,
@@ -16,6 +17,9 @@ export function NavigationIcon({ kind }: { readonly kind: "add" | "search" | "fo
     harness: <><rect x="4" y="5" width="16" height="14" rx="2" /><path d="M9 5v14M13 9h4M13 13h4" /></>,
     editor: <><rect x="4" y="4" width="16" height="16" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></>,
     command: <><circle cx="11" cy="11" r="6" /><path d="m16 16 4 4M8 11h6M11 8v6" /></>,
+    archive: <><path d="M3 8v13h18V8M1 3h22v5H1" /><path d="M10 12h4" /></>,
+    more: <><circle cx="12" cy="5" r="1.4" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" /><circle cx="12" cy="19" r="1.4" fill="currentColor" stroke="none" /></>,
+    collapse: <><path d="m11 7-5 5 5 5M18 7l-5 5 5 5" /></>,
   };
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{paths[kind]}</svg>;
 }
@@ -28,6 +32,12 @@ export function ProjectSidebar({
   onToggleProject,
   onNewChat,
   onOpenSettings,
+  onOpenSearch,
+  onNewProject,
+  onOpenArchived,
+  onOpenWorkspaceMenu,
+  onCollapse,
+  workspace = { initials: "LW", name: "Local workspace", detail: "local@workspace" },
   newChatDisabledReason,
 }: {
   readonly projects: readonly NavigationProject[];
@@ -37,6 +47,12 @@ export function ProjectSidebar({
   readonly onToggleProject: (projectId: string) => void;
   readonly onNewChat: () => void;
   readonly onOpenSettings: () => void;
+  readonly onOpenSearch?: () => void;
+  readonly onNewProject?: () => void;
+  readonly onOpenArchived?: () => void;
+  readonly onOpenWorkspaceMenu?: () => void;
+  readonly onCollapse?: () => void;
+  readonly workspace?: Readonly<{ initials: string; name: string; detail: string }>;
   readonly newChatDisabledReason?: string;
 }) {
   const [search, setSearch] = useState(query);
@@ -55,37 +71,48 @@ export function ProjectSidebar({
 
   return <div className="project-sidebar">
     <div className="project-sidebar-brand">
-      <span className="project-mark" aria-hidden="true">P</span>
+      <span className="project-mark" aria-hidden="true"><span /></span>
       <strong>Prime Studio</strong>
+      {onCollapse && <button type="button" className="project-brand-action" {...controlBinding("sidebar-collapse", "layout.sidebar.toggle")} aria-label="Collapse sidebar" onClick={onCollapse}><NavigationIcon kind="collapse" /></button>}
     </div>
     <button
       className="project-primary-action"
       type="button"
+      aria-label="New chat"
+      {...controlBinding("sidebar-new-chat", "catalog.chat.create")}
       onClick={onNewChat}
       disabled={Boolean(newChatDisabledReason)}
       title={newChatDisabledReason}
-    ><NavigationIcon kind="add" />New chat</button>
-    <label className="project-search">
-      <NavigationIcon kind="search" />
-      <span className="sr-only">Search chats</span>
-      <input
-        ref={searchRef}
-        type="search"
-        aria-label="Search chats"
-        value={search}
-        placeholder="Search chats"
-        onChange={(event) => {
-          const bounded = Array.from(event.currentTarget.value).slice(0, 200).join("");
-          setSearch(bounded);
-          onSearch?.(bounded);
-        }}
-      />
-    </label>
+    ><NavigationIcon kind="add" /><span>New chat</span><kbd>Ctrl+N</kbd></button>
+    {onOpenSearch ? <button type="button" className="project-search-trigger" {...controlBinding("sidebar-search", "palette.open")} aria-label="Search" onClick={onOpenSearch}><NavigationIcon kind="search" /><span>Search</span><kbd>Ctrl+K</kbd></button> : <label className="project-search">
+        <NavigationIcon kind="search" />
+        <span className="sr-only">Search chats</span>
+        <input
+          ref={searchRef}
+          type="search"
+          aria-label="Search chats"
+          value={search}
+          placeholder="Search chats"
+          onChange={(event) => {
+            const bounded = Array.from(event.currentTarget.value).slice(0, 200).join("");
+            setSearch(bounded);
+            onSearch?.(bounded);
+          }}
+        />
+      </label>}
     <div className="project-list" role="list" aria-label="Projects">
+      <div className="project-section-label"><NavigationIcon kind="pin" /><span>Pinned</span></div>
+      <div className="project-pinned-list">
+        {projects.flatMap((project) => project.chats.filter((chat) => chat.pinned).map((chat) => ({ ...chat, projectName: project.name }))).map((chat) => <button key={chat.id} type="button" {...controlBinding(`sidebar-pinned-${chat.id}`, "catalog.chat.select")} className="chat-row pinned-chat-row" aria-label={`${chat.title}, pinned${chat.unread ? ", unread" : ""}`} aria-current={chat.selected ? "page" : undefined} onClick={() => onSelectChat(chat.id)}>
+          <NavigationIcon kind="chat" /><span className="chat-title">{chat.title}</span>{chat.unread && <span className="chat-unread" aria-hidden="true" />}
+        </button>)}
+      </div>
+      <div className="project-section-heading"><span>Projects</span>{onNewProject && <button type="button" {...controlBinding("sidebar-new-project", "catalog.project.create")} aria-label="New project" onClick={onNewProject}><NavigationIcon kind="add" /></button>}</div>
       {projects.map((project) => <section className="project-group" key={project.id} role="listitem">
         <button
           type="button"
           className="project-disclosure"
+          {...controlBinding(`sidebar-project-${project.id}`, "catalog.project.toggle")}
           aria-expanded={project.expanded}
           onClick={() => onToggleProject(project.id)}
         >
@@ -101,6 +128,7 @@ export function ProjectSidebar({
             return <div role="listitem" key={chat.id}>
               <button
                 type="button"
+                {...controlBinding(`sidebar-chat-${chat.id}`, "catalog.chat.select")}
                 className="chat-row"
                 aria-label={`${chat.title}${state}${unread}`}
                 aria-current={chat.selected ? "page" : undefined}
@@ -116,7 +144,15 @@ export function ProjectSidebar({
         </div>}
       </section>)}
       {projects.length === 0 && <p className="project-empty">No matching chats</p>}
+      {onOpenArchived && <button type="button" className="project-archived" {...controlBinding("sidebar-archived", "route.archived.open")} onClick={onOpenArchived}><NavigationIcon kind="archive" />Archived chats</button>}
     </div>
-    <button className="project-settings" type="button" onClick={onOpenSettings}><NavigationIcon kind="settings" />Settings</button>
+    <footer className="project-sidebar-footer">
+      <button className="project-settings" type="button" {...controlBinding("sidebar-settings", "route.settings.open")} aria-label="Settings" onClick={onOpenSettings}><NavigationIcon kind="settings" /><span>Settings</span><kbd>Ctrl+,</kbd></button>
+      <div className="workspace-card">
+        <span className="workspace-avatar" aria-hidden="true">{workspace.initials.slice(0, 2)}</span>
+        <span className="workspace-copy"><strong>{workspace.name}</strong><small>{workspace.detail}</small></span>
+        {onOpenWorkspaceMenu && <button type="button" {...controlBinding("sidebar-workspace-menu", "workspace.switch")} aria-label="Workspace menu" onClick={onOpenWorkspaceMenu}><NavigationIcon kind="more" /></button>}
+      </div>
+    </footer>
   </div>;
 }

@@ -9,8 +9,8 @@ describe("studio command registry", () => {
     expect(new Set(shortcuts).size).toBe(shortcuts.length);
   });
 
-  it("keeps unavailable effects visible with exact reasons", () => {
+  it("keeps durable chat creation available without a live Harness session", () => {
     const create = studioCommands.find((command) => command.id === "chat.new")!;
-    expect(create.availability({ admissionConnected: false })).toEqual({ enabled: false, reason: "New chat activation is not connected yet." });
+    expect(create.availability({ admissionConnected: false })).toEqual({ enabled: true });
   });
 });

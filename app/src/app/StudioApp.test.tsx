@@ -94,7 +94,7 @@ describe("Studio application state", () => {
     );
 
     expect(screen.getByRole("main")).toHaveAccessibleName("Harness architecture");
-    expect(screen.getByRole("heading", { name: "Harness architecture" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Switch chat" })).toHaveTextContent("Harness architecture");
     for (const name of ["Projects", "Harness", "Open editor", "Open command palette"]) {
       expect(screen.getByRole("button", { name }).querySelector("svg")).not.toBeNull();
     }
@@ -119,7 +119,7 @@ describe("Studio application state", () => {
     expect(screen.getByRole("navigation", { name: "Projects and chats" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Harness architecture" })).toBeVisible();
     expect(screen.getByRole("main", { name: "Harness architecture" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "New chat" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "New chat" })).toBeEnabled();
   });
 
   it("renders routed settings and preserves the selected chat when returning", async () => {

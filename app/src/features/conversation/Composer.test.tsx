@@ -15,10 +15,10 @@ describe("Composer", () => {
       onOpenUsage={vi.fn()}
     />);
 
-    expect(screen.getByRole("textbox", { name: "Message Prime" })).toBeEnabled();
+    expect(screen.getByRole("textbox", { name: "Message Prime Studio" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
     expect(screen.getByText("Prompt admission is not connected.")).toBeVisible();
-    fireEvent.change(screen.getByRole("textbox", { name: "Message Prime" }), { target: { value: "Updated" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Message Prime Studio" }), { target: { value: "Updated" } });
     expect(onDraftChange).toHaveBeenCalledWith("Updated");
   });
 
@@ -33,7 +33,7 @@ describe("Composer", () => {
       onAbort={vi.fn()}
       onOpenUsage={onOpenUsage}
     />);
-    const textbox = screen.getByRole("textbox", { name: "Message Prime" });
+    const textbox = screen.getByRole("textbox", { name: "Message Prime Studio" });
     fireEvent.keyDown(textbox, { key: "Enter" });
     fireEvent.keyDown(textbox, { key: "Enter", shiftKey: true });
     expect(onSubmit).toHaveBeenCalledTimes(1);
@@ -46,7 +46,7 @@ describe("Composer", () => {
       onAbort={vi.fn()}
       onOpenUsage={onOpenUsage}
     />);
-    fireEvent.keyDown(screen.getByRole("textbox", { name: "Message Prime" }), { key: "Enter" });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Message Prime Studio" }), { key: "Enter" });
     expect(onOpenUsage).toHaveBeenCalledTimes(1);
   });
 });

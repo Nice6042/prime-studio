@@ -20,7 +20,7 @@ export interface AttachmentMetadata {
 }
 
 export interface SlashCommand {
-  readonly id: "usage" | "export" | "fork" | "compact";
+  readonly id: "model" | "effort" | "compact" | "fork" | "new" | "usage" | "export";
   readonly label: string;
   readonly description: string;
   readonly enabled: boolean;
@@ -28,10 +28,13 @@ export interface SlashCommand {
 }
 
 export const SLASH_COMMANDS: readonly SlashCommand[] = [
+  { id: "model", label: "/model", description: "Choose the model for this chat", enabled: true },
+  { id: "effort", label: "/effort", description: "Choose the thinking level", enabled: true },
+  { id: "compact", label: "/compact", description: "Compact the active Harness context", enabled: true },
+  { id: "fork", label: "/fork", description: "Branch from this conversation", enabled: true },
+  { id: "new", label: "/new", description: "Start a new chat", enabled: true },
   { id: "usage", label: "/usage", description: "Open current-chat usage", enabled: true },
-  { id: "export", label: "/export", description: "Export this conversation", enabled: false, unavailableReason: "Export is not connected yet." },
-  { id: "fork", label: "/fork", description: "Fork from the current conversation", enabled: false, unavailableReason: "Fork is not connected yet." },
-  { id: "compact", label: "/compact", description: "Compact the active Harness context", enabled: false, unavailableReason: "Compaction is not connected yet." },
+  { id: "export", label: "/export", description: "Export this conversation", enabled: true },
 ];
 
 export function boundDraft(value: string): string {
