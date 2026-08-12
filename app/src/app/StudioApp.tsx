@@ -300,15 +300,7 @@ export function StudioApp() {
     }
   };
   return <div className="studio-application">
-    <TitleBar title={title} onOperation={(operation) => {
-      switch (operation.action) {
-        case "catalog.chat.create": createChat(); break;
-        case "route.settings.open": store.dispatch({ type: "route/settings" }); break;
-        case "layout.sidebar.toggle": changeLayout({ sidebarOpen: !layout.sidebarOpen }); break;
-        case "layout.inspector.toggle": changeLayout({ inspectorOpen: !layout.inspectorOpen }); break;
-        default: setCatalogOperation({ phase: "disabled", reason: `${operation.action} is unavailable in this verified runtime.` });
-      }
-    }} actions={<>
+    <TitleBar title={title} actions={<>
       <button type="button" className="studio-command-trigger" aria-label="Projects" aria-pressed={viewport < 760 ? activeSheet === "sidebar" : layout.sidebarOpen} onClick={() => { if (viewport < 760) { changeLayout({ sidebarOpen: true }); setActiveSheet((value) => value === "sidebar" ? null : "sidebar"); } else changeLayout({ sidebarOpen: !layout.sidebarOpen }); }}><NavigationIcon kind="menu" /></button>
       <button type="button" className="studio-command-trigger" aria-label="Harness" aria-pressed={viewport < 760 ? activeSheet === "inspector" : layout.inspectorOpen} onClick={() => { if (viewport < 760) { changeLayout({ inspectorOpen: true }); setActiveSheet((value) => value === "inspector" ? null : "inspector"); } else changeLayout({ inspectorOpen: !layout.inspectorOpen }); }}><NavigationIcon kind="harness" /></button>
       <button type="button" className="studio-command-trigger" aria-label={layout.editorOpen ? "Close editor" : "Open editor"} onClick={() => { changeLayout({ editorOpen: !layout.editorOpen }); setActiveSheet(layout.editorOpen ? null : "editor"); }}><NavigationIcon kind="editor" /></button>
