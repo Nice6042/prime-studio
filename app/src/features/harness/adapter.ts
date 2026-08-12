@@ -7,6 +7,7 @@ export interface HarnessContextWindow {
   readonly usedTokens: number;
   readonly capacityTokens: number;
   readonly turns?: number;
+  /** Observed context utilization ratios (0..1) or used-token samples, in chronological order. */
   readonly samples?: readonly number[];
 }
 
@@ -32,6 +33,8 @@ export interface HarnessActivityItem {
   readonly kind: HarnessActivityKind;
   readonly title: string;
   readonly detail: string;
+  /** Runtime-projected acknowledgement state. Absent means unknown, never unseen. */
+  readonly seen?: boolean;
   readonly childId?: string;
   readonly filePath?: string;
   readonly tool?: Readonly<{
@@ -69,6 +72,8 @@ export interface HarnessPanelDetails {
   readonly observedAtMs: number;
   readonly startedAtMs: number | null;
   readonly context: HarnessContextWindow | null;
+  /** Per-turn token evidence. Absent means the runtime did not expose it. */
+  readonly turnUsage?: readonly Readonly<{ turn: number; input: number; output: number; totalTokens: number }>[];
   readonly contributions: readonly HarnessContribution[];
   readonly notices: readonly HarnessNotice[];
   readonly activity: readonly HarnessActivityItem[];

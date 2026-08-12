@@ -6,6 +6,18 @@ function timeLabel(value: number): string {
   return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(value));
 }
 
+function dateGroup(value: number, observedAtMs: number): Readonly<{ id: string; label: string; order: number }> {
+  if (!Number.isFinite(value) || !Number.isFinite(observedAtMs)) return { id: "unknown", label: "Time unavailable", order: Number.MAX_SAFE_INTEGER };
+  const current = new Date(observedAtMs);
+  const candidate = new Date(value);
+  const currentDay = new Date(current.getFullYear(), current.getMonth(), current.getDate()).getTime();
+  const candidateDay = new Date(candidate.getFullYear(), candidate.getMonth(), candidate.getDate()).getTime();
+  const day = Math.round((currentDay - candidateDay) / 86_400_000);
+  if (day === 0) return { id: "today", label: "Today", order: 0 };
+  if (day === 1) return { id: "yesterday", label: "Yesterday", order: 1 };
+  return { id: `date-${candidateDay}`, label: new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: candidate.getFullYear() === current.getFullYear() ? undefined : "numeric" }).format(candidate), order: Math.max(2, day) };
+}
+
 function ToolDetail({ item, sessionId, onAction }: { readonly item: HarnessActivityItem; readonly sessionId: string; readonly onAction: (operation: StudioOperation, key: string) => void }) {
   if (!item.tool) return null;
   const copy = createControlBinding(`activity.command.copy:${item.id}`, "activity.command.copy");
@@ -23,7 +35,17 @@ export function ActivityFeed({ sessionId, details, filter, expandedId, onFilter,
   readonly onAction: (operation: StudioOperation, key: string) => void;
 }) {
   const filters = [["all", "All"], ["agent", "Agents"], ["tool", "Tools"], ["file", "Files"]] as const;
-  const visible = (details?.activity ?? []).filter((item) => filter === "all" || item.kind === filter);
-  const groups = [...new Set(visible.map((item) => item.group))];
-  return <div className="activity-feed"><div className="activity-filters" aria-label="Activity filters">{filters.map(([id, label]) => { const binding = createControlBinding(`activity.filter.select:${id}`, "activity.filter.select"); return <button type="button" data-control-id={binding.controlId} key={id} aria-pressed={filter === id} onClick={() => onFilter(id)}>{label}</button>; })}</div>{groups.map((group) => <section className="activity-group" key={group} aria-labelledby={`activity-${group}`}><h2 id={`activity-${group}`}>{group}</h2>{visible.filter((item) => item.group === group).map((item) => { const rowAction: "activity.row.toggle" | "activity.child.open" | "activity.file.open" = item.childId ? "activity.child.open" : item.filePath ? "activity.file.open" : "activity.row.toggle"; const binding = createControlBinding(`activity.row:${item.id}`, rowAction); return <article className="activity-item" key={item.id}><button type="button" data-control-id={binding.controlId} className="activity-row" aria-expanded={Boolean(item.tool) ? expandedId === item.id : undefined} onClick={() => item.childId ? onOpenChild(item.childId) : item.filePath ? onAction({ action: "activity.file.open", payload: { sessionId, activityId: item.id, fileId: item.filePath } }, `file:${item.filePath}`) : onToggle(item.id)}><time>{timeLabel(item.occurredAtMs)}</time><span className="activity-kind" data-kind={item.kind} aria-hidden="true" /><span><strong>{item.title}</strong><small>{item.detail}</small></span>{item.childId && <span className="activity-view">View subagent</span>}</button>{expandedId === item.id && <ToolDetail item={item} sessionId={sessionId} onAction={onAction} />}</article>; })}</section>)}{visible.length === 0 && <p className="harness-empty">No activity matches this filter.</p>}</div>;
+  const visible = [...(details?.activity ?? []).filter((item) => filter === "all" || item.kind === filter)].sort((left, right) => right.occurredAtMs - left.occurredAtMs);
+  const groups = [...new Map(visible.map((item) => { const group = dateGroup(item.occurredAtMs, details!.observedAtMs); return [group.id, group] as const; })).values()].sort((left, right) => left.order - right.order);
+  const seenEvidenceMissing = visible.some((item) => item.seen === undefined);
+  return <div className="activity-feed">
+    <div className="activity-filters" aria-label="Activity filters">{filters.map(([id, label]) => { const binding = createControlBinding(`activity.filter.select:${id}`, "activity.filter.select"); return <button type="button" data-control-id={binding.controlId} key={id} aria-pressed={filter === id} onClick={() => onFilter(id)}>{label}</button>; })}</div>
+    {seenEvidenceMissing && <p className="activity-evidence-note">Seen status is unavailable for this activity.</p>}
+    {groups.map((group) => <section className="activity-group" key={group.id} aria-labelledby={`activity-${group.id}`}><h2 id={`activity-${group.id}`}>{group.label}</h2>{visible.filter((item) => dateGroup(item.occurredAtMs, details!.observedAtMs).id === group.id).map((item) => {
+      const rowAction: "activity.row.toggle" | "activity.child.open" | "activity.file.open" = item.childId ? "activity.child.open" : item.filePath ? "activity.file.open" : "activity.row.toggle";
+      const binding = createControlBinding(`activity.row:${item.id}`, rowAction);
+      return <article className="activity-item" data-seen={item.seen === undefined ? "unknown" : String(item.seen)} key={item.id}><button type="button" data-control-id={binding.controlId} className="activity-row" aria-expanded={Boolean(item.tool) ? expandedId === item.id : undefined} onClick={() => item.childId ? onOpenChild(item.childId) : item.filePath ? onAction({ action: "activity.file.open", payload: { sessionId, activityId: item.id, fileId: item.filePath } }, `file:${item.filePath}`) : onToggle(item.id)}><time>{timeLabel(item.occurredAtMs)}</time><span className="activity-kind" data-kind={item.kind} aria-hidden="true" /><span><strong>{item.title}</strong><small>{item.detail}</small></span>{(item.seen === false || item.childId) && <span className="activity-row-meta">{item.seen === false && <span className="activity-new">New</span>}{item.childId && <span className="activity-view">View subagent</span>}</span>}</button>{expandedId === item.id && <ToolDetail item={item} sessionId={sessionId} onAction={onAction} />}</article>;
+    })}</section>)}
+    {details === null ? <p className="harness-empty">Activity evidence is unavailable for this chat.</p> : visible.length === 0 && <p className="harness-empty">No activity matches this filter.</p>}
+  </div>;
 }

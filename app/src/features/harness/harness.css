@@ -183,12 +183,29 @@
 .usage-bar i { display: block; block-size: 100%; background: var(--hi-accent); }
 .usage-note { margin: 0 2px; color: var(--hi-muted); font-size: 11.5px; }
 .usage-account-link { align-self: start; padding: 4px 2px; border: 0; background: transparent; color: var(--hi-accent-soft) !important; font-size: 11.5px; text-align: start; }
+.usage-context > p { margin: 0; color: var(--hi-muted); font-size: 11px; }
+.usage-history { display: grid; gap: 8px; }
+.usage-chart-card { overflow: hidden; border: 1px solid var(--hi-line); border-radius: 9px; background: var(--hi-card); }
+.usage-chart-heading { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; padding: 9px 11px 2px; }
+.usage-chart-heading h2 { margin: 0; font-size: 11.5px; font-weight: 500; }
+.usage-chart-heading span { color: var(--hi-muted); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.usage-line-chart, .usage-sparkline { display: block; inline-size: 100%; block-size: 68px; padding: 6px 10px 3px; overflow: visible; }
+.usage-sparkline { block-size: 52px; }
+.usage-line-chart polyline, .usage-sparkline polyline { fill: none; stroke: var(--hi-accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.usage-table-scroll { max-block-size: 124px; overflow: auto; border-block-start: 1px solid var(--hi-line); }
+.usage-turn-table { inline-size: 100%; border-collapse: collapse; font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.usage-turn-table th, .usage-turn-table td { padding: 4px 8px; border-block-end: 1px solid var(--hi-line); text-align: end; }
+.usage-turn-table th:first-child { text-align: start; }
+.usage-turn-table thead th { position: sticky; inset-block-start: 0; background: var(--hi-card); color: var(--hi-muted); font-weight: 500; }
+.usage-unavailable { min-block-size: 48px; margin: 0; padding: 10px 11px; color: var(--hi-muted); font-size: 11px; }
 
 .activity-filters { display: flex; flex-wrap: wrap; gap: 5px; }
 .activity-filters button { padding: 4px 11px; border: 0; border-radius: 999px; background: #202027; color: var(--hi-muted); font-size: 11.5px; }
 .activity-filters button[aria-pressed="true"] { background: rgb(142 133 240 / 0.17); color: #dedbff; }
 .activity-group h2 { margin: 2px 2px 5px; color: var(--hi-muted); font-size: 11.5px; font-weight: 400; }
 .activity-item { border-radius: 9px; }
+.activity-item[data-seen="false"] { background: rgb(142 133 240 / 0.05); }
+.activity-item[data-seen="false"] .activity-row strong { color: var(--hi-fg); font-weight: 600; }
 .activity-row { display: grid; grid-template-columns: 47px 7px minmax(0, 1fr) auto; gap: 8px; align-items: start; inline-size: 100%; padding: 7px 8px; border: 0; border-radius: 8px; background: transparent; text-align: start; }
 .activity-row:hover { background: var(--hi-raised); }
 .activity-row time { padding-block-start: 2px; color: var(--hi-faint); font-size: 10.5px; font-variant-numeric: tabular-nums; }
@@ -201,6 +218,9 @@
 .activity-row strong { font-size: 12px; font-weight: 500; }
 .activity-row small { color: var(--hi-muted); font-size: 11px; }
 .activity-view { align-self: center; padding: 3px 7px; border: 1px solid var(--hi-line-strong); border-radius: 6px; color: var(--hi-soft); font-size: 10.5px; }
+.activity-row-meta { display: flex; flex-wrap: wrap; justify-content: end; gap: 4px; align-self: center; }
+.activity-new { align-self: center; padding: 2px 6px; border-radius: 999px; background: rgb(142 133 240 / 0.17); color: var(--hi-accent-soft); font-size: 10px; font-weight: 600; }
+.activity-evidence-note { margin: 0 2px; color: var(--hi-muted); font-size: 10.75px; }
 .activity-tool-detail { display: grid; gap: 7px; margin: 2px 7px 8px 64px; padding: 9px; border: 1px solid var(--hi-line); border-radius: 9px; background: #0e0e12; }
 .activity-detail-row { display: grid; grid-template-columns: 54px minmax(0, 1fr) auto auto; gap: 7px; align-items: center; color: var(--hi-muted); font-size: 10.75px; }
 .activity-detail-row code { overflow: hidden; padding: 4px 6px; border-radius: 5px; background: var(--hi-raised); color: var(--hi-soft); font: 10.5px/1.4 Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
