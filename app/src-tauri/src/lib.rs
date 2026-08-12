@@ -2664,6 +2664,18 @@ fn project_catalog_load(state: State<AppState>) -> Result<CatalogSnapshot, Strin
         .map_err(|error| error.to_string())
 }
 
+#[tauri::command]
+fn project_catalog_apply(
+    state: State<AppState>,
+    expected_revision: u64,
+    command: project_catalog::ProjectChatCommand,
+) -> Result<CatalogSnapshot, String> {
+    state
+        .project_catalog
+        .apply(expected_revision, command)
+        .map_err(|error| error.to_string())
+}
+
 /// Put the real Tauri-generated dispatcher behind the single Phase 0 choke
 /// point. Returning `true` after rejection marks even an unknown registered
 /// handler as consumed, so Tauri cannot fall through to another dispatcher.
@@ -3809,6 +3821,7 @@ pub fn run() {
             check_prime_cli,
             get_app_settings,
             project_catalog_load,
+            project_catalog_apply,
             scheduler_projection,
             harness_bootstrap,
             harness_projection,

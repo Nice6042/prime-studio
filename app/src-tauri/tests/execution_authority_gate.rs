@@ -9,7 +9,7 @@ use prime_studio_lib::authority::{
 };
 use serde_json::{json, Value};
 
-const EXPECTED_TAURI_COMMANDS: [&str; 48] = [
+const EXPECTED_TAURI_COMMANDS: [&str; 49] = [
     "start_session",
     "attach_session",
     "detach_session",
@@ -43,6 +43,7 @@ const EXPECTED_TAURI_COMMANDS: [&str; 48] = [
     "check_prime_cli",
     "get_app_settings",
     "project_catalog_load",
+    "project_catalog_apply",
     "scheduler_projection",
     "harness_bootstrap",
     "harness_projection",
@@ -213,6 +214,7 @@ fn tauri_policy_keeps_only_offline_account_configuration_reads_and_owned_stop_pa
         (TauriCommand::AccountStatuses, AccountManagement),
         (TauriCommand::GetAppSettings, OfflineRead),
         (TauriCommand::ProjectCatalogLoad, OfflineRead),
+        (TauriCommand::ProjectCatalogApply, LocalBookkeeping),
         (TauriCommand::SchedulerProjection, OfflineRead),
         (TauriCommand::HarnessBootstrap, OfflineRead),
         (TauriCommand::HarnessProjection, OfflineRead),

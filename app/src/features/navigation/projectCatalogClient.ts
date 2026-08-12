@@ -1,6 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import { deserializeProjectChatState, type ProjectChatState } from "../../domain/projectChats";
+import {
+  deserializeProjectChatState,
+  type ProjectChatCommand,
+  type ProjectChatState,
+} from "../../domain/projectChats";
 
 const MAX_CATALOG_TRANSPORT_BYTES = 8 * 1024 * 1024;
 
@@ -65,4 +69,15 @@ export function decodeProjectCatalogSnapshot(value: unknown): ProjectCatalogSnap
 
 export async function loadProjectCatalog(): Promise<ProjectCatalogSnapshot> {
   return decodeProjectCatalogSnapshot(await invoke("project_catalog_load"));
+}
+
+export async function applyProjectCatalogCommand(
+  expectedRevision: number,
+  command: ProjectChatCommand,
+): Promise<ProjectCatalogSnapshot> {
+  if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) return fail();
+  return decodeProjectCatalogSnapshot(await invoke("project_catalog_apply", {
+    expectedRevision,
+    command,
+  }));
 }

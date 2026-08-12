@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const invoke = vi.hoisted(() => vi.fn());
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
-import { loadProjectCatalog } from "./projectCatalogClient";
+import { applyProjectCatalogCommand, loadProjectCatalog } from "./projectCatalogClient";
 
 describe("project catalog client", () => {
   beforeEach(() => invoke.mockReset());
@@ -37,5 +37,40 @@ describe("project catalog client", () => {
     invoke.mockResolvedValue({ revision: 0, state });
     await expect(loadProjectCatalog()).rejects.toThrow("Project catalog unavailable");
     expect(reads).toBe(0);
+  });
+
+  it("applies a closed command with exact revision compare-and-swap semantics", async () => {
+    invoke.mockResolvedValue({
+      revision: 1,
+      state: {
+        schemaVersion: 2,
+        selectedProjectId: "project:personal",
+        projects: [{
+          id: "project:personal",
+          kind: "personal",
+          name: "Personal",
+          root: { kind: "studio-managed-empty" },
+          pinned: false,
+          archived: false,
+          selectedChatId: "chat:one",
+          chats: [{ id: "chat:one", projectId: "project:personal", title: "New chat", pinned: false, archived: false, binding: null }],
+        }],
+      },
+    });
+
+    const command = { type: "chat.create", projectId: "project:personal", chatId: "chat:one", title: "New chat" } as const;
+    const snapshot = await applyProjectCatalogCommand(0, command);
+
+    expect(snapshot.revision).toBe(1);
+    expect(snapshot.state.projects[0]?.selectedChatId).toBe("chat:one");
+    expect(invoke).toHaveBeenCalledWith("project_catalog_apply", { expectedRevision: 0, command });
+  });
+
+  it("rejects unsafe apply revisions before native invocation", async () => {
+    await expect(applyProjectCatalogCommand(-1, {
+      type: "selection.select-project",
+      projectId: "project:personal",
+    })).rejects.toThrow("Project catalog unavailable");
+    expect(invoke).not.toHaveBeenCalled();
   });
 });

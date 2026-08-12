@@ -269,6 +269,7 @@ pub enum TauriCommand {
     CheckPrimeCli,
     GetAppSettings,
     ProjectCatalogLoad,
+    ProjectCatalogApply,
     SchedulerProjection,
     HarnessBootstrap,
     HarnessProjection,
@@ -286,7 +287,7 @@ pub enum TauriCommand {
     ComputerUseReadiness,
 }
 
-pub const ALL_TAURI_COMMANDS: [TauriCommand; 48] = [
+pub const ALL_TAURI_COMMANDS: [TauriCommand; 49] = [
     TauriCommand::StartSession,
     TauriCommand::AttachSession,
     TauriCommand::DetachSession,
@@ -320,6 +321,7 @@ pub const ALL_TAURI_COMMANDS: [TauriCommand; 48] = [
     TauriCommand::CheckPrimeCli,
     TauriCommand::GetAppSettings,
     TauriCommand::ProjectCatalogLoad,
+    TauriCommand::ProjectCatalogApply,
     TauriCommand::SchedulerProjection,
     TauriCommand::HarnessBootstrap,
     TauriCommand::HarnessProjection,
@@ -380,6 +382,7 @@ impl TauriCommand {
             Self::CheckPrimeCli => "check_prime_cli",
             Self::GetAppSettings => "get_app_settings",
             Self::ProjectCatalogLoad => "project_catalog_load",
+            Self::ProjectCatalogApply => "project_catalog_apply",
             Self::SchedulerProjection => "scheduler_projection",
             Self::HarnessBootstrap => "harness_bootstrap",
             Self::HarnessProjection => "harness_projection",
@@ -436,7 +439,7 @@ impl TauriCommand {
             Self::HarnessAttachSession | Self::HarnessSessionCommand => {
                 CommandAuthority::VerifiedBroker
             }
-            Self::NoteAgent => CommandAuthority::LocalBookkeeping,
+            Self::NoteAgent | Self::ProjectCatalogApply => CommandAuthority::LocalBookkeeping,
             Self::SendRpc => CommandAuthority::DynamicRawRpc,
             Self::GetProviderProductSnapshot
             | Self::ListAccounts
