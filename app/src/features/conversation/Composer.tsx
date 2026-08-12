@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 
 import { AttachmentChips } from "./AttachmentChips";
@@ -70,10 +70,13 @@ export function Composer({
 }) {
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
+  const [focusedModelId, setFocusedModelId] = useState<string | null>(null);
   const [activeSlashIndex, setActiveSlashIndex] = useState(0);
   const [dragging, setDragging] = useState(false);
   const thinkingMenu = useRef<HTMLDivElement>(null);
   const modelMenu = useRef<HTMLDivElement>(null);
+  const modelTrigger = useRef<HTMLButtonElement>(null);
+  const modelInitialFocus = useRef<"first" | "last" | "selected">("selected");
   usePopoverSurface(thinkingMenu, () => setThinkingOpen(false), thinkingOpen);
   usePopoverSurface(modelMenu, () => setModelOpen(false), modelOpen);
   const commandCatalog = useMemo(() => suppliedSlashCommands ?? deriveSlashCommands({
@@ -91,6 +94,27 @@ export function Composer({
   const disabledReason = state.kind === "unavailable" ? state.reason : state.kind === "read_only" ? "Archived conversations are read-only." : null;
   const canSubmit = state.kind === "idle" ? state.canSend : state.kind === "working" ? draft.trim().length > 0 && (state.canQueue || state.canSteer) : false;
   const busy = state.kind === "submitting" || state.kind === "aborting";
+
+  useEffect(() => {
+    if (!modelOpen) return;
+    const items = Array.from(modelMenu.current?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]:not(:disabled)') ?? []);
+    const selected = items.find((item) => item.getAttribute("aria-checked") === "true");
+    const target = modelInitialFocus.current === "last" ? items[items.length - 1] : modelInitialFocus.current === "first" ? items[0] : selected ?? items[0];
+    setFocusedModelId(target?.dataset.modelId ?? null);
+    target?.focus();
+  }, [modelOpen]);
+
+  const moveModelFocus = (key: string) => {
+    const items = Array.from(modelMenu.current?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]:not(:disabled)') ?? []);
+    if (items.length === 0) return;
+    const current = items.indexOf(document.activeElement as HTMLButtonElement);
+    const target = key === "Home" ? items[0]
+      : key === "End" ? items[items.length - 1]
+        : key === "ArrowDown" ? items[(Math.max(0, current) + 1) % items.length]
+          : items[(current <= 0 ? items.length : current) - 1];
+    setFocusedModelId(target?.dataset.modelId ?? null);
+    target?.focus();
+  };
 
   const runSlashCommand = (command: SlashCommand) => {
     onDraftChange("");
@@ -172,8 +196,20 @@ export function Composer({
           })}
         </div> : null}
         {models.length > 0 && onSelectModel ? <div className="composer-model-root">
-          <button type="button" {...controlBinding("composer-model-catalog", "composer.model.select")} className="composer-model-catalog" aria-label={`Choose model ${models.find((model) => model.id === selectedModel)?.label ?? "unavailable"}`} aria-haspopup="menu" aria-expanded={modelOpen} onClick={() => setModelOpen((value) => !value)}>Models</button>
-          {modelOpen && <div ref={modelMenu} data-studio-overlay="menu" className="composer-model-menu" role="menu" aria-label="Verified models">{models.map((model) => <button key={model.id} type="button" {...controlBinding(`composer-model-catalog-${model.id}`, "composer.model.select", model.enabled ? null : (model.disabledReason ?? "This model is unavailable."))} role="menuitemradio" aria-checked={model.id === selectedModel} aria-label={model.label} disabled={!model.enabled} title={model.disabledReason} onClick={() => { setModelOpen(false); onSelectModel(model.id); }}>{model.label}</button>)}</div>}
+          <button ref={modelTrigger} type="button" {...controlBinding("composer-model-catalog", "composer.model.select")} className="composer-model-catalog" aria-label={`Choose model ${models.find((model) => model.id === selectedModel)?.label ?? "unavailable"}`} aria-haspopup="menu" aria-expanded={modelOpen} onClick={() => { modelInitialFocus.current = "selected"; setModelOpen((value) => !value); }} onKeyDown={(event) => {
+            if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+            event.preventDefault();
+            modelInitialFocus.current = event.key === "ArrowUp" || event.key === "End" ? "last" : "first";
+            setModelOpen(true);
+          }}>Models</button>
+          {modelOpen && <div ref={modelMenu} data-studio-overlay="menu" className="composer-model-menu" role="menu" aria-label="Verified models" onKeyDown={(event) => {
+            if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+              event.preventDefault();
+              moveModelFocus(event.key);
+            } else if (event.key === "Tab") {
+              setModelOpen(false);
+            }
+          }}>{models.map((model) => <button key={model.id} type="button" {...controlBinding(`composer-model-catalog-${model.id}`, "composer.model.select", model.enabled ? null : (model.disabledReason ?? "This model is unavailable."))} role="menuitemradio" aria-checked={model.id === selectedModel} aria-label={model.label} data-model-id={model.id} tabIndex={model.enabled && model.id === focusedModelId ? 0 : -1} disabled={!model.enabled} title={model.disabledReason} onFocus={() => setFocusedModelId(model.id)} onClick={() => { setModelOpen(false); onSelectModel(model.id); }}>{model.label}</button>)}</div>}
         </div> : null}
         {thinkingLevels.length > 0 && onSelectThinking && <div className="composer-thinking-root">
           <button className="composer-thinking" type="button" {...controlBinding("composer-thinking", "composer.thinking.select")} aria-label={`Thinking ${thinking}`} aria-haspopup="menu" aria-expanded={thinkingOpen} disabled={!onSelectThinking} onClick={() => setThinkingOpen((value) => !value)}><span>Thinking</span><strong>{thinking}</strong><span aria-hidden="true">⌄</span></button>

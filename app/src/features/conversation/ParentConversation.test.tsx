@@ -156,8 +156,19 @@ describe("ParentConversation", () => {
     expect(open).toBeDisabled();
     expect(review.title).toMatch(/identity-bound/i);
     expect(open.title).toMatch(/identity-bound/i);
+    const reason = screen.getByText(/No identity-bound Harness artifact is available/i);
+    expect(reason).toHaveAttribute("tabindex", "0");
+    reason.focus();
+    expect(reason).toHaveFocus();
     await userEvent.click(review);
     await userEvent.click(open);
+  });
+
+  it("does not offer unavailable history paging without a Harness cursor", () => {
+    render(<ParentConversation title="No history cursor" session={session} archived={false} />);
+
+    expect(screen.queryByRole("button", { name: /load earlier messages/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/history page cursor/i)).not.toBeInTheDocument();
   });
 
 });

@@ -236,13 +236,22 @@ describe("Composer", () => {
 
     const trigger = screen.getByRole("button", { name: "Choose model Model A" });
     await userEvent.click(trigger);
-    expect(screen.getByRole("menuitemradio", { name: "Model A" })).toHaveFocus();
+    const modelA = screen.getByRole("menuitemradio", { name: "Model A" });
+    const modelB = screen.getByRole("menuitemradio", { name: "Model B" });
+    const modelC = screen.getByRole("menuitemradio", { name: "Model C" });
+    expect(modelA).toHaveFocus();
+    expect(modelA).toHaveAttribute("tabindex", "0");
+    expect(modelB).toHaveAttribute("tabindex", "-1");
+    expect(modelC).toHaveAttribute("tabindex", "-1");
     await userEvent.keyboard("{ArrowDown}");
-    expect(screen.getByRole("menuitemradio", { name: "Model C" })).toHaveFocus();
+    expect(modelC).toHaveFocus();
+    expect(modelC).toHaveAttribute("tabindex", "0");
+    await userEvent.keyboard("{ArrowUp}");
+    expect(modelA).toHaveFocus();
     await userEvent.keyboard("{Home}");
-    expect(screen.getByRole("menuitemradio", { name: "Model A" })).toHaveFocus();
+    expect(modelA).toHaveFocus();
     await userEvent.keyboard("{End}");
-    expect(screen.getByRole("menuitemradio", { name: "Model C" })).toHaveFocus();
+    expect(modelC).toHaveFocus();
     await userEvent.keyboard("{Escape}");
     expect(trigger).toHaveFocus();
   });

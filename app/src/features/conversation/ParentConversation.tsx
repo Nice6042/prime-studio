@@ -34,14 +34,16 @@ function EditedFiles({ messageId, files, onUndo, onReview, onOpen }: {
   readonly onOpen?: (messageId: string, path: string) => void;
 }) {
   const boundedFiles = files.slice(0, 64);
+  const artifactUnavailableReason = "No identity-bound Harness artifact is available for this edited-file summary.";
   const additions = files.reduce((total, file) => total + file.additions, 0);
   const deletions = files.reduce((total, file) => total + file.deletions, 0);
   return <section className="conversation-edited-files" aria-label={`Edited ${files.length} files`}>
     <header><span className="conversation-file-icon" aria-hidden="true">◇</span><span><strong>Edited {files.length} files</strong><small><b>+{additions}</b> <i>−{deletions}</i></small></span>
       <button type="button" {...controlBinding(`files-undo-${messageId}`, "conversation.files.undo", "Prime Harness exposes no verified reversible patch capability.")} aria-label="Undo edited files" disabled={!onUndo} title={onUndo ? "Undo these edits" : "The verified Harness exposes no reversible patch capability."} onClick={() => onUndo?.(messageId)}>Undo ↶</button>
-      <button type="button" {...controlBinding(`files-review-${messageId}`, "conversation.files.review")} aria-label="Review edited files" onClick={() => onReview?.(messageId)}>Review</button>
+      <button type="button" {...controlBinding(`files-review-${messageId}`, "conversation.files.review", onReview ? null : artifactUnavailableReason)} aria-label="Review edited files" disabled={!onReview} title={onReview ? "Review these identity-bound edits" : artifactUnavailableReason} onClick={() => onReview?.(messageId)}>Review</button>
     </header>
-    {boundedFiles.map((file) => <button key={file.path} type="button" {...controlBinding(`file-open-${messageId}-${file.path}`, "editor.artifact.open")} aria-label={`Open ${file.path}`} onClick={() => onOpen?.(messageId, file.path)}><code>{file.path}</code><b>+{file.additions}</b><i>−{file.deletions}</i></button>)}
+    {(!onReview || !onOpen) && <p className="conversation-files-unavailable" tabIndex={0}>{artifactUnavailableReason}</p>}
+    {boundedFiles.map((file) => <button key={file.path} type="button" {...controlBinding(`file-open-${messageId}-${file.path}`, "editor.artifact.open", onOpen ? null : artifactUnavailableReason)} aria-label={`Open ${file.path}`} disabled={!onOpen} title={onOpen ? `Open ${file.path}` : artifactUnavailableReason} onClick={() => onOpen?.(messageId, file.path)}><code>{file.path}</code><b>+{file.additions}</b><i>−{file.deletions}</i></button>)}
     {files.length > boundedFiles.length && <p className="conversation-files-truncated">{files.length - boundedFiles.length} additional paths are not shown in this bounded view.</p>}
   </section>;
 }
@@ -68,8 +70,6 @@ export function ParentConversation({
   onReviewEditedFiles,
   onOpenEditedFile,
   onSuggestionFill,
-  historyCursor,
-  onLoadEarlierHistory,
   showSuggestions = true,
 }: {
   readonly title: string;
@@ -87,9 +87,6 @@ export function ParentConversation({
   readonly onReviewEditedFiles?: (messageId: string) => void;
   readonly onOpenEditedFile?: (messageId: string, path: string) => void;
   readonly onSuggestionFill?: (text: string) => void;
-  /** A daemon-provided opaque cursor. Missing means paging is visibly unavailable. */
-  readonly historyCursor?: string | null;
-  readonly onLoadEarlierHistory?: (before: string) => void;
   readonly showSuggestions?: boolean;
 }) {
   const transcript = useMemo(() => session ? reduceParentTranscript(createEmptyParentTranscript(), { type: "snapshot", cursor: session.cursor, messages: session.parentMessages, omittedBefore: 0 }) : createEmptyParentTranscript(), [session]);
@@ -109,7 +106,6 @@ export function ParentConversation({
     <div className="sr-only" role="status" aria-live="polite">{announcement}</div>
     <div className="parent-transcript" role="log" aria-label={`${title} conversation`} aria-live="off" tabIndex={0}>
       {archived && <p className="conversation-notice">Archived chat. This conversation is read-only.</p>}
-      {transcript.omittedBefore > 0 && <div className="conversation-notice conversation-history-notice"><p>{transcript.omittedBefore.toLocaleString()} earlier messages are not resident in this view.</p><button type="button" {...controlBinding("conversation-history-page", "conversation.history.page", historyCursor ? null : "The verified Harness did not provide a history page cursor for this snapshot.")} aria-label="Load earlier messages" disabled={!historyCursor || !onLoadEarlierHistory} title={historyCursor ? "Load the previous bounded history page" : "The verified Harness did not provide a history page cursor for this snapshot."} onClick={() => { if (historyCursor) onLoadEarlierHistory?.(historyCursor); }}>Load earlier messages</button></div>}
       {transcript.payloadClipped && <p className="conversation-notice">Large content was clipped in this view; the source session is unchanged.</p>}
       {transcript.messages.length === 0 && <div className="conversation-empty">
         <PrimeMark /><h1>Start a conversation</h1>
