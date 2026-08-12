@@ -5,12 +5,19 @@ import {
   type ProjectChatCommand,
   type ProjectChatState,
 } from "../../domain/projectChats";
+import type { RootSessionProjection } from "../../entities/harness/types";
+import { decodeRootSessionProjection } from "../../shared/ipc/client";
 
 const MAX_CATALOG_TRANSPORT_BYTES = 8 * 1024 * 1024;
 
 export interface ProjectCatalogSnapshot {
   readonly revision: number;
   readonly state: ProjectChatState;
+}
+
+export interface ResidentChatBindingResult {
+  readonly catalog: ProjectCatalogSnapshot;
+  readonly session: RootSessionProjection;
 }
 
 function fail(): never {
@@ -87,4 +94,22 @@ export async function applyProjectCatalogCommand(
     expectedRevision,
     command: detached,
   }));
+}
+
+export async function createResidentForCatalogChat(
+  expectedRevision: number,
+  projectId: string,
+  chatId: string,
+): Promise<ResidentChatBindingResult> {
+  if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) return fail();
+  if (![projectId, chatId].every((id) => id.length > 0 && id.length <= 128 && /^[\x20-\x7e]+$/.test(id) && id.trim() === id)) return fail();
+  const value = await invoke("harness_create_resident_chat", { request: { expectedRevision, projectId, chatId } });
+  if (!value || typeof value !== "object" || Array.isArray(value)) return fail();
+  preflight(value);
+  const source = value as Record<string, unknown>;
+  if (Object.keys(source).sort().join(",") !== "catalog,session") return fail();
+  return deepFreeze({
+    catalog: decodeProjectCatalogSnapshot(source.catalog),
+    session: decodeRootSessionProjection(source.session),
+  });
 }

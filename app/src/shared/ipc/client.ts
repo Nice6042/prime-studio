@@ -344,6 +344,10 @@ function session(value: unknown): RootSessionProjection {
   };
 }
 
+export function decodeRootSessionProjection(value: unknown): RootSessionProjection {
+  return deepFreeze(session(detach(value)));
+}
+
 function deepFreeze<T>(value: T, seen = new Set<object>()): T {
   if (value && typeof value === "object" && !seen.has(value)) {
     seen.add(value);

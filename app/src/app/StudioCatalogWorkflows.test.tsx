@@ -6,10 +6,12 @@ import { createStudioStore, initialStudioState } from "../shared/state/store";
 import { AppProviders } from "./AppProviders";
 
 const applyCatalog = vi.hoisted(() => vi.fn());
+const createResident = vi.hoisted(() => vi.fn());
 const loadCatalog = vi.hoisted(() => vi.fn(() => new Promise(() => undefined)));
 vi.mock("../features/navigation/projectCatalogClient", async (original) => ({
   ...await original<typeof import("../features/navigation/projectCatalogClient")>(),
   applyProjectCatalogCommand: applyCatalog,
+  createResidentForCatalogChat: createResident,
   loadProjectCatalog: loadCatalog,
 }));
 
@@ -30,7 +32,29 @@ function renderCatalog(initial: ProjectChatState) {
 }
 
 describe("Studio durable catalog workflows", () => {
-  beforeEach(() => applyCatalog.mockReset());
+  beforeEach(() => { applyCatalog.mockReset(); createResident.mockReset(); });
+
+  it("creates a durable Studio chat before binding its distinct resident daemon identities", async () => {
+    const initial = createInitialProjectChatState();
+    const store = renderCatalog(initial);
+    createResident.mockImplementation(async (revision: number, projectId: string, chatId: string) => {
+      const created = transitionProjectChatState(initial, { type: "chat.create", projectId, chatId, title: "New chat" }).state;
+      const catalog = transitionProjectChatState(created, { type: "chat.bind-prime-session", projectId, chatId, binding: { kind: "prime-session", accountId: null, sessionId: "daemon-active-1", sessionFile: "daemon-chat-1.jsonl", agentId: "daemon-chat-1" } }).state;
+      return {
+        catalog: { revision: revision + 1, state: catalog },
+        session: {
+          sessionId: "daemon-active-1", accountId: null, projectId: "daemon-project-1", chatId: "daemon-chat-1",
+          cursor: { runtimeGeneration: "g1", sequence: 0 }, state: "idle", freshness: "live",
+          parentMessages: [], children: [], queue: [], tools: [], resources: [],
+          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: null },
+        },
+      };
+    });
+    fireEvent.keyDown(window, { key: "n", ctrlKey: true });
+    await waitFor(() => expect(createResident).toHaveBeenCalledWith(1, "project:personal", expect.stringMatching(/^chat-/)));
+    expect(Object.values(store.getSnapshot().sessions)[0]).toMatchObject({ sessionId: "daemon-active-1", chatId: "daemon-chat-1" });
+    expect(store.getSnapshot().navigation.selectedChatId).toMatch(/^chat-/);
+  });
 
   it("creates a catalog project from the sidebar without creating a Harness session", async () => {
     renderCatalog(createInitialProjectChatState());

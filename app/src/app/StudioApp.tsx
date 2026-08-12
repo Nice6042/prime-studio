@@ -10,7 +10,7 @@ import { WorkspaceShell } from "../features/shell/WorkspaceShell";
 import { CollapsedSidebar } from "../features/navigation/CollapsedSidebar";
 import { CreateProjectDialog, NavigationIcon, ProjectSidebar } from "../features/navigation/ProjectSidebar";
 import { selectNavigationProjects } from "../features/navigation/navigationSelectors";
-import { applyProjectCatalogCommand, loadProjectCatalog } from "../features/navigation/projectCatalogClient";
+import { applyProjectCatalogCommand, createResidentForCatalogChat, loadProjectCatalog } from "../features/navigation/projectCatalogClient";
 import { ParentConversation } from "../features/conversation/ParentConversation";
 import { Composer } from "../features/conversation/Composer";
 import { WorkspaceHeader } from "../features/conversation/WorkspaceHeader";
@@ -251,6 +251,33 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     }
   };
 
+  const createResidentChat = async (projectId: string): Promise<StudioOperationOutcome> => {
+    const revision = store.getSnapshot().catalogRevision;
+    if (revision === null) return { status: "unavailable", reason: "Creating chat failed because the project catalog is unavailable." };
+    const chatId = `chat-${crypto.randomUUID()}`;
+    setCatalogOperation({ phase: "pending", label: "Creating resident chat" });
+    try {
+      const created = await applyProjectCatalogCommand(revision, { type: "chat.create", projectId, chatId, title: "New chat" });
+      store.dispatch({ type: "project-catalog/loaded", snapshot: created });
+      let bound;
+      try {
+        bound = await createResidentForCatalogChat(created.revision, projectId, chatId);
+      } catch {
+        const recovered = await loadProjectCatalog();
+        store.dispatch({ type: "project-catalog/loaded", snapshot: recovered });
+        bound = await createResidentForCatalogChat(recovered.revision, projectId, chatId);
+      }
+      store.dispatch({ type: "project-catalog/loaded", snapshot: bound.catalog });
+      store.dispatch({ type: "harness/session-projected", session: bound.session });
+      setCatalogOperation({ phase: "success", message: "Resident chat ready." });
+      return { status: "updated", revision: bound.catalog.revision };
+    } catch {
+      const reason = "The chat was preserved, but its verified Harness session is unavailable. Retry creating the resident session.";
+      setCatalogOperation({ phase: "error", message: reason });
+      return { status: "rejected", reason, retryable: true };
+    }
+  };
+
   const durableExecutor = async (operation: StudioOperation): Promise<StudioOperationOutcome> => {
     const catalog = store.getSnapshot().projectCatalog;
     const locateChat = (chatId: string) => catalog.projects.find((project) => project.chats.some((candidate) => candidate.id === chatId));
@@ -261,7 +288,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         return applyCatalog({ type: "project.restore", projectId: operation.payload.projectId }, "Restoring project");
       case "catalog.chat.create": {
         const projectId = operation.payload.projectId || catalog.selectedProjectId;
-        return applyCatalog({ type: "chat.create", projectId, chatId: `chat-${crypto.randomUUID()}`, title: "New chat" }, "Creating chat");
+        return createResidentChat(projectId);
       }
       case "catalog.chat.rename": {
         const project = locateChat(operation.payload.chatId);
