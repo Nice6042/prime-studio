@@ -288,6 +288,53 @@ fn ownership_and_broker_specific_admission_are_enforced() {
 }
 
 #[test]
+fn studio_catalog_bindings_cannot_forge_daemon_session_project_chat_or_account_identity() {
+    let mut broker =
+        HarnessBroker::for_tests(vec![ownership("daemon-session", "project-from-cwd", "daemon-chat")], None)
+            .unwrap();
+    broker.begin_snapshot(1).unwrap();
+
+    let mut forged_catalog_chat = snapshot(
+        "daemon-session",
+        "project-from-cwd",
+        "catalog-chat",
+        "generation-a",
+        1,
+    );
+    forged_catalog_chat.account_id = Some("account".to_owned());
+    assert!(matches!(
+        broker.admit_snapshot(forged_catalog_chat),
+        Err(HarnessError::OwnershipViolation)
+    ));
+
+    let mut forged_catalog_project = snapshot(
+        "daemon-session",
+        "catalog-project",
+        "daemon-chat",
+        "generation-a",
+        1,
+    );
+    forged_catalog_project.account_id = Some("account".to_owned());
+    assert!(matches!(
+        broker.admit_snapshot(forged_catalog_project),
+        Err(HarnessError::OwnershipViolation)
+    ));
+
+    let mut unproven_account = snapshot(
+        "daemon-session",
+        "project-from-cwd",
+        "daemon-chat",
+        "generation-a",
+        1,
+    );
+    unproven_account.account_id = None;
+    assert!(matches!(
+        broker.admit_snapshot(unproven_account),
+        Err(HarnessError::OwnershipViolation)
+    ));
+}
+
+#[test]
 fn sequence_must_be_exactly_next_and_old_generations_stay_retired() {
     let mut broker = live_broker();
     for sequence in [1, 3, 0] {
