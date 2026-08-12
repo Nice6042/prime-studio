@@ -27,6 +27,9 @@ installed Prime Agent runtime. **M7 Closure is partial:** the product entry and 
 but hardened legacy backend domains remain until exact production activation and parity allow safe
 removal. This status is a security boundary, not a schedule shortcut.
 
+The implementation self-review and its remaining activation-gated work are recorded in
+[the M5 implementation review](../reviews/2026-08-12-prime-studio-implementation-review.md).
+
 ## Global Constraints
 
 - Baseline is public `main` commit `2540d1d8c5c58b5d9d29d0a6ccc63d826ec24d50`.
