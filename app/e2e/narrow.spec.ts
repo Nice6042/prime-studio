@@ -1,4 +1,5 @@
 import { expect, expectNoSeriousOrCriticalAxeViolations, test } from "./support/browser-shell";
+import { activateWithKeyboard, expectMinimumTarget, expectNoDocumentOverflow, expectWithinViewport } from "./support/acceptance-matrix";
 
 test("compact workspace keeps the parent conversation and composer visible", async ({ shellPage }, testInfo) => {
   expect(shellPage.viewportSize()).toEqual({ width: 320, height: 200 });
@@ -57,4 +58,37 @@ test("settings and palette use compact responsive surfaces", async ({ shellPage 
   await expect(shellPage.getByRole("note", { name: "Project breakdown unavailable" })).toBeFocused();
   const geometry = await shellPage.getByRole("main", { name: "Settings" }).evaluate((element) => ({ width: element.clientWidth, scrollWidth: element.scrollWidth }));
   expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width + 1);
+});
+
+test("200 percent equivalent geometry keeps sheets and keyboard controls inside the physical screen", async ({ shellPage }) => {
+  const scaling = await shellPage.evaluate(() => ({
+    css: { width: window.innerWidth, height: window.innerHeight },
+    physicalPixels: { width: window.innerWidth * window.devicePixelRatio, height: window.innerHeight * window.devicePixelRatio },
+    devicePixelRatio: window.devicePixelRatio,
+  }));
+  expect(scaling).toEqual({
+    css: { width: 320, height: 200 },
+    physicalPixels: { width: 640, height: 400 },
+    devicePixelRatio: 2,
+  });
+
+  const paletteTrigger = shellPage.getByRole("button", { name: "Open command palette" });
+  await activateWithKeyboard(paletteTrigger);
+  const palette = shellPage.getByRole("dialog", { name: "Command palette" });
+  await expectWithinViewport(palette, shellPage);
+  await shellPage.keyboard.press("Escape");
+  await expect(paletteTrigger).toBeFocused();
+
+  const harnessTrigger = shellPage.getByRole("button", { name: "Harness" });
+  await activateWithKeyboard(harnessTrigger);
+  await expectWithinViewport(shellPage.locator('[data-studio-sheet="inspector"]'), shellPage);
+  await shellPage.keyboard.press("Escape");
+  await expect(harnessTrigger).toBeFocused();
+  await expectNoDocumentOverflow(shellPage);
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-200-percent-equivalent");
+});
+
+test("200 percent equivalent titlebar controls retain a minimum accessible target", async ({ shellPage }) => {
+  test.fail(true, "Production defect: narrow titlebar actions shrink the 30px command control to about 21.3 CSS pixels.");
+  await expectMinimumTarget(shellPage.getByRole("button", { name: "Open command palette" }));
 });
