@@ -11,6 +11,7 @@ import { CollapsedSidebar } from "../features/navigation/CollapsedSidebar";
 import { CreateProjectDialog, NavigationIcon, ProjectSidebar } from "../features/navigation/ProjectSidebar";
 import { selectNavigationProjects } from "../features/navigation/navigationSelectors";
 import { applyProjectCatalogCommand, createResidentForCatalogChat, loadProjectCatalog } from "../features/navigation/projectCatalogClient";
+import { residentCreationDisabledReason } from "../features/navigation/residentCreationPolicy";
 import { ParentConversation } from "../features/conversation/ParentConversation";
 import { controlBinding } from "../features/conversation/controlBinding";
 import { Composer } from "../features/conversation/Composer";
@@ -20,7 +21,7 @@ import { deriveComposerState, deriveSlashCommands, type SlashCommand } from "../
 import { projectConversationPresentations } from "../features/conversation/conversationDisplay";
 import { routeSlashCommand } from "../features/conversation/conversationRouting";
 import { HarnessInspector } from "../features/harness/HarnessInspector";
-import { unavailableHarnessInspectorAdapter, type HarnessInspectorAdapter } from "../features/harness/adapter";
+import { unavailableHarnessInspectorAdapter, type HarnessComposerProjection, type HarnessInspectorAdapter } from "../features/harness/adapter";
 import { SettingsShell } from "../features/settings/SettingsShell";
 import { ArchivedCatalogSettings } from "../features/settings/ArchivedCatalogSettings";
 import { CommandPalette } from "../features/command-palette/CommandPalette";
@@ -120,6 +121,11 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   );
   const [catalogOperation, setCatalogOperation] = useState<WorkspaceOperationState>({ phase: "idle" });
   const [operationFeedback, setOperationFeedback] = useState<string | null>(null);
+  const [loadedComposer, setLoadedComposer] = useState<Readonly<{ sessionId: string; projection: HarnessComposerProjection }> | null>(null);
+  const [composerUnavailableReason, setComposerUnavailableReason] = useState<string | null>(null);
+
+  const adapterConnected = harnessAdapter.availability.status === "available";
+  const hasCapability = (capability: string) => compatibility.status !== "unavailable" && compatibility.status !== "read_only" && compatibility.capabilities.includes(capability as typeof compatibility.capabilities[number]);
 
   const sessionStates = useMemo(() => Object.fromEntries(
     projectCatalog.projects.flatMap((project) => project.chats).flatMap((chat) => {
@@ -184,6 +190,24 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       unsubscribe?.();
     };
   }, [store]);
+
+  useEffect(() => {
+    let active = true;
+    if (!selectedSession || !adapterConnected || !hasCapability("model_catalog") || !harnessAdapter.loadComposer) {
+      setLoadedComposer(null);
+      setComposerUnavailableReason(harnessAdapter.loadComposer ? null : "The verified Harness adapter does not expose session composer configuration.");
+      return () => { active = false; };
+    }
+    setComposerUnavailableReason(null);
+    void harnessAdapter.loadComposer(selectedSession.sessionId).then((projection) => {
+      if (active) setLoadedComposer({ sessionId: selectedSession.sessionId, projection });
+    }).catch((error) => {
+      if (!active) return;
+      setLoadedComposer(null);
+      setComposerUnavailableReason(error instanceof Error ? error.message : "Verified composer configuration is unavailable.");
+    });
+    return () => { active = false; };
+  }, [adapterConnected, compatibility, harnessAdapter, selectedSession?.cursor.runtimeGeneration, selectedSession?.cursor.sequence, selectedSession?.sessionId]);
 
   useEffect(() => {
     setAdmissionPhase("idle");
@@ -298,6 +322,8 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   };
 
   const createResidentChat = async (projectId: string): Promise<StudioOperationOutcome> => {
+    const selectionReason = residentCreationDisabledReason(settings);
+    if (selectionReason) return { status: "unavailable", reason: selectionReason };
     const revision = store.getSnapshot().catalogRevision;
     if (revision === null) return { status: "unavailable", reason: "Creating chat failed because the project catalog is unavailable." };
     const chatId = `chat-${crypto.randomUUID()}`;
@@ -556,7 +582,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   });
 
   const openSettings = () => { void dispatchOperation({ action: "route.settings.open", payload: {} }); };
-  const adapterConnected = harnessAdapter.availability.status === "available";
+  const newChatDisabledReason = catalogOperation.phase === "pending" ? catalogOperation.label : residentCreationDisabledReason(settings) ?? undefined;
   const admissionConnected = Boolean(
     selectedSession
     && selectedSession.freshness === "live"
@@ -574,6 +600,9 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const writeToolSetting = adapterConnected && harnessAdapter.settings?.toolPolicy ? (key: keyof AppSettings, value: string | null) => {
     executeSettingOperation({ action: "settings.tool.set-enabled", payload: { toolId: "configurable-tools", enabled: value === "enabled" } }, key, value);
   } : undefined;
+  const composerProjection = adapterConnected && hasCapability("model_catalog")
+    ? loadedComposer && loadedComposer.sessionId === selectedSession?.sessionId ? loadedComposer.projection : harnessAdapter.composer
+    : undefined;
   const sidebarContent = layout.sidebarOpen
     ? <ProjectSidebar
         projects={projects}
@@ -586,7 +615,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         onToggleProject={(projectId) => { void dispatchOperation({ action: "catalog.project.toggle", payload: { projectId } }); }}
         onNewChat={createChat}
         onNewProject={createProject}
-        newChatDisabledReason={catalogOperation.phase === "pending" ? catalogOperation.label : undefined}
+        newChatDisabledReason={newChatDisabledReason}
         onOpenSearch={openPalette}
         onOpenArchived={() => { void dispatchOperation({ action: "route.archived.open", payload: {} }); }}
         onCollapse={() => { if (layout.sidebarOpen) void dispatchOperation({ action: "layout.sidebar.toggle", payload: {} }); }}
@@ -595,7 +624,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     : <CollapsedSidebar
         onExpand={() => { if (!layout.sidebarOpen) void dispatchOperation({ action: "layout.sidebar.toggle", payload: {} }); }}
         onNewChat={createChat}
-        newChatDisabledReason={catalogOperation.phase === "pending" ? catalogOperation.label : undefined}
+        newChatDisabledReason={newChatDisabledReason}
         onOpenSearch={openPalette}
         onOpenSettings={openSettings}
       />;
@@ -606,7 +635,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       if (viewport < 760) setActiveSheet("sidebar");
     }}
     onNewChat={createChat}
-    newChatDisabledReason={catalogOperation.phase === "pending" ? catalogOperation.label : undefined}
+    newChatDisabledReason={newChatDisabledReason}
     onOpenSearch={openPalette}
     onOpenSettings={openSettings}
   />;
@@ -634,6 +663,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       onHarnessSetting={writeHarnessSetting}
       onToolSetting={writeToolSetting}
       onExportUsageCsv={rpc.exportAccountUsageCsv}
+      composer={composerProjection}
     />{paletteOpen && <CommandPalette admissionConnected={admissionConnected} onRun={runCommand} onClose={() => { void dispatchOperation({ action: "palette.close", payload: {} }); }} restoreFocusTo={paletteOpener} chats={paletteChats} messages={paletteMessages} onOpenChat={openCatalogChat} onOpenMessage={(chatId) => openCatalogChat(chatId)} />}
     {createProjectOpen && <CreateProjectDialog restoreFocusTo={createProjectOpener} onCancel={() => { void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} onCreate={(name, folderPath) => { createProject(name, folderPath); void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} />}</>;
   }
@@ -651,8 +681,6 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     phase: admissionPhase,
     admissionConnected,
   });
-  const hasCapability = (capability: string) => compatibility.status !== "unavailable" && compatibility.status !== "read_only" && compatibility.capabilities.includes(capability as typeof compatibility.capabilities[number]);
-  const composerProjection = adapterConnected && hasCapability("model_catalog") ? harnessAdapter.composer : undefined;
   const supportsComposerCommand = (command: "model" | "effort" | "compact" | "fork" | "export") => Boolean(composerProjection?.supportedCommands.includes(command));
   const latestMessageId = selectedSession?.parentMessages[selectedSession.parentMessages.length - 1]?.id ?? null;
   const slashCommands = deriveSlashCommands({
@@ -818,7 +846,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
             void runAdapterOperation({ action: "composer.thinking.select", payload: { chatId: navigation.selectedChatId!, level } }, "Thinking change");
           } : undefined}
           onSlashCommand={runSlashCommand}
-          statusMessage={admissionMessage}
+          statusMessage={admissionMessage || composerUnavailableReason || undefined}
           onOpenUsage={openCurrentUsage}
         />}
       </div>}

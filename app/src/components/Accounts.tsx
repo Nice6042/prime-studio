@@ -387,8 +387,8 @@ export function Accounts({
                       >
                         {!unavailable && state === "signedOut" ? "Log in" : "Re-login"}
                       </button>
-                      <button data-control-id={`account-use-${a.id}`} data-studio-action="account.use" className="btn" onClick={() => onUse(a.id)} disabled={Boolean(newSessionDisabledReason)} title={newSessionDisabledReason ?? "New session on this account"}>
-                        New session
+                      <button data-control-id={`account-use-${a.id}`} data-studio-action="account.use" className="btn" onClick={() => onUse(a.id)} disabled={Boolean(newSessionDisabledReason)} title={newSessionDisabledReason ?? "Use for new sessions"}>
+                        Use for new sessions
                       </button>
                       <button
                         data-control-id={`account-rename-${a.id}`}

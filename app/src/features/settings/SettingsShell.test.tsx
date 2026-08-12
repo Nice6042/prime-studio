@@ -41,6 +41,29 @@ describe("SettingsShell", () => {
     expect(screen.getByText(/verified settings adapter/i)).toBeVisible();
   });
 
+  it("shows only verified session model choices and explains why creation defaults are disabled", () => {
+    const ready: HarnessCompatibility = { status: "ready", profile: "verified", capabilities: ["model_catalog"] };
+    render(<SettingsShell
+      section="models"
+      onBack={() => undefined}
+      onSection={() => undefined}
+      compatibility={ready}
+      composer={{
+        models: [{ id: "openai/gpt-live", label: "GPT Live", enabled: true }],
+        selectedModel: "openai/gpt-live",
+        thinkingLevels: ["low", "high"],
+        selectedThinking: "high",
+        supportedCommands: ["model", "effort", "compact", "fork", "export"],
+      }}
+    />);
+
+    expect(screen.getByRole("option", { name: "GPT Live" })).toBeVisible();
+    expect(screen.queryByRole("option", { name: "OpenAI Codex" })).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Default model" })).toBeDisabled();
+    expect(screen.getByText(/creation route accepts workspace and title only/i)).toBeVisible();
+    expect(screen.getByText(/compact · fork · export/i)).toBeVisible();
+  });
+
   it("routes account-wide usage independently from current-chat usage", async () => {
     render(<SettingsShell section="usage" onBack={() => undefined} onSection={() => undefined} compatibility={unavailable} />);
     expect(screen.getByRole("heading", { name: "Usage", level: 1 })).toBeVisible();
@@ -48,11 +71,14 @@ describe("SettingsShell", () => {
     expect(screen.queryByText(/^Current chat$/i)).not.toBeInTheDocument();
   });
 
-  it("retains hardened account management while disabling unverified session creation", () => {
-    render(<SettingsShell section="accounts" onBack={() => undefined} onSection={() => undefined} compatibility={unavailable} accounts={[{ id: "account-1", label: "Work", provider: "openai-codex", agentDir: "C:\\fixture", createdAt: 1 }]} />);
+  it("persists Accounts Use as the selected new-session preference without claiming unsupported creation binding", async () => {
+    const onSetting = vi.fn();
+    render(<SettingsShell section="accounts" onBack={() => undefined} onSection={() => undefined} compatibility={unavailable} accounts={[{ id: "account-1", label: "Work", provider: "openai-codex", agentDir: "C:\\fixture", createdAt: 1 }]} onSetting={onSetting} />);
     expect(screen.getByRole("heading", { name: "Accounts", level: 1 })).toBeVisible();
     expect(screen.getByText("Work")).toBeVisible();
-    expect(screen.getByRole("button", { name: "New session" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Use for new sessions" }));
+    expect(onSetting).toHaveBeenCalledWith("defaultAccount", "account-1");
+    expect(screen.getByText(/cannot pass an account identity during resident creation/i)).toBeVisible();
     expect(screen.getByRole("textbox", { name: "Account name" })).toBeVisible();
   });
 
@@ -64,6 +90,27 @@ describe("SettingsShell", () => {
     await userEvent.click(screen.getByRole("switch", { name: "Suggested prompts" }));
     expect(onSetting).toHaveBeenCalledWith("sendShortcut", "ctrl-enter");
     expect(onSetting).toHaveBeenCalledWith("promptSuggestions", "disabled");
+  });
+
+  it("disables persisted settings whose runtime has no verified application path", () => {
+    const onSetting = vi.fn();
+    const base = { onBack: () => undefined, onSection: () => undefined, compatibility: unavailable, onSetting };
+    const { rerender } = render(<SettingsShell section="general" {...base} />);
+    expect(screen.getByRole("combobox", { name: "Language" })).toBeDisabled();
+    expect(screen.getByText(/not applied by the current runtime/i)).toBeVisible();
+
+    rerender(<SettingsShell section="composer" {...base} />);
+    expect(screen.getByRole("switch", { name: "Drafts" })).toBeDisabled();
+
+    rerender(<SettingsShell section="git" {...base} />);
+    expect(screen.getByRole("switch", { name: "Automatic Git status refresh" })).toBeDisabled();
+
+    rerender(<SettingsShell section="environments" {...base} />);
+    expect(screen.getByRole("combobox", { name: "Agent environment" })).toBeDisabled();
+
+    rerender(<SettingsShell section="privacy" {...base} />);
+    expect(screen.getByRole("switch", { name: "Telemetry" })).toBeDisabled();
+    expect(onSetting).not.toHaveBeenCalled();
   });
 
   it("shows each tools and safety destination as its own route", () => {

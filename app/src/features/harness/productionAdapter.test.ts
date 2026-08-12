@@ -42,6 +42,23 @@ describe("production Harness inspector adapter", () => {
     expect(store.getSnapshot().sessions["daemon-active-1"]?.cursor.sequence).toBe(8);
   });
 
+  it("loads composer choices only from the admitted session inspector projection", async () => {
+    const store = boundStore();
+    const composer = {
+      models: [{ id: "openai/gpt-test", label: "GPT Test", shortLabel: "GPT Test", enabled: true }],
+      selectedModel: "openai/gpt-test",
+      thinkingLevels: ["low", "high"] as const,
+      selectedThinking: "high" as const,
+      supportedCommands: ["model", "effort", "compact", "fork", "export"] as const,
+    };
+    const load = vi.fn(async () => ({ observedAtMs: 1, startedAtMs: null, context: null, contributions: [], notices: [], activity: [], outputs: [], sources: [], children: {}, composer }));
+    const adapter = createProductionHarnessInspectorAdapter(store, { load, execute: vi.fn() });
+
+    await expect(adapter.loadComposer!(session.sessionId)).resolves.toEqual(composer);
+    await expect(adapter.loadComposer!("unbound-session")).rejects.toThrow("not admitted");
+    expect(load).toHaveBeenCalledOnce();
+  });
+
   it("rejects unbound, substituted, and ambiguous catalog identities without IPC", async () => {
     const store = boundStore();
     const execute = vi.fn();
@@ -56,6 +73,29 @@ describe("production Harness inspector adapter", () => {
     const store = createStudioStore(initialStudioState());
     const adapter = createProductionHarnessInspectorAdapter(store, { load: vi.fn(), execute: vi.fn() });
     expect(adapter.availability).toEqual({ status: "unavailable", reason: "The verified Prime Harness broker is not live." });
+  });
+
+  it("keeps the verified degraded capability subset available", async () => {
+    const store = boundStore();
+    store.dispatch({
+      type: "harness/bootstrap-loaded",
+      projection: {
+        compatibility: {
+          status: "degraded",
+          profile: "profile",
+          capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"],
+          unavailable: [{ capability: "extension_ui", reason: "missing_mandatory_capability" }],
+        },
+        sessions: [session],
+      },
+    });
+    const execute = vi.fn(async () => ({ outcome: { status: "accepted" as const, commandId: "command-1" }, session: null }));
+    const adapter = createProductionHarnessInspectorAdapter(store, { load: vi.fn(), execute });
+
+    expect(adapter.availability).toEqual({ status: "available" });
+    await expect(adapter.execute({ action: "harness.session.prompt", payload: { sessionId: session.sessionId, text: "continue" } }))
+      .resolves.toEqual({ status: "accepted", commandId: "command-1" });
+    expect(execute).toHaveBeenCalledOnce();
   });
 
   it("projects silent-worker recovery as unavailable because the native bridge has no closure identity", () => {

@@ -11,9 +11,11 @@ import type { HarnessInspectorAdapter, HarnessPanelDetails } from "./adapter";
 import type { ArtifactOpenResult } from "../../entities/editor/types";
 import { openHarnessArtifactCandidate } from "../../rpc";
 import { loadActivityAttentionEvidence } from "../../attention/attentionClient";
+import { loadHarnessComposerProjection } from "./composerProjectionClient";
 
 interface ProductionHarnessPorts {
   load(sessionId: string): Promise<HarnessPanelDetails>;
+  loadComposer?(sessionId: string): Promise<NonNullable<HarnessPanelDetails["composer"]>>;
   execute(request: HarnessStudioOperationRequest): Promise<Readonly<{ outcome: StudioOperationOutcome; session: RootSessionProjection | null }>>;
   openArtifact?(sessionId: string, candidateId: string): Promise<ArtifactOpenResult>;
   loadActivityEvidence?(sessionId: string): ReturnType<typeof loadActivityAttentionEvidence>;
@@ -23,6 +25,7 @@ const TERMINAL_RUNTIME_STATES = new Set<RootSessionProjection["state"]>(["discon
 
 const realPorts: ProductionHarnessPorts = {
   load: loadHarnessInspector,
+  loadComposer: loadHarnessComposerProjection,
   async execute(request) {
     let projected: RootSessionProjection | null = null;
     const outcome = await executeHarnessStudioOperation(request, (session) => { projected = session; });
@@ -63,7 +66,8 @@ export function createProductionHarnessInspectorAdapter(
 ): HarnessInspectorAdapter {
   return Object.freeze({
     get availability() {
-      return store.getSnapshot().compatibility.status === "ready"
+      const status = store.getSnapshot().compatibility.status;
+      return status === "ready" || status === "degraded"
         ? { status: "available" as const }
         : { status: "unavailable" as const, reason: "The verified Prime Harness broker is not live." };
     },
@@ -73,6 +77,15 @@ export function createProductionHarnessInspectorAdapter(
     loadActivityEvidence: (sessionId: string) => store.getSnapshot().sessions[sessionId] && ports.loadActivityEvidence
       ? ports.loadActivityEvidence(sessionId)
       : Promise.reject(new Error("Activity content evidence is unavailable for this Harness session.")),
+    async loadComposer(sessionId: string) {
+      if (!store.getSnapshot().sessions[sessionId]) {
+        throw new Error("The requested Harness session is not admitted by the native broker.");
+      }
+      if (ports.loadComposer) return ports.loadComposer(sessionId);
+      const details = await ports.load(sessionId);
+      if (!details.composer) throw new Error("The verified Harness inspector did not project composer configuration.");
+      return details.composer;
+    },
     workerRecovery: Object.freeze({
       status: "unavailable" as const,
       reason: "Prime Studio cannot safely retry a silent worker because the native Harness bridge does not expose a verified closure reason and retry identity.",

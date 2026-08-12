@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createControlBinding } from "../../contracts/studioOperations";
 import type { HarnessCompatibility } from "../../shared/ipc/harness.generated";
 import type { Account, AppSettings } from "../../types";
+import type { HarnessComposerProjection } from "../harness/adapter";
 import { AccountUsageSettings } from "./AccountUsageSettings";
 import {
   AboutSettings, AccountsSettings, AppearanceSettings, ComposerSettings, EnvironmentsSettings,
@@ -26,16 +27,17 @@ interface SettingsSharedProps {
   readonly accounts?: readonly Account[];
   readonly onAccountsChanged?: (accounts?: Account[]) => void;
   readonly onExportUsageCsv?: (csv: string, rangeDays: 7 | 30 | 90) => Promise<Readonly<{ status: "cancelled" }> | Readonly<{ status: "saved"; path: string; rows: number; bytes: number }>>;
+  readonly composer?: HarnessComposerProjection;
 }
 
-function SettingsPage({ section, compatibility, settings = {}, onSetting, onHarnessSetting, onToolSetting, accounts = [], onAccountsChanged, onExportUsageCsv }: SettingsSharedProps & { readonly section: StudioSettingsSectionId }) {
+function SettingsPage({ section, compatibility, settings = {}, onSetting, onHarnessSetting, onToolSetting, accounts = [], onAccountsChanged, onExportUsageCsv, composer }: SettingsSharedProps & { readonly section: StudioSettingsSectionId }) {
   switch (section) {
     case "general": return <GeneralSettings settings={settings} onSetting={onSetting} />;
     case "appearance": return <AppearanceSettings settings={settings} onSetting={onSetting} />;
     case "composer": return <ComposerSettings settings={settings} onSetting={onSetting} />;
     case "harness": return <HarnessSettings compatibility={compatibility} settings={settings} onSetting={onHarnessSetting} />;
     case "usage": return <AccountUsageSettings accounts={accounts} onExportCsv={onExportUsageCsv} />;
-    case "models": return <ModelsSettings compatibility={compatibility} settings={settings} onSetting={onSetting} />;
+    case "models": return <ModelsSettings compatibility={compatibility} composer={composer} />;
     case "accounts": return <AccountsSettings accounts={accounts} defaultAccount={settings.defaultAccount ?? null} onChanged={onAccountsChanged ?? (() => undefined)} onDefaultAccount={(accountId) => onSetting?.("defaultAccount", accountId)} />;
     case "tools": return <ToolsSettings compatibility={compatibility} settings={settings} onSetting={onToolSetting} />;
     case "git": return <GitSettings settings={settings} onSetting={onSetting} />;
@@ -46,7 +48,7 @@ function SettingsPage({ section, compatibility, settings = {}, onSetting, onHarn
   }
 }
 
-export function SettingsShell({ section, onSection, onBack, compatibility, settings, onSetting, onHarnessSetting, onToolSetting, accounts = [], onAccountsChanged, onExportUsageCsv }: SettingsSharedProps & {
+export function SettingsShell({ section, onSection, onBack, compatibility, settings, onSetting, onHarnessSetting, onToolSetting, accounts = [], onAccountsChanged, onExportUsageCsv, composer }: SettingsSharedProps & {
   readonly section: string | null;
   readonly onSection: (section: StudioSettingsSectionId) => void;
   readonly onBack: () => void;
@@ -69,6 +71,6 @@ export function SettingsShell({ section, onSection, onBack, compatibility, setti
       <label className="studio-settings-search"><span className="sr-only">Search settings</span><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" /><path d="m16 16 5 5" /></svg><input type="search" aria-label="Search settings" data-control-id={controls.search.controlId} data-action={controls.search.action} value={query} onChange={(event) => setQuery(event.currentTarget.value.slice(0, 200))} placeholder="Search settings" /></label>
       <nav aria-label="Settings sections">{groups.map((group) => <section key={group}><h2>{group}</h2>{visible.filter((candidate) => candidate.group === group).map((candidate) => <button type="button" key={candidate.id} data-control-id={`${controls.section.controlId}.${candidate.id}`} data-action={controls.section.action} aria-current={active === candidate.id ? "page" : undefined} onClick={() => onSection(candidate.id)}><span>{candidate.label}</span><small>{candidate.description}</small></button>)}</section>)}</nav>
     </aside>
-    <section className="studio-settings-content" data-settings-section={active} aria-labelledby="studio-settings-title"><div className="studio-settings-page"><header><h1 id="studio-settings-title">{definition.label}</h1><span>{definition.description}</span></header><SettingsPage section={active} compatibility={compatibility} settings={settings} onSetting={onSetting} onHarnessSetting={onHarnessSetting} onToolSetting={onToolSetting} accounts={accounts} onAccountsChanged={onAccountsChanged} onExportUsageCsv={onExportUsageCsv} /></div></section>
+    <section className="studio-settings-content" data-settings-section={active} aria-labelledby="studio-settings-title"><div className="studio-settings-page"><header><h1 id="studio-settings-title">{definition.label}</h1><span>{definition.description}</span></header><SettingsPage section={active} compatibility={compatibility} settings={settings} onSetting={onSetting} onHarnessSetting={onHarnessSetting} onToolSetting={onToolSetting} accounts={accounts} onAccountsChanged={onAccountsChanged} onExportUsageCsv={onExportUsageCsv} composer={composer} /></div></section>
   </main>;
 }

@@ -288,13 +288,14 @@ test("full operation catalog is closed and unsupported upstream operations are e
 test("production bridge exposes every verified daemon operation without provider calls", async () => {
   const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
   const calls: string[] = [];
-  const state = { activeSessionId: "root", cwd: "C:\\work", thinkingLevel: "high", serviceTier: "auto", availableThinkingLevels: [], isStreaming: false, isCompacting: false, isBashRunning: false, retryAttempt: 0, steeringMode: "all", followUpMode: "all", sessionId: "chat", leafId: null, autoCompactionEnabled: true, messageCount: 0, sessionActions: {}, compactionCount: 0, goal: {}, scopedModels: [], activeToolNames: [] };
+  const state = { activeSessionId: "root", cwd: "C:\\work", thinkingLevel: "high", serviceTier: "auto", availableThinkingLevels: ["low", "high"], isStreaming: false, isCompacting: false, isBashRunning: false, retryAttempt: 0, steeringMode: "all", followUpMode: "all", sessionId: "chat", leafId: null, autoCompactionEnabled: true, messageCount: 0, sessionActions: {}, compactionCount: 0, goal: {}, scopedModels: [], activeToolNames: [], model: { provider: "openai", id: "gpt-test", name: "GPT Test" } };
   const base = {
     async getInitialSnapshot() { return { state, messages: [], children: [], lastEventCursor: { generation: "g", sequence: 1 } }; },
     async getState() { return state; }, async getMessages() { calls.push("messages"); return []; },
     async getQueue() { calls.push("queue"); return { steering: [], followUp: [] }; },
     async getResourceSnapshot() { return { contextFiles: [], skills: [], prompts: [], extensions: [], themes: [], diagnostics: { skills: [], prompts: [], extensions: [], themes: [] } }; },
     async getSessionStats() { calls.push("stats"); return { tokens: {}, cost: 0 }; }, async getToolDefinition(name: string) { calls.push(`tool:${name}`); return undefined; },
+    async getModelCatalog() { calls.push("models"); return { models: [{ provider: "openai", id: "gpt-test", name: "GPT Test" }] }; },
     async prompt() {}, async steer() {}, async followUp() {}, async abort() {}, async dispose() { calls.push("detach"); },
   };
   const connection = new Proxy(base as Record<string, unknown>, { get(target, key) {
@@ -317,7 +318,14 @@ test("production bridge exposes every verified daemon operation without provider
   await bridge.updateHeartbeat("root", "pause"); await bridge.manageHeartbeat("root", "child", "job-2", "resume");
   await bridge.toolDefinition("root", "ipython"); await bridge.resources("root"); await bridge.models("root"); await bridge.commands("root");
   const details = await bridge.inspector("root");
-  assert.deepEqual(Object.keys(details).sort(), ["activity", "children", "context", "contributions", "notices", "observedAtMs", "outputs", "sources", "startedAtMs"]);
+  const composer = (details as unknown as { composer?: unknown }).composer;
+  assert.deepEqual(composer, {
+    models: [{ id: "openai/gpt-test", label: "GPT Test", shortLabel: "GPT Test", enabled: true }],
+    selectedModel: "openai/gpt-test",
+    thinkingLevels: ["low", "high"],
+    selectedThinking: "high",
+    supportedCommands: ["model", "effort", "compact", "fork", "export"],
+  });
   const statsBeforeSessionReplayCheck = calls.filter((call) => call === "stats").length;
   const sharedIdentity = { operationId: "cross-session-operation", action: "usage.current.refresh" as const, expectedCursor: null, idempotencyKey: "cross-session-key" };
   assert.equal((await bridge.executeOperation("root", { ...sharedIdentity, payload: { sessionId: "root" } })).status, "updated");
@@ -329,7 +337,7 @@ test("production bridge exposes every verified daemon operation without provider
   assert.deepEqual(calls, [
     "global:list", "global:create", "global:rename", "detach", "queue", "stats", "deleteSavedSession:C:\\safe\\session.jsonl", "setModel:openai,gpt-test", "setThinkingLevel:high", "compact:undefined", "fork:entry-1,undefined",
     "messages", "stats", "getSessionTree:", "queue", "clearQueue:", "abortAndClearQueue:", "listCronJobs:[object Object]", "addCronJob:in 5m,Continue", "cancelCronJob:job-1",
-    "listHeartbeats:", "getHeartbeat:", "setHeartbeat:every 5m,Check,follow_up", "updateHeartbeat:pause", "manageHeartbeat:child,job-2,resume", "tool:ipython", "getModelCatalog:", "getCommands:", "getSessionContext:", "stats", "stats", "stats",
+    "listHeartbeats:", "getHeartbeat:", "setHeartbeat:every 5m,Check,follow_up", "updateHeartbeat:pause", "manageHeartbeat:child,job-2,resume", "tool:ipython", "models", "getCommands:", "getSessionContext:", "stats", "models", "stats", "stats",
     "importFromJsonl:C:\\safe\\input.jsonl,undefined", "exportToJsonl:undefined", "exportToHtml:C:\\safe\\out.html", "detach",
   ]);
 });

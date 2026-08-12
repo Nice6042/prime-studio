@@ -88,6 +88,15 @@ export interface HarnessPanelDetails {
   readonly outputs: readonly Readonly<{ id: string; label: string; candidateId?: string; kind: string }>[];
   readonly sources: readonly Readonly<{ id: string; label: string; detail: string; candidateId?: string; kind: string }>[];
   readonly children: Readonly<Record<string, HarnessChildDetails>>;
+  readonly composer?: HarnessComposerProjection;
+}
+
+export interface HarnessComposerProjection {
+  readonly models: readonly ComposerRuntimeChoice[];
+  readonly selectedModel: string | null;
+  readonly thinkingLevels: readonly ThinkingLevel[];
+  readonly selectedThinking: ThinkingLevel | null;
+  readonly supportedCommands: readonly ("model" | "effort" | "compact" | "fork" | "export")[];
 }
 
 export interface HarnessInspectorAdapter {
@@ -97,6 +106,8 @@ export interface HarnessInspectorAdapter {
   load(sessionId: string): Promise<HarnessPanelDetails>;
   /** Native broker evidence minted from the last hydrated Activity payload. */
   readonly loadActivityEvidence?: (sessionId: string) => Promise<AttentionEvidence | null>;
+  /** Loads choices from one admitted session's verified daemon projection. */
+  loadComposer?(sessionId: string): Promise<HarnessComposerProjection>;
   execute(operation: StudioOperation): Promise<StudioOperationOutcome>;
   /** Available only when native authority supplies closure and retry identities. */
   readonly workerRecovery?:
@@ -108,13 +119,7 @@ export interface HarnessInspectorAdapter {
     harnessPolicy: boolean;
     toolPolicy: boolean;
   }>;
-  readonly composer?: Readonly<{
-    models: readonly ComposerRuntimeChoice[];
-    selectedModel: string | null;
-    thinkingLevels: readonly ThinkingLevel[];
-    selectedThinking: ThinkingLevel | null;
-    supportedCommands: readonly ("model" | "effort" | "compact" | "fork" | "export")[];
-  }>;
+  readonly composer?: HarnessComposerProjection;
 }
 
 export const unavailableHarnessInspectorAdapter: HarnessInspectorAdapter = {

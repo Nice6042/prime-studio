@@ -204,6 +204,33 @@ describe("Studio application state", () => {
     expect(screen.getByText(/account-1 · verified-model · thinking low/)).toBeVisible();
   });
 
+  it("hydrates composer choices from the selected admitted session", async () => {
+    const store = createStudioStore(initialStudioState({
+      projectCatalog: catalogBoundToRootSession(),
+      sessions: [rootSession],
+      compatibility: { status: "ready", profile: "verified", capabilities: ["model_catalog"] },
+    }));
+    const loadComposer = vi.fn(async () => ({
+      models: [{ id: "openai/gpt-live", label: "GPT Live", enabled: true }],
+      selectedModel: "openai/gpt-live",
+      thinkingLevels: ["low", "high"] as const,
+      selectedThinking: "high" as const,
+      supportedCommands: ["model", "effort", "compact", "fork", "export"] as const,
+    }));
+    const adapter: HarnessInspectorAdapter = {
+      availability: { status: "available" },
+      loadComposer,
+      load: async () => ({ observedAtMs: 1, startedAtMs: null, context: null, contributions: [], notices: [], activity: [], outputs: [], sources: [], children: {} }),
+      execute: async () => ({ status: "accepted", commandId: "command-1" }),
+    };
+
+    render(<AppProviders store={store}><StudioApp harnessAdapter={adapter} /></AppProviders>);
+
+    expect(await screen.findByRole("button", { name: "Use GPT Live" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Thinking high" })).toBeVisible();
+    expect(loadComposer).toHaveBeenCalledWith(rootSession.sessionId);
+  });
+
   it("moves focus into the narrow Harness drawer and restores its opener on Escape", async () => {
     const originalWidth = window.innerWidth;
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 320 });

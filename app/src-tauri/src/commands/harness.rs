@@ -305,13 +305,74 @@ pub(crate) async fn harness_inspector(
         let mut broker = broker
             .lock()
             .map_err(|_| "Harness broker is unavailable".to_owned())?;
-        tauri::async_runtime::block_on(broker.inspector(InspectorRequest {
+        let raw = tauri::async_runtime::block_on(broker.inspector(InspectorRequest {
             session_id: request.session_id,
         }))
-        .map_err(|error| format!("Harness inspector failed: {}", error.code()))
+        .map_err(|error| format!("Harness inspector failed: {}", error.code()))?;
+        inspector_projection(raw, false)
     })
     .await
     .map_err(|_| "Harness inspector task failed".to_owned())?
+}
+
+fn inspector_projection(raw: String, composer_only: bool) -> Result<String, String> {
+    let mut projection: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|_| "Harness inspector returned an invalid projection".to_owned())?;
+    let object = projection
+        .as_object_mut()
+        .ok_or_else(|| "Harness inspector returned an invalid projection".to_owned())?;
+    let composer = object.remove("composer");
+    let selected = if composer_only {
+        composer.ok_or_else(|| "Harness composer projection is unavailable".to_owned())?
+    } else {
+        projection
+    };
+    serde_json::to_string(&selected)
+        .map_err(|_| "Harness inspector projection could not be serialized".to_owned())
+}
+
+#[cfg(test)]
+mod inspector_projection_tests {
+    use super::inspector_projection;
+
+    #[test]
+    fn separates_composer_from_legacy_inspector_projection() {
+        let raw = r#"{"observedAtMs":1,"composer":{"models":[]}}"#.to_owned();
+        assert_eq!(
+            inspector_projection(raw.clone(), false).unwrap(),
+            r#"{"observedAtMs":1}"#
+        );
+        assert_eq!(inspector_projection(raw, true).unwrap(), r#"{"models":[]}"#);
+    }
+
+    #[test]
+    fn composer_projection_is_explicitly_unavailable_when_not_reported() {
+        let error = inspector_projection(r#"{"observedAtMs":1}"#.to_owned(), true).unwrap_err();
+        assert_eq!(error, "Harness composer projection is unavailable");
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn harness_composer_projection(
+    state: State<'_, crate::AppState>,
+    request: HarnessInspectorInput,
+) -> Result<String, String> {
+    let broker = state
+        .harness
+        .broker()
+        .ok_or_else(|| "Harness activation is unavailable".to_owned())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut broker = broker
+            .lock()
+            .map_err(|_| "Harness broker is unavailable".to_owned())?;
+        let raw = tauri::async_runtime::block_on(broker.inspector(InspectorRequest {
+            session_id: request.session_id,
+        }))
+        .map_err(|error| format!("Harness inspector failed: {}", error.code()))?;
+        inspector_projection(raw, true)
+    })
+    .await
+    .map_err(|_| "Harness composer projection task failed".to_owned())?
 }
 
 fn artifact_unavailable(reason: impl Into<String>) -> ArtifactOpenResult {

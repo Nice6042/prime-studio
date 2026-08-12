@@ -279,6 +279,7 @@ pub enum TauriCommand {
     HarnessAttachSession,
     HarnessSessionCommand,
     HarnessInspector,
+    HarnessComposerProjection,
     HarnessArtifactOpen,
     HarnessRefreshSession,
     HarnessStudioOperation,
@@ -300,7 +301,7 @@ pub enum TauriCommand {
     ComputerUseReadiness,
 }
 
-pub const ALL_TAURI_COMMANDS: [TauriCommand; 62] = [
+pub const ALL_TAURI_COMMANDS: [TauriCommand; 63] = [
     TauriCommand::StartSession,
     TauriCommand::AttachSession,
     TauriCommand::DetachSession,
@@ -344,6 +345,7 @@ pub const ALL_TAURI_COMMANDS: [TauriCommand; 62] = [
     TauriCommand::HarnessAttachSession,
     TauriCommand::HarnessSessionCommand,
     TauriCommand::HarnessInspector,
+    TauriCommand::HarnessComposerProjection,
     TauriCommand::HarnessArtifactOpen,
     TauriCommand::HarnessRefreshSession,
     TauriCommand::HarnessStudioOperation,
@@ -418,6 +420,7 @@ impl TauriCommand {
             Self::HarnessAttachSession => "harness_attach_session",
             Self::HarnessSessionCommand => "harness_session_command",
             Self::HarnessInspector => "harness_inspector",
+            Self::HarnessComposerProjection => "harness_composer_projection",
             Self::HarnessArtifactOpen => "harness_artifact_open",
             Self::HarnessRefreshSession => "harness_refresh_session",
             Self::HarnessStudioOperation => "harness_studio_operation",
@@ -479,6 +482,7 @@ impl TauriCommand {
             | Self::HarnessSessionCommand
             | Self::HarnessInspector
             | Self::AttentionActivityEvidence
+            | Self::HarnessComposerProjection
             | Self::HarnessArtifactOpen
             | Self::HarnessRefreshSession
             | Self::HarnessStudioOperation

@@ -40,9 +40,9 @@ use browser::{
 };
 use commands::editor::{editor_artifact_open, editor_artifact_reload, editor_artifact_save, editor_artifact_save_copy, ArtifactAuthority};
 use commands::harness::{
-    harness_artifact_open, harness_attach_session, harness_bootstrap, harness_create_resident_chat,
-    harness_inspector, harness_projection, harness_refresh_session, harness_session_command,
-    harness_studio_operation,
+    harness_artifact_open, harness_attach_session, harness_bootstrap, harness_composer_projection,
+    harness_create_resident_chat, harness_inspector, harness_projection, harness_refresh_session,
+    harness_session_command, harness_studio_operation,
 };
 use commands::settings::{get_layout_preferences, set_layout_preferences};
 use commands::usage::export_account_usage_csv;
@@ -4107,6 +4107,7 @@ pub fn run() {
             harness_attach_session,
             harness_session_command,
             harness_inspector,
+            harness_composer_projection,
             harness_artifact_open,
             harness_refresh_session,
             harness_studio_operation,

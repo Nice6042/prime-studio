@@ -76,6 +76,13 @@ export interface PrimeHarnessInspectorDetails {
     files: readonly Readonly<{ id: string; path: string; change: "added" | "modified" | "deleted" | "read" }>[];
     error: Readonly<{ code: string; message: string; retryable: boolean }> | null;
   }>>>;
+  readonly composer: Readonly<{
+    models: readonly Readonly<{ id: string; label: string; shortLabel: string; enabled: true }>[];
+    selectedModel: string | null;
+    thinkingLevels: readonly ("off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max")[];
+    selectedThinking: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | null;
+    supportedCommands: readonly ("model" | "effort" | "compact" | "fork" | "export")[];
+  }>;
 }
 
 interface BoundConnection {
@@ -124,6 +131,51 @@ function safeInteger(value: unknown): number {
 function optionalSafeInteger(value: unknown): number | null {
   if (value === undefined || value === null) return null;
   return safeInteger(value);
+}
+
+const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const);
+type ProjectedThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
+function composerProjection(
+  connection: DaemonConnectionPort,
+  initial: Record<string, unknown>,
+  catalogRaw: unknown,
+): PrimeHarnessInspectorDetails["composer"] {
+  const state = plain(initial.state) ? initial.state : {};
+  const catalog = plain(catalogRaw) && Array.isArray(catalogRaw.models) ? catalogRaw.models : [];
+  const seen = new Set<string>();
+  const models = catalog.slice(0, 512).flatMap((raw) => {
+    if (!plain(raw) || typeof raw.id !== "string" || typeof raw.provider !== "string") return [];
+    const provider = boundedString(raw.provider, 128);
+    const modelId = boundedString(raw.id, 96);
+    const id = `${provider}/${modelId}`;
+    if (id.length > 128 || !/^[\w./:@+-]+$/u.test(id) || seen.has(id)) return [];
+    seen.add(id);
+    const label = typeof raw.name === "string" ? boundedString(raw.name, 200) : modelId;
+    return [{ id, label, shortLabel: label, enabled: true as const }];
+  });
+  const current = plain(state.model) ? state.model : {};
+  const selectedModel = typeof current.provider === "string" && typeof current.id === "string"
+    ? `${boundedString(current.provider, 128)}/${boundedString(current.id, 200)}`
+    : null;
+  const levels = Array.isArray(state.availableThinkingLevels)
+    ? state.availableThinkingLevels.slice(0, 32).filter((value): value is ProjectedThinkingLevel => typeof value === "string" && THINKING_LEVELS.has(value as ProjectedThinkingLevel))
+    : [];
+  const thinkingLevels = [...new Set(levels)];
+  const selectedThinking = typeof state.thinkingLevel === "string" && THINKING_LEVELS.has(state.thinkingLevel as ProjectedThinkingLevel)
+    ? state.thinkingLevel as ProjectedThinkingLevel
+    : null;
+  const supportedCommands: Array<"model" | "effort" | "compact" | "fork" | "export"> = [];
+  if (models.length > 0 && typeof connection.setModel === "function") supportedCommands.push("model");
+  if (thinkingLevels.length > 0 && typeof connection.setThinkingLevel === "function") supportedCommands.push("effort");
+  if (typeof connection.compact === "function") supportedCommands.push("compact");
+  if (typeof connection.fork === "function") supportedCommands.push("fork");
+  if (typeof connection.exportToHtml === "function") supportedCommands.push("export");
+  return Object.freeze({
+    models: Object.freeze(models), selectedModel,
+    thinkingLevels: Object.freeze(thinkingLevels), selectedThinking,
+    supportedCommands: Object.freeze(supportedCommands),
+  });
 }
 function stableId(prefix: string, value: string): string {
   return `${prefix}-${createHash("sha256").update(value).digest("hex").slice(0, 24)}`;
@@ -354,11 +406,13 @@ export class PrimeDaemonBridge {
   }
 
   async inspector(activeSessionId: string): Promise<PrimeHarnessInspectorDetails> {
-    const [initialRaw, contextRaw, statsRaw, resourcesRaw] = await Promise.all([
+    const connection = (await this.#bound(activeSessionId)).connection;
+    const [initialRaw, contextRaw, statsRaw, resourcesRaw, catalogRaw] = await Promise.all([
       this.#call(activeSessionId, "getInitialSnapshot"),
       this.#call(activeSessionId, "getSessionContext"),
       this.#call(activeSessionId, "getSessionStats"),
       this.#call(activeSessionId, "getResourceSnapshot"),
+      this.#call(activeSessionId, "getModelCatalog"),
     ]);
     const initial = plain(initialRaw) ? initialRaw : {};
     const context = plain(contextRaw) ? contextRaw : {};
@@ -480,6 +534,7 @@ export class PrimeDaemonBridge {
       contributions: Object.freeze(Object.entries(children).flatMap(([id, child]) => child.context ? [{ id, label: child.summary, tokens: child.context.usedTokens }] : [])),
       notices: Object.freeze([]), activity: Object.freeze(activity.slice(-300)), outputs: Object.freeze(outputs),
       sources: Object.freeze(sources.slice(0, 512)), children: Object.freeze(children),
+      composer: composerProjection(connection, initial, catalogRaw),
     });
   }
 
