@@ -393,12 +393,7 @@ export async function bootstrapHarness(): Promise<BootProjection> {
   retiredGenerations.clear();
   childOwners.clear();
   sessionChildren.clear();
-  for (const session of projection.sessions) {
-    sessionCursors.set(session.sessionId, session.cursor);
-    const children = new Set(session.children.map((child) => child.id));
-    sessionChildren.set(session.sessionId, children);
-    for (const child of children) childOwners.set(child, session.sessionId);
-  }
+  for (const session of projection.sessions) registerHarnessSessionProjection(session);
   return projection;
 }
 
@@ -428,7 +423,7 @@ export async function attachHarnessSession(sessionId: string): Promise<RootSessi
     }),
   );
   if (projection.sessionId !== exactSessionId) fail();
-  return projection;
+  return registerHarnessSessionProjection(projection);
 }
 
 export async function refreshHarnessSession(sessionId: string, knownCursor: HarnessCursor): Promise<RootSessionProjection> {
@@ -463,10 +458,11 @@ export async function sendHarnessCommand(request: HarnessSessionCommandRequest):
   const commandId = id(source.commandId);
   const projected = session(source.session);
   if (commandId !== exact.commandId || projected.sessionId !== exact.sessionId || projected.cursor.runtimeGeneration !== exact.expectedCursor.runtimeGeneration || projected.cursor.sequence !== exact.expectedCursor.sequence + 1) fail();
+  const admitted = advanceHarnessSessionProjection(projected, exact.expectedCursor);
   return deepFreeze({
     commandId,
     outcome: oneOf(source.outcome, new Set(["accepted", "queued", "reconciled"] as const)),
-    session: projected,
+    session: admitted,
   });
 }
 
@@ -777,8 +773,10 @@ export async function executeHarnessStudioOperation(
     const projected = session(response.session);
     if (projected.sessionId !== sessionId) fail();
     if (expectedCursor && (projected.cursor.runtimeGeneration !== expectedCursor.runtimeGeneration || projected.cursor.sequence !== expectedCursor.sequence + 1)) fail();
-    sessionCursors.set(sessionId, projected.cursor);
-    onProjection?.(deepFreeze(projected));
+    const admitted = expectedCursor
+      ? advanceHarnessSessionProjection(projected, expectedCursor)
+      : registerHarnessSessionProjection(projected);
+    onProjection?.(admitted);
   }
   if (status === "accepted" && commandId) return deepFreeze({ status, commandId });
   if (status === "queued" && commandId) return deepFreeze({ status, commandId, position });
@@ -801,6 +799,67 @@ const sessionCursors = new Map<string, HarnessCursor>();
 const retiredGenerations = new Map<string, Set<string>>();
 const childOwners = new Map<string, string>();
 const sessionChildren = new Map<string, Set<string>>();
+
+function sameCursor(left: HarnessCursor, right: HarnessCursor): boolean {
+  return left.runtimeGeneration === right.runtimeGeneration && left.sequence === right.sequence;
+}
+
+function installSessionProjection(projected: RootSessionProjection): RootSessionProjection {
+  const sessionId = projected.sessionId;
+  const nextChildren = new Set(projected.children.map((child) => child.id));
+  for (const child of nextChildren) {
+    const owner = childOwners.get(child);
+    if (owner && owner !== sessionId) fail();
+  }
+  for (const child of sessionChildren.get(sessionId) ?? []) {
+    if (!nextChildren.has(child) && childOwners.get(child) === sessionId) childOwners.delete(child);
+  }
+  for (const child of nextChildren) childOwners.set(child, sessionId);
+  sessionChildren.set(sessionId, nextChildren);
+  sessionCursors.set(sessionId, projected.cursor);
+  return deepFreeze(projected);
+}
+
+/** Register an authoritative attach/create/bootstrap baseline for bounded live refresh. */
+export function registerHarnessSessionProjection(value: unknown): RootSessionProjection {
+  const projected = session(detach(value));
+  const current = sessionCursors.get(projected.sessionId);
+  const retired = retiredGenerations.get(projected.sessionId);
+  if (retired?.has(projected.cursor.runtimeGeneration)) fail();
+  if (current && !sameCursor(current, projected.cursor)) {
+    if (current.runtimeGeneration === projected.cursor.runtimeGeneration) {
+      if (projected.cursor.sequence < current.sequence) fail();
+    } else {
+      const generations = retired ?? new Set<string>();
+      generations.add(current.runtimeGeneration);
+      retiredGenerations.set(projected.sessionId, generations);
+    }
+  }
+  return installSessionProjection(projected);
+}
+
+function advanceHarnessSessionProjection(
+  projected: RootSessionProjection,
+  expectedCursor: HarnessCursor,
+): RootSessionProjection {
+  const current = sessionCursors.get(projected.sessionId);
+  if (!current) {
+    if (
+      projected.cursor.runtimeGeneration !== expectedCursor.runtimeGeneration
+      || projected.cursor.sequence !== expectedCursor.sequence + 1
+    ) return fail();
+    return installSessionProjection(projected);
+  }
+  if (!sameCursor(current, expectedCursor)) {
+    if (current && sameCursor(current, projected.cursor)) return deepFreeze(projected);
+    return fail();
+  }
+  if (
+    projected.cursor.runtimeGeneration !== expectedCursor.runtimeGeneration
+    || projected.cursor.sequence !== expectedCursor.sequence + 1
+  ) return fail();
+  return installSessionProjection(projected);
+}
 
 function acceptSessionCursor(event: HarnessProjectionEvent): boolean {
   const { sessionId, cursor: next } = event.session;
@@ -848,22 +907,31 @@ async function ensureListener(): Promise<void> {
     for (const listener of listeners) listener(event);
   });
   await unlisten;
-  refreshTimer ??= setInterval(() => {
-    if (refreshRunning || eventStreamClosed || listeners.size === 0) return;
-    refreshRunning = true;
-    void (async () => {
-      for (const [sessionId, knownCursor] of [...sessionCursors]) {
-        if (eventStreamClosed || listeners.size === 0) break;
-        try {
-          const projected = await refreshHarnessSession(sessionId, knownCursor);
-          const event: HarnessProjectionEvent = { schemaVersion: 1, sequence: lastSequence + 1, type: "session_projection", session: projected };
-          if (!acceptSessionCursor(event)) { eventStreamClosed = true; break; }
-          lastSequence = event.sequence;
-          for (const listener of listeners) listener(deepFreeze(event));
-        } catch { /* Retain the last truthful projection and retry on the next bounded interval. */ }
-      }
-    })().finally(() => { refreshRunning = false; });
-  }, 1_000);
+  refreshTimer ??= setInterval(() => { void refreshHarnessSubscriptionsNow(); }, 1_000);
+}
+
+/** Run one bounded refresh pass. Exported so resident registration and race behavior are testable. */
+export async function refreshHarnessSubscriptionsNow(): Promise<void> {
+  if (refreshRunning || eventStreamClosed || listeners.size === 0) return;
+  refreshRunning = true;
+  try {
+    for (const [sessionId, knownCursor] of [...sessionCursors]) {
+      if (eventStreamClosed || listeners.size === 0) break;
+      try {
+        const projected = await refreshHarnessSession(sessionId, knownCursor);
+        const current = sessionCursors.get(sessionId);
+        // A command or event won the race. Its newer authoritative cursor must not
+        // be rolled back or turn an otherwise healthy stream into a terminal error.
+        if (!current || !sameCursor(current, knownCursor)) continue;
+        const event: HarnessProjectionEvent = { schemaVersion: 1, sequence: lastSequence + 1, type: "session_projection", session: projected };
+        if (!acceptSessionCursor(event)) { eventStreamClosed = true; break; }
+        lastSequence = event.sequence;
+        for (const listener of listeners) listener(deepFreeze(event));
+      } catch { /* Retain the last truthful projection and retry on the next bounded interval. */ }
+    }
+  } finally {
+    refreshRunning = false;
+  }
 }
 
 export function subscribeHarnessEvents(listener: Listener): () => void {

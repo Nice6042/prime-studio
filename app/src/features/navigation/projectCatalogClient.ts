@@ -6,7 +6,7 @@ import {
   type ProjectChatState,
 } from "../../domain/projectChats";
 import type { RootSessionProjection } from "../../entities/harness/types";
-import { decodeRootSessionProjection } from "../../shared/ipc/client";
+import { decodeRootSessionProjection, registerHarnessSessionProjection } from "../../shared/ipc/client";
 
 const MAX_CATALOG_TRANSPORT_BYTES = 8 * 1024 * 1024;
 
@@ -108,8 +108,9 @@ export async function createResidentForCatalogChat(
   preflight(value);
   const source = value as Record<string, unknown>;
   if (Object.keys(source).sort().join(",") !== "catalog,session") return fail();
+  const session = registerHarnessSessionProjection(decodeRootSessionProjection(source.session));
   return deepFreeze({
     catalog: decodeProjectCatalogSnapshot(source.catalog),
-    session: decodeRootSessionProjection(source.session),
+    session,
   });
 }

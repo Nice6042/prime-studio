@@ -11,7 +11,7 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: mocks.listen,
 }));
 
-import { attachHarnessSession, bootstrapHarness, decodeBootProjection, decodeHarnessProjectionEvent, executeHarnessStudioOperation, loadHarnessInspector, refreshHarnessSession, sendHarnessCommand, subscribeHarnessEvents } from "./client";
+import { attachHarnessSession, bootstrapHarness, decodeBootProjection, decodeHarnessProjectionEvent, executeHarnessStudioOperation, loadHarnessInspector, refreshHarnessSession, refreshHarnessSubscriptionsNow, registerHarnessSessionProjection, sendHarnessCommand, subscribeHarnessEvents } from "./client";
 
 const unavailable = {
   compatibility: {
@@ -355,6 +355,10 @@ describe("Harness IPC client", () => {
   it("routes closed Harness actions and validates the operation outcome", async () => {
     const operationSession = { ...session, cursor: { ...session.cursor, sequence: 2 } };
     mocks.invoke.mockResolvedValueOnce({
+      compatibility: { status: "ready", profile: "profile", capabilities: readyCapabilities },
+      sessions: [session],
+    });
+    mocks.invoke.mockResolvedValueOnce({
       operationId: "operation-12345678",
       status: "queued",
       commandId: "command-12345678",
@@ -364,6 +368,7 @@ describe("Harness IPC client", () => {
       retryable: null,
       session: operationSession,
     });
+    await bootstrapHarness();
     await expect(
       executeHarnessStudioOperation({
         sessionId: "root",
@@ -488,5 +493,89 @@ describe("Harness IPC client", () => {
     expect(mocks.eventCallback).not.toBeNull();
     unsubscribeFirst();
     unsubscribeSecond();
+  });
+
+  it("polls a newly registered resident and advances from the direct command cursor", async () => {
+    const refreshCursors: number[] = [];
+    mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "harness_bootstrap") return {
+        compatibility: { status: "ready", profile: "profile", capabilities: readyCapabilities },
+        sessions: [],
+      };
+      if (command === "harness_refresh_session") {
+        const request = args?.request as { knownCursor: { sequence: number } };
+        refreshCursors.push(request.knownCursor.sequence);
+        return { ...session, cursor: { ...session.cursor, sequence: request.knownCursor.sequence + 1 } };
+      }
+      if (command === "harness_session_command") return {
+        commandId: "command-12345678",
+        outcome: "accepted",
+        session: { ...session, cursor: { ...session.cursor, sequence: 3 }, state: "working" },
+      };
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    await bootstrapHarness();
+    registerHarnessSessionProjection(session);
+    const received: number[] = [];
+    const unsubscribe = subscribeHarnessEvents((event) => received.push(event.session.cursor.sequence));
+    await refreshHarnessSubscriptionsNow();
+    await sendHarnessCommand({
+      sessionId: session.sessionId,
+      commandId: "command-12345678",
+      expectedCursor: { ...session.cursor, sequence: 2 },
+      kind: "prompt",
+      text: "Keep polling",
+    });
+    await refreshHarnessSubscriptionsNow();
+    unsubscribe();
+
+    expect(refreshCursors).toEqual([1, 3]);
+    expect(received).toEqual([2, 4]);
+  });
+
+  it("discards a refresh response when a direct command advances the session first", async () => {
+    let resolveFirstRefresh!: (value: unknown) => void;
+    const refreshCursors: number[] = [];
+    mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "harness_bootstrap") return {
+        compatibility: { status: "ready", profile: "profile", capabilities: readyCapabilities },
+        sessions: [session],
+      };
+      if (command === "harness_refresh_session") {
+        const request = args?.request as { knownCursor: { sequence: number } };
+        refreshCursors.push(request.knownCursor.sequence);
+        if (request.knownCursor.sequence === 1) {
+          return await new Promise((resolve) => { resolveFirstRefresh = resolve; });
+        }
+        return { ...session, cursor: { ...session.cursor, sequence: request.knownCursor.sequence + 1 } };
+      }
+      if (command === "harness_session_command") return {
+        commandId: "command-12345678",
+        outcome: "accepted",
+        session: { ...session, cursor: { ...session.cursor, sequence: 2 }, state: "working" },
+      };
+      throw new Error(`Unexpected command: ${command}`);
+    });
+
+    await bootstrapHarness();
+    const received: number[] = [];
+    const unsubscribe = subscribeHarnessEvents((event) => received.push(event.session.cursor.sequence));
+    const staleRefresh = refreshHarnessSubscriptionsNow();
+    await vi.waitFor(() => expect(refreshCursors).toEqual([1]));
+    await sendHarnessCommand({
+      sessionId: session.sessionId,
+      commandId: "command-12345678",
+      expectedCursor: session.cursor,
+      kind: "prompt",
+      text: "Advance first",
+    });
+    resolveFirstRefresh({ ...session, cursor: { ...session.cursor, sequence: 2 } });
+    await staleRefresh;
+    await refreshHarnessSubscriptionsNow();
+    unsubscribe();
+
+    expect(refreshCursors).toEqual([1, 2]);
+    expect(received).toEqual([3]);
   });
 });

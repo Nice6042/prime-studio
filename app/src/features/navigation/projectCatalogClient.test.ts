@@ -1,12 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const invoke = vi.hoisted(() => vi.fn());
+const registerHarnessSessionProjection = vi.hoisted(() => vi.fn((value: unknown) => value));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
+vi.mock("../../shared/ipc/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../shared/ipc/client")>();
+  return { ...actual, registerHarnessSessionProjection };
+});
 
 import { applyProjectCatalogCommand, createResidentForCatalogChat, loadProjectCatalog } from "./projectCatalogClient";
 
 describe("project catalog client", () => {
-  beforeEach(() => invoke.mockReset());
+  beforeEach(() => {
+    invoke.mockReset();
+    registerHarnessSessionProjection.mockClear();
+  });
 
   it("loads and freezes the exact native catalog snapshot", async () => {
     invoke.mockResolvedValue({
@@ -107,6 +115,12 @@ describe("project catalog client", () => {
     const result = await createResidentForCatalogChat(1, "project:personal", "studio-chat-1");
     expect(result.catalog.state.projects[0]?.id).toBe("project:personal");
     expect(result.session.projectId).toBe("daemon-project-1");
+    expect(registerHarnessSessionProjection).toHaveBeenCalledOnce();
+    expect(registerHarnessSessionProjection).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: "daemon-active-1",
+      chatId: "daemon-chat-1",
+      cursor: { runtimeGeneration: "generation-1", sequence: 0 },
+    }));
     expect(invoke).toHaveBeenCalledWith("harness_create_resident_chat", { request: { expectedRevision: 1, projectId: "project:personal", chatId: "studio-chat-1" } });
   });
 });
