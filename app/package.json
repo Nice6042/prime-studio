@@ -13,6 +13,7 @@
     "dev": "vite",
     "build": "npm run build:harness-sidecar && tsc && vite build",
     "build:harness-sidecar": "tsc -p harness-sidecar/tsconfig.json",
+    "check:harness-boundaries": "node scripts/check-harness-boundaries.mjs",
     "test:harness-sidecar": "npm run build:harness-sidecar && node --test harness-sidecar/dist/test/*.test.js",
     "branding:icons": "tauri icon ../assets/branding/prime-studio-mark.svg && node scripts/canonicalize-icns.mjs src-tauri/icons/icon.icns && node scripts/normalize-branding-icons.mjs src-tauri/icons",
     "check": "node src/reducer.check.mjs",
