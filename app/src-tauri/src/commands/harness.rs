@@ -341,22 +341,20 @@ pub(crate) fn harness_artifact_open(
         .state
         .projects
         .iter()
-        .filter_map(|project| {
-            if project.archived {
-                return None;
-            }
-            let chats = project
-                .chats
-                .iter()
-                .filter(|chat| {
-                    !chat.archived
-                        && chat
-                            .binding
-                            .as_ref()
-                            .is_some_and(|binding| binding.session_id == request.session_id)
-                })
-                .count();
-            (chats == 1).then_some(project)
+        .filter(|project| {
+            !project.archived
+                && project
+                    .chats
+                    .iter()
+                    .filter(|chat| {
+                        !chat.archived
+                            && chat
+                                .binding
+                                .as_ref()
+                                .is_some_and(|binding| binding.session_id == request.session_id)
+                    })
+                    .count()
+                    == 1
         })
         .collect::<Vec<_>>();
     if matches.len() != 1 {
