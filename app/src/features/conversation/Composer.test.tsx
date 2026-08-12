@@ -154,4 +154,50 @@ describe("Composer", () => {
     expect(onSlashCommand.mock.calls.map(([id]) => id)).toEqual(["model", "effort", "compact", "fork", "new", "export"]);
     expect(onDraftChange).toHaveBeenCalledWith("");
   });
+
+  it("navigates slash choices from the keyboard without submitting the draft", () => {
+    const onSlashCommand = vi.fn();
+    render(<Composer
+      draft="/co"
+      state={{ kind: "idle", draft: "/co", canSend: true }}
+      slashCommands={deriveSlashCommands({ model: false, effort: false, compact: true, fork: false, new: false, usage: false, export: false })}
+      onDraftChange={vi.fn()}
+      onSubmit={vi.fn()}
+      onAbort={vi.fn()}
+      onOpenUsage={vi.fn()}
+      onSlashCommand={onSlashCommand}
+    />);
+
+    const input = screen.getByRole("textbox", { name: "Message Prime Studio" });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(input).toHaveAttribute("aria-activedescendant", "slash-option-compact");
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(onSlashCommand).toHaveBeenCalledWith("compact");
+  });
+
+  it("offers the verified model catalog with accessible selection", async () => {
+    const onSelectModel = vi.fn();
+    render(<Composer
+      draft=""
+      state={{ kind: "idle", draft: "", canSend: false }}
+      models={[
+        { id: "model-a", label: "Model A", enabled: true },
+        { id: "model-b", label: "Model B", enabled: false, disabledReason: "Not admitted" },
+      ]}
+      selectedModel="model-a"
+      onSelectModel={onSelectModel}
+      onDraftChange={vi.fn()}
+      onSubmit={vi.fn()}
+      onAbort={vi.fn()}
+      onOpenUsage={vi.fn()}
+    />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Choose model Model A" }));
+    expect(screen.getByRole("menu", { name: "Verified models" })).toBeVisible();
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "Model B" }));
+    expect(onSelectModel).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "Model A" }));
+    expect(onSelectModel).toHaveBeenCalledWith("model-a");
+  });
 });

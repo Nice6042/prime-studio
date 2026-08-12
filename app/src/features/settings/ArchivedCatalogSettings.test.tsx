@@ -36,4 +36,15 @@ describe("ArchivedCatalogSettings", () => {
     expect(onRestoreProject).toHaveBeenCalledWith("project:alpha");
     expect(onRestoreChat).toHaveBeenCalledWith("project:personal", "chat:old");
   });
+
+  it("keeps archive fork visible but disabled when the verified Harness has no atomic archive-fork authority", () => {
+    render(<ArchivedCatalogSettings catalog={archivedCatalog()} operation={{ phase: "idle" }}
+      onRestoreProject={vi.fn()} onRestoreChat={vi.fn()}
+      archiveForkReason="The verified Harness exposes fork and new-session independently, but no atomic archive-and-fork command." />);
+
+    const fork = screen.getByRole("button", { name: "Fork archived chat Old chat" });
+    expect(fork).toBeDisabled();
+    expect(fork).toHaveAttribute("data-studio-action", "conversation.archive-fork");
+    expect(fork.title).toMatch(/no atomic archive-and-fork command/i);
+  });
 });

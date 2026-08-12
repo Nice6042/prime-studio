@@ -69,9 +69,13 @@ export function Composer({
   readonly showTokenEstimate?: boolean;
 }) {
   const [thinkingOpen, setThinkingOpen] = useState(false);
+  const [modelOpen, setModelOpen] = useState(false);
+  const [activeSlashIndex, setActiveSlashIndex] = useState(0);
   const [dragging, setDragging] = useState(false);
   const thinkingMenu = useRef<HTMLDivElement>(null);
+  const modelMenu = useRef<HTMLDivElement>(null);
   usePopoverSurface(thinkingMenu, () => setThinkingOpen(false), thinkingOpen);
+  usePopoverSurface(modelMenu, () => setModelOpen(false), modelOpen);
   const commandCatalog = useMemo(() => suppliedSlashCommands ?? deriveSlashCommands({
     model: models.length > 0 && Boolean(onSelectModel),
     effort: thinkingLevels.length > 0 && Boolean(onSelectThinking),
@@ -82,6 +86,8 @@ export function Composer({
     export: Boolean(onSlashCommand),
   }), [models.length, onSelectModel, onSelectThinking, onSlashCommand, suppliedSlashCommands, thinkingLevels.length]);
   const slashCommands = useMemo(() => filterSlashCommands(draft, commandCatalog), [commandCatalog, draft]);
+  const enabledSlashCommands = useMemo(() => slashCommands.filter((command) => command.enabled), [slashCommands]);
+  const activeSlash = enabledSlashCommands[Math.min(activeSlashIndex, Math.max(0, enabledSlashCommands.length - 1))] ?? null;
   const disabledReason = state.kind === "unavailable" ? state.reason : state.kind === "read_only" ? "Archived conversations are read-only." : null;
   const canSubmit = state.kind === "idle" ? state.canSend : state.kind === "working" ? draft.trim().length > 0 && (state.canQueue || state.canSteer) : false;
   const busy = state.kind === "submitting" || state.kind === "aborting";
@@ -112,19 +118,29 @@ export function Composer({
 
   return <div className="composer-dock">
     <div className="composer-frame" data-dragging={dragging} aria-label="Message composer" onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); droppedFiles(event.dataTransfer.files); }}>
-      <SlashMenu commands={slashCommands} onSelect={(command) => {
+      <SlashMenu commands={slashCommands} activeCommandId={activeSlash?.id} onSelect={(command) => {
         onDraftChange(`${command.label} `);
       }} />
       <AttachmentChips attachments={attachments} onRemove={onAttachmentsChange ? (id) => onAttachmentsChange(attachments.filter((attachment) => attachment.id !== id)) : undefined} />
       <textarea
         {...controlBinding("composer-draft", "composer.draft.change")}
         aria-label="Message Prime Studio"
+        aria-controls={slashCommands.length > 0 ? "composer-slash-commands" : undefined}
+        aria-activedescendant={activeSlash ? `slash-option-${activeSlash.id}` : undefined}
         value={draft}
         readOnly={state.kind === "read_only"}
         placeholder="Message Prime Studio — try / for commands"
         rows={1}
         onChange={(event) => onDraftChange(boundDraft(event.currentTarget.value))}
         onKeyDown={(event) => {
+          if (enabledSlashCommands.length > 0 && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+            event.preventDefault();
+            setActiveSlashIndex((current) => {
+              const offset = event.key === "ArrowDown" ? 1 : -1;
+              return (current + offset + enabledSlashCommands.length) % enabledSlashCommands.length;
+            });
+            return;
+          }
           const action = keyboardComposerAction({
             key: event.key,
             shiftKey: event.shiftKey,
@@ -134,6 +150,10 @@ export function Composer({
           }, sendShortcut);
           if (action === "submit") {
             event.preventDefault();
+            if (activeSlash) {
+              runSlashCommand(activeSlash);
+              return;
+            }
             submit();
           }
         }}
@@ -150,6 +170,10 @@ export function Composer({
           {models.map((model) => {
             return <button key={model.id} type="button" {...controlBinding(`composer-model-${model.id}`, "composer.model.select", model.enabled ? null : (model.disabledReason ?? "This model is unavailable."))} aria-label={`Use ${model.label}`} aria-pressed={model.id === selectedModel} disabled={!model.enabled} title={model.disabledReason} onClick={() => onSelectModel?.(model.id)}>{model.shortLabel ?? model.label}</button>;
           })}
+        </div> : null}
+        {models.length > 0 && onSelectModel ? <div className="composer-model-root">
+          <button type="button" {...controlBinding("composer-model-catalog", "composer.model.select")} className="composer-model-catalog" aria-label={`Choose model ${models.find((model) => model.id === selectedModel)?.label ?? "unavailable"}`} aria-haspopup="menu" aria-expanded={modelOpen} onClick={() => setModelOpen((value) => !value)}>Models</button>
+          {modelOpen && <div ref={modelMenu} data-studio-overlay="menu" className="composer-model-menu" role="menu" aria-label="Verified models">{models.map((model) => <button key={model.id} type="button" {...controlBinding(`composer-model-catalog-${model.id}`, "composer.model.select", model.enabled ? null : (model.disabledReason ?? "This model is unavailable."))} role="menuitemradio" aria-checked={model.id === selectedModel} aria-label={model.label} disabled={!model.enabled} title={model.disabledReason} onClick={() => { setModelOpen(false); onSelectModel(model.id); }}>{model.label}</button>)}</div>}
         </div> : null}
         {thinkingLevels.length > 0 && onSelectThinking && <div className="composer-thinking-root">
           <button className="composer-thinking" type="button" {...controlBinding("composer-thinking", "composer.thinking.select")} aria-label={`Thinking ${thinking}`} aria-haspopup="menu" aria-expanded={thinkingOpen} disabled={!onSelectThinking} onClick={() => setThinkingOpen((value) => !value)}><span>Thinking</span><strong>{thinking}</strong><span aria-hidden="true">⌄</span></button>

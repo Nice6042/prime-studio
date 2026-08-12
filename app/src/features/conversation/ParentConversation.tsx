@@ -33,6 +33,7 @@ function EditedFiles({ messageId, files, onUndo, onReview, onOpen }: {
   readonly onReview?: (messageId: string) => void;
   readonly onOpen?: (messageId: string, path: string) => void;
 }) {
+  const boundedFiles = files.slice(0, 64);
   const additions = files.reduce((total, file) => total + file.additions, 0);
   const deletions = files.reduce((total, file) => total + file.deletions, 0);
   return <section className="conversation-edited-files" aria-label={`Edited ${files.length} files`}>
@@ -40,7 +41,8 @@ function EditedFiles({ messageId, files, onUndo, onReview, onOpen }: {
       <button type="button" {...controlBinding(`files-undo-${messageId}`, "conversation.files.undo", "Prime Harness exposes no verified reversible patch capability.")} aria-label="Undo edited files" disabled={!onUndo} title={onUndo ? "Undo these edits" : "The verified Harness exposes no reversible patch capability."} onClick={() => onUndo?.(messageId)}>Undo ↶</button>
       <button type="button" {...controlBinding(`files-review-${messageId}`, "conversation.files.review")} aria-label="Review edited files" onClick={() => onReview?.(messageId)}>Review</button>
     </header>
-    {files.map((file) => <button key={file.path} type="button" {...controlBinding(`file-open-${messageId}-${file.path}`, "editor.artifact.open")} aria-label={`Open ${file.path}`} onClick={() => onOpen?.(messageId, file.path)}><code>{file.path}</code><b>+{file.additions}</b><i>−{file.deletions}</i></button>)}
+    {boundedFiles.map((file) => <button key={file.path} type="button" {...controlBinding(`file-open-${messageId}-${file.path}`, "editor.artifact.open")} aria-label={`Open ${file.path}`} onClick={() => onOpen?.(messageId, file.path)}><code>{file.path}</code><b>+{file.additions}</b><i>−{file.deletions}</i></button>)}
+    {files.length > boundedFiles.length && <p className="conversation-files-truncated">{files.length - boundedFiles.length} additional paths are not shown in this bounded view.</p>}
   </section>;
 }
 
@@ -66,6 +68,8 @@ export function ParentConversation({
   onReviewEditedFiles,
   onOpenEditedFile,
   onSuggestionFill,
+  historyCursor,
+  onLoadEarlierHistory,
   showSuggestions = true,
 }: {
   readonly title: string;
@@ -83,6 +87,9 @@ export function ParentConversation({
   readonly onReviewEditedFiles?: (messageId: string) => void;
   readonly onOpenEditedFile?: (messageId: string, path: string) => void;
   readonly onSuggestionFill?: (text: string) => void;
+  /** A daemon-provided opaque cursor. Missing means paging is visibly unavailable. */
+  readonly historyCursor?: string | null;
+  readonly onLoadEarlierHistory?: (before: string) => void;
   readonly showSuggestions?: boolean;
 }) {
   const transcript = useMemo(() => session ? reduceParentTranscript(createEmptyParentTranscript(), { type: "snapshot", cursor: session.cursor, messages: session.parentMessages, omittedBefore: 0 }) : createEmptyParentTranscript(), [session]);
@@ -102,7 +109,7 @@ export function ParentConversation({
     <div className="sr-only" role="status" aria-live="polite">{announcement}</div>
     <div className="parent-transcript" role="log" aria-label={`${title} conversation`} aria-live="off" tabIndex={0}>
       {archived && <p className="conversation-notice">Archived chat. This conversation is read-only.</p>}
-      {transcript.omittedBefore > 0 && <p className="conversation-notice">{transcript.omittedBefore.toLocaleString()} earlier messages are not resident in this view.</p>}
+      {transcript.omittedBefore > 0 && <div className="conversation-notice conversation-history-notice"><p>{transcript.omittedBefore.toLocaleString()} earlier messages are not resident in this view.</p><button type="button" {...controlBinding("conversation-history-page", "conversation.history.page", historyCursor ? null : "The verified Harness did not provide a history page cursor for this snapshot.")} aria-label="Load earlier messages" disabled={!historyCursor || !onLoadEarlierHistory} title={historyCursor ? "Load the previous bounded history page" : "The verified Harness did not provide a history page cursor for this snapshot."} onClick={() => { if (historyCursor) onLoadEarlierHistory?.(historyCursor); }}>Load earlier messages</button></div>}
       {transcript.payloadClipped && <p className="conversation-notice">Large content was clipped in this view; the source session is unchanged.</p>}
       {transcript.messages.length === 0 && <div className="conversation-empty">
         <PrimeMark /><h1>Start a conversation</h1>
@@ -134,6 +141,7 @@ export function ParentConversation({
           const displayRevision = displayRevisions[message.id];
           const text = displayRevision?.content ?? versions[selected]?.text ?? sourceText;
           const workExpanded = expandedWork.has(message.id);
+          const workSteps = presentation.workSteps?.slice(0, 64) ?? [];
           return <article className="parent-turn parent-assistant-turn" key={message.id} aria-busy={message.streaming}>
             <TurnActivity blocks={message.blocks} />
             <header className="parent-assistant-header"><PrimeMark /><strong>Prime Assistant</strong><time>{message.streaming ? "streaming…" : timeLabel(message.emittedAtMs)}</time></header>
@@ -142,7 +150,7 @@ export function ParentConversation({
               {text ? <div className="parent-assistant-copy">{text.split("\n\n").map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div> : null}
               {message.streaming && <span className="assistant-streaming" role="status">Responding<span className="assistant-cursor" /></span>}
               {presentation.workedFor && <><button type="button" className="conversation-work-toggle" {...controlBinding(`work-toggle-${message.id}`, "conversation.work-details.toggle")} aria-expanded={workExpanded} aria-label={`Worked for ${presentation.workedFor}`} onClick={() => setExpandedWork((current) => { const next = new Set(current); if (next.has(message.id)) next.delete(message.id); else next.add(message.id); return next; })}>Worked for {presentation.workedFor} <span aria-hidden="true">⌄</span></button>
-                {workExpanded && <div className="conversation-work-steps">{presentation.workSteps?.map((step) => <p key={step}>{step}</p>)}</div>}</>}
+                {workExpanded && <div className="conversation-work-steps">{workSteps.map((step) => <p key={step}>{step}</p>)}{presentation.workSteps && presentation.workSteps.length > workSteps.length && <p>{presentation.workSteps.length - workSteps.length} additional steps are not shown in this bounded view.</p>}</div>}</>}
               {presentation.editedFiles && presentation.editedFiles.length > 0 && <EditedFiles messageId={message.id} files={presentation.editedFiles} onUndo={onUndoEditedFiles} onReview={onReviewEditedFiles} onOpen={onOpenEditedFile} />}
               {!message.streaming && text && <div className="parent-message-actions assistant-actions"><VersionStepper label="assistant" selected={selected} count={versions.length} onSelect={(index) => onSelectAssistantVersion?.(message.id, index)} /><button type="button" {...controlBinding(`response-regenerate-${message.id}`, "conversation.response.regenerate")} aria-label="Regenerate response" disabled={!onRegenerate} onClick={() => onRegenerate?.(message.id)}>Regenerate</button><MessageActions text={text} onOpenCanvas={onOpenCanvas ? () => onOpenCanvas(message.id, text) : undefined} /></div>}
             </div>

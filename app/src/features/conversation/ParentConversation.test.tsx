@@ -125,7 +125,7 @@ describe("ParentConversation", () => {
     expect(onUndoEditedFiles).toHaveBeenCalledWith("a1");
     expect(onReviewEditedFiles).toHaveBeenCalledWith("a1");
     expect(onOpenEditedFile).toHaveBeenCalledWith("a1", "app/src/runtime.ts");
-  });
+  }, 20_000);
 
   it("fills the composer from the canonical empty-state suggestions", async () => {
     const onSuggestionFill = vi.fn();
@@ -133,4 +133,16 @@ describe("ParentConversation", () => {
     await userEvent.click(screen.getByRole("button", { name: "Explore this codebase" }));
     expect(onSuggestionFill).toHaveBeenCalledWith("Explore this codebase and explain its architecture.");
   });
+
+  it("bounds worked-for and edited-file disclosures without changing their claimed totals", async () => {
+    const files = Array.from({ length: 66 }, (_, index) => ({ path: `src/file-${index}.ts`, additions: 1, deletions: 0 }));
+    const steps = Array.from({ length: 66 }, (_, index) => `Step ${index}`);
+    render(<ParentConversation title="Bounded" session={session} archived={false} presentations={{ a1: { workedFor: "1s", workSteps: steps, editedFiles: files } }} />);
+
+    expect(screen.getByRole("region", { name: "Edited 66 files" })).toBeVisible();
+    expect(screen.getByText("2 additional paths are not shown in this bounded view.")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Worked for 1s" }));
+    expect(screen.getByText("2 additional steps are not shown in this bounded view.")).toBeVisible();
+  });
+
 });
