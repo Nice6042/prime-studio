@@ -1,16 +1,17 @@
 import { expect, expectNoSeriousOrCriticalAxeViolations, test } from "./support/browser-shell";
 
-test("production workspace presents the complete three-region shell", async ({ shellPage }) => {
+test("production workspace presents the complete three-region shell", async ({ shellPage }, testInfo) => {
   await expect(shellPage.getByRole("navigation", { name: "Projects and chats" })).toBeVisible();
   await expect(shellPage.getByRole("main", { name: "Prime Harness architecture" })).toBeVisible();
   await expect(shellPage.getByRole("complementary", { name: "Harness" })).toBeVisible();
-  await expect(shellPage.getByRole("button", { name: "Prime Harness architecture" })).toBeVisible();
+  await expect(shellPage.getByRole("button", { name: "Switch chat" })).toContainText("Prime Harness architecture");
   await expect(shellPage.getByText(/The parent conversation stays focused on decisions and final results/)).toBeVisible();
   await expect(shellPage.getByText("Checking protocol identity and capability closure.")).toHaveCount(0);
   await expect(shellPage.getByText("workspace.inspect")).toHaveCount(0);
-  await expect(shellPage.getByPlaceholder("Message Prime")).toBeEditable();
+  await expect(shellPage.getByPlaceholder("Message Prime Studio — try / for commands")).toBeEditable();
   await expect(shellPage.getByRole("button", { name: "Model unavailable" })).toBeDisabled();
   await expect(shellPage.getByText("Prompt admission is not connected.")).toHaveCount(0);
+  await shellPage.screenshot({ path: testInfo.outputPath("canonical-desktop.png"), fullPage: true });
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-workspace");
 });
 
@@ -31,7 +32,7 @@ test("Harness keeps child work, activity, and current-chat usage out of the pare
 });
 
 test("composer admits a cursor-bound command and replaces the live projection", async ({ shellPage }) => {
-  const composer = shellPage.getByPlaceholder("Message Prime");
+  const composer = shellPage.getByPlaceholder("Message Prime Studio — try / for commands");
   await composer.fill("Verify the typed command path");
   await composer.press("Enter");
   await expect(shellPage.getByText("Synthetic Harness response admitted through the verified Studio protocol.")).toBeVisible();

@@ -45,6 +45,26 @@
 
 .studio-titlebar,
 .studio-statusbar { display: flex; align-items: center; min-block-size: 36px; padding-inline: 12px; border-block-end: 1px solid var(--line, #323232); }
+.studio-titlebar { position: relative; z-index: 90; min-block-size: 40px; gap: 8px; color: #9a9aa6; background: #0d0d10; font-size: 12.5px; }
+.studio-titlebar > strong { color: #e9e9ee; font-size: 13px; font-weight: 600; }
+.studio-title-mark { position: relative; inline-size: 17px; block-size: 17px; color: #8e85f0; rotate: 45deg; border: 1.5px solid currentColor; }
+.studio-title-mark i { position: absolute; inset: 4px; border: 1.4px solid currentColor; }
+.studio-title-menus { display: flex; align-items: center; margin-inline-start: 8px; }
+.studio-title-menu-root { position: relative; }
+.studio-title-menu-root > button { min-block-size: 28px; padding: 4px 8px; border: 0; border-radius: 6px; color: #9a9aa6; background: transparent; font: inherit; }
+.studio-title-menu-root > button:hover, .studio-title-menu-root > button[aria-expanded="true"] { color: #e9e9ee; background: #1d1d22; }
+.studio-title-menu { position: absolute; z-index: 100; inset-block-start: calc(100% + 2px); inset-inline-start: 0; display: grid; min-inline-size: 210px; padding: 5px; border: 1px solid rgb(255 255 255 / 9%); border-radius: 9px; background: #17171c; box-shadow: 0 14px 40px rgb(0 0 0 / 55%); }
+.studio-title-menu button { display: flex; align-items: center; gap: 12px; min-block-size: 31px; padding: 6px 10px; border: 0; border-radius: 6px; color: #c9c9d1; background: transparent; text-align: start; }
+.studio-title-menu button:hover:not(:disabled) { background: #22222a; }
+.studio-title-menu button:disabled { opacity: .46; }
+.studio-title-menu button span { flex: 1; }
+.studio-title-menu kbd { color: #6d6d78; background: transparent; font: 11px "Segoe UI", sans-serif; }
+.studio-title-current { position: absolute; inset-inline-start: 50%; max-inline-size: 28vw; overflow: hidden; color: #9a9aa6; font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; translate: -50% 0; }
 .studio-titlebar-actions { margin-inline-start: auto; }
 .studio-command-trigger { inline-size:30px; block-size:28px; margin-inline-start:3px; border:0; border-radius:7px; background:transparent; color:inherit; }.studio-command-trigger:hover { background:rgb(255 255 255 / .06); }
-.studio-statusbar { min-block-size: 28px; border-block-start: 1px solid var(--line, #323232); border-block-end: 0; color: var(--muted, #a4a4a4); font-size: 12px; }
+.studio-statusbar { gap: 14px; min-block-size: 24px; padding-inline: 10px; border-block-start: 1px solid rgb(255 255 255 / 6%); border-block-end: 0; color: #7a7a84; background: #0d0d10; font-size: 11px; }
+.studio-statusbar-spacer { flex: 1; }
+.studio-context-meter { display: inline-block; inline-size: 56px; block-size: 4px; margin-inline-start: 5px; overflow: hidden; border-radius: 3px; background: #24242a; vertical-align: middle; }
+.studio-context-meter b { display: block; block-size: 100%; background: #8e85f0; }
+.studio-statusbar .is-streaming { color: #7ee2b8; }
+.studio-status-error { color: #e2b34e; }

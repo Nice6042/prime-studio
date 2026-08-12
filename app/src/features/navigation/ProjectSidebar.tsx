@@ -100,7 +100,7 @@ export function ProjectSidebar({
           }}
         />
       </label>}
-    <div className="project-list" role="list" aria-label="Projects">
+    <div className="project-list" aria-label="Projects">
       <div className="project-section-label"><NavigationIcon kind="pin" /><span>Pinned</span></div>
       <div className="project-pinned-list">
         {projects.flatMap((project) => project.chats.filter((chat) => chat.pinned).map((chat) => ({ ...chat, projectName: project.name }))).map((chat) => <button key={chat.id} type="button" {...controlBinding(`sidebar-pinned-${chat.id}`, "catalog.chat.select")} className="chat-row pinned-chat-row" aria-label={`${chat.title}, pinned${chat.unread ? ", unread" : ""}`} aria-current={chat.selected ? "page" : undefined} onClick={() => onSelectChat(chat.id)}>
@@ -108,7 +108,7 @@ export function ProjectSidebar({
         </button>)}
       </div>
       <div className="project-section-heading"><span>Projects</span>{onNewProject && <button type="button" {...controlBinding("sidebar-new-project", "catalog.project.create")} aria-label="New project" onClick={onNewProject}><NavigationIcon kind="add" /></button>}</div>
-      {projects.map((project) => <section className="project-group" key={project.id} role="listitem">
+      {projects.map((project) => <section className="project-group" key={project.id}>
         <button
           type="button"
           className="project-disclosure"

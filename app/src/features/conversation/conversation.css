@@ -42,20 +42,19 @@
 .parent-turn { position: relative; margin-block: 0 20px; font: 13.5px/1.6 "Segoe UI Variable", "Segoe UI", sans-serif; }
 .parent-turn p { margin: 0 0 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .parent-user-turn { display: grid; justify-items: end; }
-.parent-user-turn > time { margin-block-end: 4px; color: #6d6d78; font-size: 11px; }
+.parent-user-turn > time { margin-block-end: 4px; color: #9a9aa6; font-size: 11px; }
 .parent-user-bubble { max-inline-size: min(78%, 620px); padding: 11px 15px; border-radius: 14px; color: #e9e9ee; background: #1e1e25; }
 .parent-user-bubble p { margin: 0; }
 .parent-assistant-turn { padding-inline: 0; }
 .parent-assistant-header { display: flex; align-items: center; gap: 8px; margin-block-end: 8px; }
 .parent-prime-mark { inline-size: 16px; block-size: 16px; flex: none; color: #8e85f0; }
 .parent-assistant-header strong { color: #e9e9ee; font-weight: 600; }
-.parent-assistant-header time { color: #6d6d78; font-size: 11px; }
+.parent-assistant-header time { color: #9a9aa6; font-size: 11px; }
 .parent-assistant-body { padding-inline-start: 24px; }
 .parent-assistant-copy { color: #dcdce2; }
 .canvas-revision-label { display:inline-block; margin-block-end:8px; color:var(--muted,#999); font-size:11px; }
-.parent-message-actions { display: flex; align-items: center; gap: 2px; min-block-size: 26px; opacity: .55; transition: opacity 120ms ease; }
-.parent-turn:hover .parent-message-actions, .parent-turn:focus-within .parent-message-actions { opacity: 1; }
-.parent-message-actions button { min-inline-size: 44px; min-block-size: 28px; padding: 3px 8px; border: 0; border-radius: 7px; color: var(--muted, #a7a7a7); background: transparent; }
+.parent-message-actions { display: flex; align-items: center; gap: 2px; min-block-size: 26px; transition: color 120ms ease; }
+.parent-message-actions button { min-inline-size: 44px; min-block-size: 28px; padding: 3px 8px; border: 0; border-radius: 7px; color: #b4b4be; background: transparent; }
 .parent-message-actions button:hover { color: var(--fg, #ececec); background: color-mix(in srgb, currentColor 8%, transparent); }
 .assistant-actions { margin-block-start: 8px; margin-inline-start: -2px; }
 .assistant-actions > .parent-message-actions { min-block-size: 0; }
@@ -97,7 +96,6 @@
 .conversation-notice { inline-size: min(100% - 32px, 760px); margin: 16px auto; padding: 8px 12px; border: 1px solid var(--line, #333); border-radius: 9px; color: var(--muted, #aaa); background: var(--surface-raised, #202020); font-size: 12px; }
 @keyframes parent-pulse { 50% { opacity: .35; transform: scale(.78); } }
 @media (prefers-reduced-motion: reduce) { .assistant-streaming::before { animation: none; } .parent-message-actions { transition: none; } }
-@media (max-width: 760px) { .parent-reading-column { inline-size: min(100% - 20px, 760px); padding-block-start: 26px; } .parent-user-bubble { max-inline-size: 88%; } }
 .composer-dock { position: absolute; z-index: 4; inset-inline: 26px; inset-block-end: 4px; display: grid; justify-items: center; pointer-events: none; }
 .composer-frame { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; inline-size: min(100%, 780px); min-block-size: 74px; padding: 10px 12px 8px; border: 1px solid rgb(255 255 255 / 9%); border-radius: 16px; background: #17171c; box-shadow: 0 8px 30px rgb(0 0 0 / 24%); pointer-events: auto; transition: border-color 150ms ease; }
 .composer-frame:focus-within, .composer-frame[data-dragging="true"] { border-color: rgb(142 133 240 / 70%); }
@@ -136,3 +134,13 @@
 .composer-attachment { display: flex; align-items: center; gap: 5px; max-inline-size: 220px; padding: 5px 7px; border: 1px solid var(--line, #3b3b3b); border-radius: 8px; color: var(--muted-strong, #d0d0d0); font-size: 11px; }
 .composer-attachment > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-attachment button { border: 0; color: var(--muted, #9f9f9f); background: transparent; font-size: 10px; }
+@media (max-width: 760px) {
+  .conversation-header { gap: 3px; min-inline-size: 0; padding-inline: 6px; overflow: hidden; }
+  .conversation-breadcrumb-project, .conversation-breadcrumb-chevron { display: none; }
+  .conversation-chat-switcher { max-inline-size: calc(100vw - 112px); }
+  .conversation-header-action { flex: none; }
+  .parent-reading-column { inline-size: min(100% - 20px, 760px); padding-block-start: 26px; }
+  .parent-user-bubble { max-inline-size: 88%; }
+  .composer-dock { inset-inline: 6px; }
+  .composer-frame { min-inline-size: 0; }
+}
