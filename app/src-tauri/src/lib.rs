@@ -38,8 +38,8 @@ use browser::{
 };
 use commands::editor::{editor_artifact_open, editor_artifact_save, ArtifactAuthority};
 use commands::harness::{
-    harness_attach_session, harness_bootstrap, harness_inspector, harness_projection,
-    harness_refresh_session, harness_session_command, harness_studio_operation,
+    harness_attach_session, harness_bootstrap, harness_create_resident_chat, harness_inspector,
+    harness_projection, harness_refresh_session, harness_session_command, harness_studio_operation,
 };
 use commands::settings::{get_layout_preferences, set_layout_preferences};
 use commands::usage::export_account_usage_csv;
@@ -2626,7 +2626,7 @@ struct AppState {
     /// never the durable store or a mutation handle.
     scheduler: SchedulerService,
     harness: app_state::HarnessState,
-    project_catalog: ProjectCatalog,
+    project_catalog: Arc<ProjectCatalog>,
     artifacts: ArtifactAuthority,
 }
 
@@ -2646,7 +2646,7 @@ impl AppState {
             browser: BrowserBroker::admission_only(),
             scheduler: SchedulerService::open(scheduler_state_path()),
             harness: app_state::HarnessState::default(),
-            project_catalog: ProjectCatalog::new(project_catalog_path()),
+            project_catalog: Arc::new(ProjectCatalog::new(project_catalog_path())),
             artifacts: ArtifactAuthority::default(),
         }
     }
@@ -3879,6 +3879,7 @@ pub fn run() {
             harness_inspector,
             harness_refresh_session,
             harness_studio_operation,
+            harness_create_resident_chat,
             get_layout_preferences,
             set_layout_preferences,
             set_app_setting,

@@ -2,13 +2,19 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::harness::broker::{
-    AttachRequest, InspectorRequest, RefreshSessionRequest, SessionCommandRequest,
-    StudioOperationRequest,
+    AttachRequest, InspectorRequest, RefreshSessionRequest, ResidentCreateRequest,
+    SessionCommandRequest, StudioOperationRequest,
 };
 use crate::harness::generated::{
     CommandOutcome, HarnessCursor, HarnessStudioAction, SessionCommandKind, StudioOperationStatus,
 };
 use crate::harness::projections::{BootProjection, RootSessionProjection};
+use crate::project_catalog::{
+    BindPrimeSessionCommand, CatalogSnapshot, PrimeChatBinding, PrimeChatBindingKind,
+    ProjectChatCommand, ProjectKind, ProjectRootKind,
+};
+use sha2::{Digest, Sha256};
+use std::path::{Path, PathBuf};
 
 #[tauri::command]
 pub(crate) fn harness_bootstrap(state: State<'_, crate::AppState>) -> BootProjection {
@@ -71,6 +77,171 @@ pub(crate) struct HarnessStudioOperationOutput {
     reason: Option<String>,
     retryable: Option<bool>,
     session: Option<RootSessionProjection>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub(crate) struct HarnessCreateResidentChatInput {
+    expected_revision: u64,
+    project_id: String,
+    chat_id: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HarnessCreateResidentChatOutput {
+    catalog: CatalogSnapshot,
+    session: RootSessionProjection,
+}
+
+fn daemon_project_id(cwd: &str) -> String {
+    let lowered = cwd.to_lowercase();
+    let digest = format!("{:x}", Sha256::digest(lowered.as_bytes()));
+    format!("project-{}", &digest[..24])
+}
+
+fn session_file_metadata(daemon_chat_id: &str) -> String {
+    let digest = format!("{:x}", Sha256::digest(daemon_chat_id.as_bytes()));
+    format!("{}.jsonl", &digest[..24])
+}
+
+fn canonical_workspace(path: &Path) -> Result<String, String> {
+    for ancestor in path.ancestors() {
+        let metadata = std::fs::symlink_metadata(ancestor)
+            .map_err(|_| "Harness workspace is unavailable".to_owned())?;
+        if metadata.file_type().is_symlink() || metadata_is_reparse(&metadata) {
+            return Err("Harness workspace contains an untrusted link".to_owned());
+        }
+    }
+    let canonical =
+        std::fs::canonicalize(path).map_err(|_| "Harness workspace is unavailable".to_owned())?;
+    if !canonical.is_absolute() || !canonical.is_dir() {
+        return Err("Harness workspace is unavailable".to_owned());
+    }
+    canonical
+        .into_os_string()
+        .into_string()
+        .map_err(|_| "Harness workspace identity is unavailable".to_owned())
+}
+
+#[cfg(windows)]
+fn metadata_is_reparse(metadata: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    metadata.file_attributes() & 0x0000_0400 != 0
+}
+
+#[cfg(not(windows))]
+fn metadata_is_reparse(_: &std::fs::Metadata) -> bool {
+    false
+}
+
+fn project_workspace(project: &crate::project_catalog::Project) -> Result<String, String> {
+    match (
+        project.kind,
+        project.root.kind,
+        project.root.path.as_deref(),
+    ) {
+        (ProjectKind::Folder, ProjectRootKind::Folder, Some(path)) => {
+            let canonical = canonical_workspace(Path::new(path))?;
+            if Path::new(&canonical) != Path::new(path) {
+                return Err("Harness workspace identity changed".to_owned());
+            }
+            Ok(canonical)
+        }
+        (ProjectKind::Personal, ProjectRootKind::StudioManagedEmpty, None) => {
+            let workspace: PathBuf = crate::config_dir().join("personal-workspace");
+            std::fs::create_dir_all(&workspace)
+                .map_err(|_| "Personal Harness workspace is unavailable".to_owned())?;
+            canonical_workspace(&workspace)
+        }
+        _ => Err("Catalog project workspace is invalid".to_owned()),
+    }
+}
+
+#[tauri::command]
+pub(crate) async fn harness_create_resident_chat(
+    state: State<'_, crate::AppState>,
+    request: HarnessCreateResidentChatInput,
+) -> Result<HarnessCreateResidentChatOutput, String> {
+    let broker = state
+        .harness
+        .broker()
+        .ok_or_else(|| "Harness activation is unavailable".to_owned())?;
+    let catalog = state.project_catalog.clone();
+    let transaction = state.harness.resident_transaction();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _transaction = transaction
+            .lock()
+            .map_err(|_| "Harness resident transaction is unavailable".to_owned())?;
+        let current = catalog.load().map_err(|error| error.to_string())?;
+        let project = current
+            .state
+            .projects
+            .iter()
+            .find(|project| project.id == request.project_id && !project.archived)
+            .ok_or_else(|| "Catalog project is unavailable".to_owned())?;
+        let chat = project
+            .chats
+            .iter()
+            .find(|chat| chat.id == request.chat_id && !chat.archived)
+            .ok_or_else(|| "Catalog chat is unavailable".to_owned())?;
+        if chat.project_id != project.id {
+            return Err("Catalog chat ownership is invalid".to_owned());
+        }
+        if chat.binding.is_none() && current.revision != request.expected_revision {
+            return Err("revisionConflict".to_owned());
+        }
+        let cwd = project_workspace(project)?;
+        let expected_project_id = daemon_project_id(&cwd);
+        let mut broker = broker
+            .lock()
+            .map_err(|_| "Harness broker is unavailable".to_owned())?;
+        let created = tauri::async_runtime::block_on(
+            broker.create_resident(ResidentCreateRequest {
+                creation_id: chat.id.clone(),
+                name: format!("Prime Studio chat {}", chat.id),
+                cwd,
+                expected_account_id: chat
+                    .binding
+                    .as_ref()
+                    .and_then(|binding| binding.account_id.clone()),
+                expected_project_id,
+            }),
+        )
+        .map_err(|error| format!("Harness resident creation failed: {}", error.code()))?;
+        let binding = PrimeChatBinding {
+            kind: PrimeChatBindingKind::PrimeSession,
+            account_id: created.session.account_id.clone(),
+            session_id: created.session.session_id.clone(),
+            session_file: session_file_metadata(&created.session.chat_id),
+            agent_id: Some(created.session.chat_id.clone()),
+        };
+        if let Some(existing) = &chat.binding {
+            if existing != &binding {
+                return Err("Catalog chat is bound to a different Harness session".to_owned());
+            }
+            return Ok(HarnessCreateResidentChatOutput {
+                catalog: current,
+                session: created.session,
+            });
+        }
+        let catalog = catalog
+            .apply(
+                current.revision,
+                ProjectChatCommand::BindPrimeSession(BindPrimeSessionCommand {
+                    project_id: project.id.clone(),
+                    chat_id: chat.id.clone(),
+                    binding,
+                }),
+            )
+            .map_err(|error| error.to_string())?;
+        Ok(HarnessCreateResidentChatOutput {
+            catalog,
+            session: created.session,
+        })
+    })
+    .await
+    .map_err(|_| "Harness resident transaction task failed".to_owned())?
 }
 
 #[derive(Serialize)]
@@ -216,4 +387,26 @@ pub(crate) async fn harness_studio_operation(
     })
     .await
     .map_err(|_| "Harness operation task failed".to_owned())?
+}
+
+#[cfg(test)]
+mod resident_composition_tests {
+    use super::*;
+
+    #[test]
+    fn daemon_project_identity_matches_the_javascript_contract_for_ascii_windows_paths() {
+        assert_eq!(
+            daemon_project_id(r"C:\Work"),
+            "project-194c27bb658adbc8e822c4e3"
+        );
+        assert_eq!(daemon_project_id(r"C:\Work"), daemon_project_id(r"c:\work"));
+    }
+
+    #[test]
+    fn daemon_chat_identity_is_metadata_only_and_never_a_path() {
+        let metadata = session_file_metadata("daemon-chat-1");
+        assert!(metadata.ends_with(".jsonl"));
+        assert!(!metadata.contains(['/', '\\', ':']));
+        assert_ne!(metadata, "daemon-chat-1.jsonl");
+    }
 }

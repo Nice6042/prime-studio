@@ -7,6 +7,7 @@ use crate::harness::projections::BootProjection;
 #[derive(Default)]
 pub struct HarnessState {
     broker: Mutex<Option<Arc<Mutex<HarnessBroker>>>>,
+    resident_transaction: Arc<Mutex<()>>,
 }
 
 impl HarnessState {
@@ -35,6 +36,10 @@ impl HarnessState {
 
     pub(crate) fn broker(&self) -> Option<Arc<Mutex<HarnessBroker>>> {
         self.broker.lock().ok()?.as_ref().cloned()
+    }
+
+    pub(crate) fn resident_transaction(&self) -> Arc<Mutex<()>> {
+        self.resident_transaction.clone()
     }
 
     #[cfg(any(test, debug_assertions))]

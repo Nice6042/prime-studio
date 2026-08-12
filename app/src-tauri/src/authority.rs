@@ -278,6 +278,7 @@ pub enum TauriCommand {
     HarnessInspector,
     HarnessRefreshSession,
     HarnessStudioOperation,
+    HarnessCreateResidentChat,
     GetLayoutPreferences,
     SetLayoutPreferences,
     SetAppSetting,
@@ -293,7 +294,7 @@ pub enum TauriCommand {
     ComputerUseReadiness,
 }
 
-pub const ALL_TAURI_COMMANDS: [TauriCommand; 55] = [
+pub const ALL_TAURI_COMMANDS: [TauriCommand; 56] = [
     TauriCommand::StartSession,
     TauriCommand::AttachSession,
     TauriCommand::DetachSession,
@@ -336,6 +337,7 @@ pub const ALL_TAURI_COMMANDS: [TauriCommand; 55] = [
     TauriCommand::HarnessInspector,
     TauriCommand::HarnessRefreshSession,
     TauriCommand::HarnessStudioOperation,
+    TauriCommand::HarnessCreateResidentChat,
     TauriCommand::GetLayoutPreferences,
     TauriCommand::SetLayoutPreferences,
     TauriCommand::SetAppSetting,
@@ -403,6 +405,7 @@ impl TauriCommand {
             Self::HarnessInspector => "harness_inspector",
             Self::HarnessRefreshSession => "harness_refresh_session",
             Self::HarnessStudioOperation => "harness_studio_operation",
+            Self::HarnessCreateResidentChat => "harness_create_resident_chat",
             Self::GetLayoutPreferences => "get_layout_preferences",
             Self::SetLayoutPreferences => "set_layout_preferences",
             Self::SetAppSetting => "set_app_setting",
@@ -458,7 +461,8 @@ impl TauriCommand {
             | Self::HarnessSessionCommand
             | Self::HarnessInspector
             | Self::HarnessRefreshSession
-            | Self::HarnessStudioOperation => CommandAuthority::VerifiedBroker,
+            | Self::HarnessStudioOperation
+            | Self::HarnessCreateResidentChat => CommandAuthority::VerifiedBroker,
             Self::ExportAccountUsageCsv => CommandAuthority::SafetyControl,
             Self::EditorArtifactOpen | Self::EditorArtifactSave => CommandAuthority::VerifiedBroker,
             Self::NoteAgent | Self::ProjectCatalogApply => CommandAuthority::LocalBookkeeping,
