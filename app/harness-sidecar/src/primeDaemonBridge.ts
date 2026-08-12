@@ -80,7 +80,7 @@ interface BoundConnection {
   sequence: number;
   initialized: boolean;
   publishedUpstreamSequence: number | null;
-  eventRevision: number;
+  eventRevision: bigint;
   dirty: boolean;
   unsubscribe?: () => void;
 }
@@ -585,11 +585,11 @@ export class PrimeDaemonBridge {
     const connection = await this.#attachPort(this.#client, activeSessionId);
     const bound: BoundConnection = {
       connection, sequence: 0, initialized: false, publishedUpstreamSequence: null,
-      eventRevision: 0, dirty: false,
+      eventRevision: 0n, dirty: false,
     };
     if (connection.subscribe) {
       bound.unsubscribe = connection.subscribe(() => {
-        bound.eventRevision = bound.eventRevision === Number.MAX_SAFE_INTEGER ? Number.MAX_SAFE_INTEGER : bound.eventRevision + 1;
+        bound.eventRevision += 1n;
         bound.dirty = true;
       });
     }
