@@ -478,9 +478,9 @@ describe("settings RPC", () => {
     expect(invokeMock).toHaveBeenNthCalledWith(2, "set_layout_preferences", { preferences: layout });
   });
 
-  it("fails closed on malformed persisted layout but keeps a safe read default", async () => {
+  it("fails closed on malformed persisted layout without promoting defaults to durable truth", async () => {
     invokeMock.mockResolvedValueOnce({ schemaVersion: 1, sidebarOpen: true, extra: true });
-    await expect(getLayoutPreferences()).resolves.toMatchObject({ sidebarWidth: 264, inspectorWidth: 384 });
+    await expect(getLayoutPreferences()).rejects.toThrow(/layout preferences/i);
 
     invokeMock.mockResolvedValueOnce({ schemaVersion: 1, sidebarOpen: true, extra: true });
     await expect(setLayoutPreferences({

@@ -173,6 +173,10 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       if (active) {
         layoutCoordinator.current?.adoptInitial(preferences);
       }
+    }).catch(() => {
+      if (!active) return;
+      layoutCoordinator.current?.failInitial();
+      setOperationFeedback("Layout preferences could not be loaded. Layout changes will stay local until the app is restarted.");
     });
     return () => { active = false; };
   }, []);

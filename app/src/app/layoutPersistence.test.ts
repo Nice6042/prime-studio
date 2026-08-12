@@ -80,11 +80,35 @@ describe("LayoutPersistenceCoordinator", () => {
     const coordinator = new LayoutPersistenceCoordinator(initial, async (value) => { writes.push(value); return value; }, (value) => applied.push(value));
 
     const update = coordinator.update((current) => ({ ...current, sidebarOpen: false }));
-    const adopted = coordinator.adoptInitial({ ...initial, inspectorWidth: 600 });
+    const adopted = coordinator.adoptInitial({ ...initial, sidebarOpen: false, inspectorWidth: 600 });
     await update;
 
     expect(adopted).toBe(true);
     expect(coordinator.snapshot()).toEqual({ ...initial, sidebarOpen: false, inspectorWidth: 600 });
     expect(writes).toEqual([{ ...initial, sidebarOpen: false, inspectorWidth: 600 }]);
+  });
+
+  it("preserves the concrete optimistic result instead of replaying a toggle", async () => {
+    const writes: LayoutPreferencesV1[] = [];
+    const coordinator = new LayoutPersistenceCoordinator(initial, async (value) => { writes.push(value); return value; }, () => undefined);
+
+    const update = coordinator.update((current) => ({ ...current, sidebarOpen: !current.sidebarOpen }));
+    coordinator.adoptInitial({ ...initial, sidebarOpen: false, inspectorWidth: 600 });
+    await update;
+
+    expect(coordinator.snapshot()).toEqual({ ...initial, sidebarOpen: false, inspectorWidth: 600 });
+    expect(writes).toEqual([{ ...initial, sidebarOpen: false, inspectorWidth: 600 }]);
+  });
+
+  it("rejects persistence after hydration fails instead of writing defaults", async () => {
+    const writes: LayoutPreferencesV1[] = [];
+    const coordinator = new LayoutPersistenceCoordinator(initial, async (value) => { writes.push(value); return value; }, () => undefined);
+
+    const update = coordinator.update((current) => ({ ...current, sidebarWidth: 300 }));
+    coordinator.failInitial();
+
+    await expect(update).resolves.toEqual({ status: "rejected", reason: "Layout preferences could not be loaded, so this local change was not saved." });
+    expect(writes).toEqual([]);
+    expect(coordinator.snapshot().sidebarWidth).toBe(300);
   });
 });

@@ -638,17 +638,6 @@ export const schedulerProjection = () =>
 export const setAppSetting = (key: keyof AppSettings, value: string | null) =>
   strictInvoke<AppSettings>("set_app_setting", { key, value });
 
-const DEFAULT_LAYOUT: LayoutPreferencesV1 = Object.freeze({
-  schemaVersion: 1,
-  sidebarOpen: true,
-  sidebarWidth: 264,
-  inspectorOpen: true,
-  inspectorWidth: 384,
-  editorOpen: false,
-  editorWidth: 400,
-  expandedProjectIds: [],
-});
-
 function decodeLayoutPreferences(value: unknown): LayoutPreferencesV1 {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid layout preferences.");
   const source = value as Record<string, unknown>;
@@ -675,11 +664,7 @@ function decodeLayoutPreferences(value: unknown): LayoutPreferencesV1 {
 }
 
 export async function getLayoutPreferences(): Promise<LayoutPreferencesV1> {
-  try {
-    return decodeLayoutPreferences(await strictInvoke<unknown>("get_layout_preferences", {}));
-  } catch {
-    return DEFAULT_LAYOUT;
-  }
+  return decodeLayoutPreferences(await strictInvoke<unknown>("get_layout_preferences", {}));
 }
 
 export async function setLayoutPreferences(preferences: LayoutPreferencesV1): Promise<LayoutPreferencesV1> {
