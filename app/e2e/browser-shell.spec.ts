@@ -23,7 +23,8 @@ test("Harness keeps child work, activity, and current-chat usage out of the pare
   await expect(harness.getByText(/No verified child transcript entries are available/)).toBeVisible();
   await harness.getByRole("button", { name: "Back to Harness" }).click();
   await harness.getByRole("tab", { name: "Activity" }).click();
-  await expect(harness.getByText("Activity evidence is unavailable for this chat.")).toBeVisible();
+  await expect(harness.getByText("No activity matches this filter.")).toBeVisible();
+  await expect(harness.getByText("Attention ledger unavailable.")).toHaveCount(0);
   await expect(harness.getByText("workspace.inspect")).toHaveCount(0);
   await harness.getByRole("tab", { name: "Usage" }).click();
   await expect(harness.getByText("Current chat", { exact: true })).toBeVisible();

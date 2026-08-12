@@ -67,6 +67,12 @@ export const test = base.extend<ShellFixtures>({
       let artifactRevision = 1;
       let artifactIdentity = `sha256:${"a".repeat(64)}`;
       let artifactContent = "# Verified browser artifact\n\nOpened through an opaque Harness candidate.";
+      let attentionRevision = 0;
+      let attentionRecord = { chatId: "chat-e2e", chatSeen: null, activitySeen: null } as {
+        chatId: string;
+        chatSeen: null | { runtimeGeneration: string; sequence: number };
+        activitySeen: null | { runtimeGeneration: string; sequence: number };
+      };
 
       const emit = (event: string, payload: unknown) => {
         for (const id of listeners.get(event) ?? []) {
@@ -233,6 +239,16 @@ export const test = base.extend<ShellFixtures>({
           }
           case "harness_projection":
             return [];
+          case "attention_load":
+            return { revision: attentionRevision, records: [{ ...attentionRecord }] };
+          case "attention_mark_seen": {
+            const request = args.request as { expectedRevision?: number; chatId?: string; channel?: "chat" | "activity"; cursor?: { runtimeGeneration?: string; sequence?: number } } | undefined;
+            if (request?.expectedRevision !== attentionRevision || request.chatId !== attentionRecord.chatId || !request.cursor?.runtimeGeneration || !Number.isSafeInteger(request.cursor.sequence)) throw new Error("Attention cursor stale");
+            const cursor = { runtimeGeneration: request.cursor.runtimeGeneration, sequence: request.cursor.sequence! };
+            attentionRecord = request.channel === "activity" ? { ...attentionRecord, activitySeen: cursor } : request.channel === "chat" ? { ...attentionRecord, chatSeen: cursor } : (() => { throw new Error("Attention channel invalid"); })();
+            attentionRevision += 1;
+            return { revision: attentionRevision, records: [{ ...attentionRecord }] };
+          }
           case "harness_inspector":
             return JSON.stringify({
               observedAtMs: 1_775_995_220_000, startedAtMs: null, context: null,
