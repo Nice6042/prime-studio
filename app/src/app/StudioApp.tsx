@@ -195,9 +195,14 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
 
   useEffect(() => {
     let active = true;
-    if (!selectedSession || !adapterConnected || !hasCapability("model_catalog") || !harnessAdapter.loadComposer) {
+    if (!selectedSession || !adapterConnected || !hasCapability("model_catalog")) {
       setLoadedComposer(null);
-      setComposerUnavailableReason(harnessAdapter.loadComposer ? null : "The verified Harness adapter does not expose session composer configuration.");
+      setComposerUnavailableReason(null);
+      return () => { active = false; };
+    }
+    if (!harnessAdapter.loadComposer) {
+      setLoadedComposer(null);
+      setComposerUnavailableReason(harnessAdapter.composer ? null : "The verified Harness adapter does not expose session composer configuration.");
       return () => { active = false; };
     }
     setComposerUnavailableReason(null);
