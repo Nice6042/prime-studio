@@ -2797,19 +2797,12 @@ fn chat_attention_evidence(
         })
 }
 
-#[tauri::command]
-fn attention_mark_seen(
-    state: State<AppState>,
+fn mark_attention_seen_authoritatively(
+    catalog: &CatalogSnapshot,
+    broker: &harness::broker::HarnessBroker,
+    ledger: &AttentionLedger,
     request: AttentionMarkSeenInput,
 ) -> Result<AttentionSnapshot, String> {
-    let coordinator = state.harness.resident_transaction();
-    let _transaction = coordinator
-        .lock()
-        .map_err(|_| "Attention transaction is unavailable".to_owned())?;
-    let catalog = state
-        .project_catalog
-        .load()
-        .map_err(|error| error.to_string())?;
     let matches: Vec<_> = catalog
         .state
         .projects
@@ -2825,13 +2818,6 @@ fn attention_mark_seen(
         .binding
         .as_ref()
         .ok_or_else(|| "Attention chat has no authoritative Harness binding".to_owned())?;
-    let broker = state
-        .harness
-        .broker()
-        .ok_or_else(|| "Attention Harness broker is unavailable".to_owned())?;
-    let broker = broker
-        .lock()
-        .map_err(|_| "Attention Harness broker is unavailable".to_owned())?;
     let session = broker
         .project(&binding.session_id)
         .ok_or_else(|| "Attention Harness session identity is unavailable".to_owned())?;
@@ -2852,8 +2838,7 @@ fn attention_mark_seen(
             "Attention evidence is not the current authoritative channel content".to_owned(),
         );
     }
-    state
-        .attention_ledger
+    ledger
         .mark_seen(
             request.expected_revision,
             &request.chat_id,
@@ -2861,6 +2846,29 @@ fn attention_mark_seen(
             request.evidence,
         )
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn attention_mark_seen(
+    state: State<AppState>,
+    request: AttentionMarkSeenInput,
+) -> Result<AttentionSnapshot, String> {
+    let coordinator = state.harness.resident_transaction();
+    let _transaction = coordinator
+        .lock()
+        .map_err(|_| "Attention transaction is unavailable".to_owned())?;
+    let catalog = state
+        .project_catalog
+        .load()
+        .map_err(|error| error.to_string())?;
+    let broker = state
+        .harness
+        .broker()
+        .ok_or_else(|| "Attention Harness broker is unavailable".to_owned())?;
+    let broker = broker
+        .lock()
+        .map_err(|_| "Attention Harness broker is unavailable".to_owned())?;
+    mark_attention_seen_authoritatively(&catalog, &broker, &state.attention_ledger, request)
 }
 
 /// Put the real Tauri-generated dispatcher behind the single Phase 0 choke
@@ -4157,7 +4165,230 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::harness::broker::{HarnessBroker, SessionOwnership};
+    use crate::harness::generated::{
+        CurrentChatUsage, HarnessCursor, MessageBlock, ParentChannel, ParentMessage,
+        RootSessionSnapshot, RootSessionState,
+    };
+    use crate::project_catalog::{
+        PrimeChatBinding, PrimeChatBindingKind, Project, ProjectChat, ProjectKind, ProjectRoot,
+        ProjectRootKind,
+    };
     use std::io::{BufRead as _, BufReader};
+
+    fn attention_snapshot(
+        session_id: &str,
+        project_id: &str,
+        daemon_chat_id: &str,
+        message_id: &str,
+        emitted_at_ms: u64,
+    ) -> RootSessionSnapshot {
+        RootSessionSnapshot {
+            session_id: session_id.to_owned(),
+            account_id: None,
+            project_id: project_id.to_owned(),
+            chat_id: daemon_chat_id.to_owned(),
+            cursor: HarnessCursor {
+                runtime_generation: "generation-a".to_owned(),
+                sequence: 99,
+            },
+            state: RootSessionState::Idle,
+            parent_messages: vec![ParentMessage::Assistant {
+                channel: ParentChannel::Parent,
+                id: message_id.to_owned(),
+                blocks: vec![MessageBlock::Text {
+                    text: "done".to_owned(),
+                }],
+                streaming: false,
+                emitted_at_ms,
+            }],
+            children: vec![],
+            queue: vec![],
+            tools: vec![],
+            resources: vec![],
+            usage: CurrentChatUsage {
+                input: 0,
+                output: 0,
+                cache_read: 0,
+                cache_write: 0,
+                total_tokens: 0,
+                cost: None,
+            },
+        }
+    }
+
+    fn bound_attention_chat(
+        chat_id: &str,
+        project_id: &str,
+        session_id: &str,
+        daemon_chat_id: &str,
+    ) -> ProjectChat {
+        ProjectChat {
+            id: chat_id.to_owned(),
+            project_id: project_id.to_owned(),
+            title: chat_id.to_owned(),
+            pinned: false,
+            archived: false,
+            binding: Some(PrimeChatBinding {
+                kind: PrimeChatBindingKind::PrimeSession,
+                account_id: None,
+                session_id: session_id.to_owned(),
+                session_file: format!("{session_id}.json"),
+                agent_id: Some(daemon_chat_id.to_owned()),
+            }),
+        }
+    }
+
+    #[test]
+    fn attention_mark_seen_composes_identity_evidence_and_revision_cas() {
+        let ownership = vec![
+            (
+                "session-a".to_owned(),
+                SessionOwnership {
+                    account_id: None,
+                    project_id: "project-a".to_owned(),
+                    chat_id: "daemon-chat-a".to_owned(),
+                },
+            ),
+            (
+                "session-b".to_owned(),
+                SessionOwnership {
+                    account_id: None,
+                    project_id: "project-b".to_owned(),
+                    chat_id: "daemon-chat-b".to_owned(),
+                },
+            ),
+        ];
+        let mut broker = HarnessBroker::for_tests(ownership, None).unwrap();
+        broker.begin_snapshot(2).unwrap();
+        for snapshot in [
+            attention_snapshot("session-a", "project-a", "daemon-chat-a", "message-a", 10),
+            attention_snapshot("session-b", "project-b", "daemon-chat-b", "message-b", 20),
+        ] {
+            let admission = broker.admit_snapshot(snapshot).unwrap();
+            broker.apply_snapshot(admission).unwrap();
+        }
+        broker.finish_snapshot().unwrap();
+
+        let catalog = CatalogSnapshot {
+            revision: 0,
+            state: project_catalog::ProjectChatState {
+                schema_version: 1,
+                selected_project_id: "project-a".to_owned(),
+                projects: vec![
+                    Project {
+                        id: "project-a".to_owned(),
+                        kind: ProjectKind::Personal,
+                        name: "A".to_owned(),
+                        root: ProjectRoot {
+                            kind: ProjectRootKind::StudioManagedEmpty,
+                            path: None,
+                        },
+                        pinned: false,
+                        archived: false,
+                        selected_chat_id: Some("chat-a".to_owned()),
+                        chats: vec![bound_attention_chat(
+                            "chat-a",
+                            "project-a",
+                            "session-a",
+                            "daemon-chat-a",
+                        )],
+                    },
+                    Project {
+                        id: "project-b".to_owned(),
+                        kind: ProjectKind::Personal,
+                        name: "B".to_owned(),
+                        root: ProjectRoot {
+                            kind: ProjectRootKind::StudioManagedEmpty,
+                            path: None,
+                        },
+                        pinned: false,
+                        archived: false,
+                        selected_chat_id: Some("chat-b".to_owned()),
+                        chats: vec![bound_attention_chat(
+                            "chat-b",
+                            "project-b",
+                            "session-b",
+                            "daemon-chat-b",
+                        )],
+                    },
+                ],
+            },
+        };
+        let ledger_path = std::env::temp_dir().join(format!(
+            "prime-studio-attention-boundary-{}-{}.json",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let ledger = AttentionLedger::new(ledger_path.clone());
+        let evidence_a = AttentionEvidence {
+            runtime_generation: "generation-a".to_owned(),
+            marker: "message-a".to_owned(),
+            occurred_at_ms: 10,
+        };
+
+        let accepted = mark_attention_seen_authoritatively(
+            &catalog,
+            &broker,
+            &ledger,
+            AttentionMarkSeenInput {
+                expected_revision: 0,
+                chat_id: "chat-a".to_owned(),
+                channel: AttentionChannel::Chat,
+                evidence: evidence_a.clone(),
+            },
+        )
+        .expect("exact authoritative evidence must be accepted");
+        assert_eq!(accepted.revision, 1);
+
+        let cross_chat = mark_attention_seen_authoritatively(
+            &catalog,
+            &broker,
+            &ledger,
+            AttentionMarkSeenInput {
+                expected_revision: 1,
+                chat_id: "chat-b".to_owned(),
+                channel: AttentionChannel::Chat,
+                evidence: evidence_a.clone(),
+            },
+        )
+        .expect_err("cross-chat evidence must fail closed");
+        assert!(cross_chat.contains("current authoritative channel content"));
+
+        let stale = mark_attention_seen_authoritatively(
+            &catalog,
+            &broker,
+            &ledger,
+            AttentionMarkSeenInput {
+                expected_revision: 1,
+                chat_id: "chat-a".to_owned(),
+                channel: AttentionChannel::Chat,
+                evidence: AttentionEvidence {
+                    runtime_generation: "generation-a".to_owned(),
+                    marker: "message-old".to_owned(),
+                    occurred_at_ms: 9,
+                },
+            },
+        )
+        .expect_err("stale evidence must fail closed");
+        assert!(stale.contains("current authoritative channel content"));
+
+        let conflict = mark_attention_seen_authoritatively(
+            &catalog,
+            &broker,
+            &ledger,
+            AttentionMarkSeenInput {
+                expected_revision: 0,
+                chat_id: "chat-a".to_owned(),
+                channel: AttentionChannel::Chat,
+                evidence: evidence_a,
+            },
+        )
+        .expect_err("durable revision CAS must reject a stale writer");
+        assert!(conflict.contains("revisionConflict"));
+
+        let _ = std::fs::remove_file(ledger_path);
+    }
 
     #[test]
     fn app_state_uses_the_catalog_services_exact_confined_leaf_name() {
