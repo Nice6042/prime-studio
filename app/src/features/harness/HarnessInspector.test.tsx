@@ -191,7 +191,7 @@ describe("HarnessInspector", () => {
     expect(screen.getByText("Current chat")).toBeVisible();
     expect(screen.getByText("165")).toBeVisible();
     expect(screen.getByText("Cost unavailable")).toBeVisible();
-    expect(screen.getByText("Main chat")).toBeVisible();
+    expect(screen.getByText("Parent and child attribution is unavailable. Totals are not guessed.")).toBeVisible();
     expect(screen.getByText(/Subagent usage is included only when it belongs to this chat/)).toBeVisible();
     await user.click(screen.getByRole("button", { name: /Settings.*Usage/ }));
     expect(onOpenAccountUsage).toHaveBeenCalledOnce();
@@ -335,6 +335,7 @@ describe("HarnessInspector", () => {
     expect(source.load).toHaveBeenCalledWith("root-b");
     await act(async () => { resolveA?.(aDetails); });
     expect(screen.queryByText("A private output")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Outputs"));
     await act(async () => { resolveB?.(bDetails); });
     expect(await screen.findByText("B private output")).toBeVisible();
   });

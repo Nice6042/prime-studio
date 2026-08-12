@@ -17,6 +17,10 @@ import "./harness.css";
 
 const storageKey = (chatId: string) => `prime-studio-harness-inspector-v1:${chatId}`;
 
+function adapterIsUnavailable(adapter: HarnessInspectorAdapter): boolean {
+  return adapter.availability.status === "unavailable";
+}
+
 function restoreRoute(chatId: string | null): InspectorRoute {
   if (!chatId || typeof localStorage === "undefined") return { kind: "overview" };
   try {
@@ -49,48 +53,81 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
   readonly routeRequest?: Readonly<{ id: number; route: "overview" | "usage" | "activity" }>;
   readonly attention?: AttentionState;
 }) {
+  const sessionScope = session ? JSON.stringify([chatId, session.chatId, session.sessionId, session.cursor.runtimeGeneration]) : null;
+  const requestIdentity = session ? JSON.stringify([sessionScope, session.cursor.sequence]) : null;
   const [state, dispatch] = useReducer(reduceInspector, chatId, (id) => createInspectorState(restoreRoute(id)));
-  const [details, setDetails] = useState<HarnessPanelDetails | null>(null);
-  const [activityEvidence, setActivityEvidence] = useState<AttentionEvidence | null | undefined>(undefined);
+  const [detailsSnapshot, setDetailsSnapshot] = useState<Readonly<{ scope: string; value: HarnessPanelDetails }> | null>(null);
+  const [activityEvidenceSnapshot, setActivityEvidenceSnapshot] = useState<Readonly<{ scope: string; value: AttentionEvidence | null | undefined }> | null>(null);
   const [loadPhase, setLoadPhase] = useState<"idle" | "loading" | "ready" | "unavailable" | "error">("idle");
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ kind: "status" | "alert"; text: string } | null>(null);
   const [hiddenNoticeIds, setHiddenNoticeIds] = useState<ReadonlySet<string>>(new Set());
   const childReturnFocus = useRef<HTMLElement | null>(null);
   const activitySeenAttempt = useRef<string | null>(null);
-  const detailsLoadInFlight = useRef(false);
+  const requestEpoch = useRef(0);
+  const currentRequestIdentity = useRef<string | null>(requestIdentity);
+  const availabilityStatus = useRef(adapter.availability.status);
+  const detailsLoadsInFlight = useRef<Set<number>>(new Set());
+  if (currentRequestIdentity.current !== requestIdentity) {
+    currentRequestIdentity.current = requestIdentity;
+    requestEpoch.current += 1;
+  }
+  const details = detailsSnapshot?.scope === sessionScope ? detailsSnapshot.value : null;
+  const activityEvidence = activityEvidenceSnapshot?.scope === sessionScope ? activityEvidenceSnapshot.value : undefined;
   const now = useMonotonicNow();
   const activityAttention = chatId ? activityAttentionForChat(chatId, activityEvidence, attention) : { status: "unavailable" as const, reason: "Activity content evidence is unavailable for this chat." };
 
   const loadDetails = async () => {
-    if (!session || adapter.availability.status === "unavailable") {
-      setDetails(null);
-      setActivityEvidence(undefined);
-      setLoadPhase(session ? "unavailable" : "idle");
+    const requestedSession = session;
+    const requestedScope = sessionScope;
+    const requestedIdentity = requestIdentity;
+    if (!requestedSession || !requestedScope || !requestedIdentity) {
+      setDetailsSnapshot(null);
+      setActivityEvidenceSnapshot(null);
+      setLoadPhase("idle");
       return;
     }
-    if (detailsLoadInFlight.current) return;
-    detailsLoadInFlight.current = true;
+
+    const availability = adapter.availability;
+    if (availability.status === "unavailable") {
+      if (availabilityStatus.current !== "unavailable") requestEpoch.current += 1;
+      availabilityStatus.current = "unavailable";
+      setDetailsSnapshot(null);
+      setActivityEvidenceSnapshot(null);
+      setLoadPhase("unavailable");
+      return;
+    }
+    if (availabilityStatus.current === "unavailable") requestEpoch.current += 1;
+    availabilityStatus.current = "available";
+
+    const epoch = requestEpoch.current;
+    if (detailsLoadsInFlight.current.has(epoch)) return;
+    detailsLoadsInFlight.current.add(epoch);
     if (details === null) setLoadPhase("loading");
-    setActivityEvidence(undefined);
+    setActivityEvidenceSnapshot(null);
     try {
-      setDetails(await adapter.load(session.sessionId));
-      setActivityEvidence(adapter.loadActivityEvidence ? await adapter.loadActivityEvidence(session.sessionId) : undefined);
+      const nextDetails = await adapter.load(requestedSession.sessionId);
+      if (currentRequestIdentity.current !== requestedIdentity || requestEpoch.current !== epoch || adapterIsUnavailable(adapter)) return;
+      const nextActivityEvidence = adapter.loadActivityEvidence ? await adapter.loadActivityEvidence(requestedSession.sessionId) : undefined;
+      if (currentRequestIdentity.current !== requestedIdentity || requestEpoch.current !== epoch || adapterIsUnavailable(adapter)) return;
+      setDetailsSnapshot({ scope: requestedScope, value: nextDetails });
+      setActivityEvidenceSnapshot({ scope: requestedScope, value: nextActivityEvidence });
       setLoadPhase("ready");
     } catch (error) {
+      if (currentRequestIdentity.current !== requestedIdentity || requestEpoch.current !== epoch) return;
       setLoadPhase("error");
       setFeedback({ kind: "alert", text: error instanceof Error ? error.message : "Harness details could not be loaded." });
     } finally {
-      detailsLoadInFlight.current = false;
+      detailsLoadsInFlight.current.delete(epoch);
     }
   };
 
-  useEffect(() => { void loadDetails(); }, [session?.sessionId, session?.cursor.runtimeGeneration, session?.cursor.sequence, adapter]);
+  useEffect(() => { void loadDetails(); }, [requestIdentity, adapter]);
   useEffect(() => {
-    if (!session || session.state !== "idle" || session.freshness !== "live" || adapter.availability.status === "unavailable") return;
+    if (!session || session.state !== "idle" || session.freshness !== "live") return;
     const timer = window.setInterval(() => { void loadDetails(); }, 5_000);
     return () => window.clearInterval(timer);
-  }, [adapter, session?.sessionId, session?.state, session?.freshness]);
+  }, [adapter, requestIdentity, session?.state, session?.freshness]);
   useEffect(() => {
     dispatch({ type: "children/reconciled", childIds: session?.children.map((child) => child.id) ?? [] });
   }, [session?.children]);
