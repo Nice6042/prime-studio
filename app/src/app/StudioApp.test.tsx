@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
@@ -98,6 +98,24 @@ describe("Studio application state", () => {
     for (const name of ["Projects", "Harness", "Open editor", "Open command palette"]) {
       expect(screen.getByRole("button", { name }).querySelector("svg")).not.toBeNull();
     }
+  });
+
+  it("moves focus into the narrow Harness drawer and restores its opener on Escape", async () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 320 });
+    const store = createStudioStore(initialStudioState({ chats: [chat] }));
+    store.dispatch({ type: "chat/open", chatId: chat.id });
+
+    render(<AppProviders store={store}><StudioApp /></AppProviders>);
+    const opener = screen.getByRole("button", { name: "Harness" });
+    await userEvent.click(opener);
+    const drawer = screen.getByRole("complementary", { name: "Harness" });
+    await waitFor(() => expect(drawer).toContainElement(document.activeElement as HTMLElement | null));
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("complementary", { name: "Harness" })).not.toBeInTheDocument());
+    await waitFor(() => expect(opener).toHaveFocus());
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+    fireEvent(window, new Event("resize"));
   });
 
   it("projects the durable project catalog into the real sidebar", () => {

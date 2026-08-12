@@ -58,9 +58,9 @@ export function WorkspaceShell({
         {onEditorPreferred ? <PaneSeparator label="Resize editor" value={layout.editor.width} min={280} max={600} direction={-1} onChange={onEditorPreferred} onReset={() => onEditorPreferred(400)} /> : <div className="studio-pane-divider" />}
         <section className="studio-editor" aria-label="Editor">{editorContent}</section>
       </>}
-      {layout.sidebar.mode === "sheet" && activeSheet === "sidebar" && <nav className="studio-sheet studio-sheet-left" aria-label="Projects and chats">{sidebarContent}</nav>}
-      {layout.inspector.mode === "sheet" && activeSheet === "inspector" && <aside className="studio-sheet studio-sheet-right studio-harness-sheet" aria-label="Harness" role="dialog" aria-modal="true">{inspectorContent}</aside>}
-      {layout.editor.mode === "sheet" && activeSheet === "editor" && <section className="studio-sheet studio-sheet-right" aria-label="Editor">{editorContent}</section>}
+      {layout.sidebar.mode === "sheet" && activeSheet === "sidebar" && <nav className="studio-sheet studio-sheet-left" data-studio-sheet="sidebar" aria-label="Projects and chats">{sidebarContent}</nav>}
+      {layout.inspector.mode === "sheet" && activeSheet === "inspector" && <aside className="studio-sheet studio-sheet-right studio-harness-sheet" data-studio-sheet="inspector" aria-label="Harness">{inspectorContent}</aside>}
+      {layout.editor.mode === "sheet" && activeSheet === "editor" && <section className="studio-sheet studio-sheet-right" data-studio-sheet="editor" aria-label="Editor">{editorContent}</section>}
     </div>
   );
 }

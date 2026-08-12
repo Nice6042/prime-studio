@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import * as rpc from "../rpc";
 import type { Account, AppSettings, LayoutPreferencesV1 } from "../types";
@@ -76,6 +76,7 @@ export function StudioApp() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteOpener, setPaletteOpener] = useState<HTMLElement | null>(null);
   const [activeSheet, setActiveSheet] = useState<"sidebar" | "inspector" | "editor" | null>(null);
+  const sheetOpener = useRef<HTMLElement | null>(null);
   const [canvas, setCanvas] = useState<Readonly<{ chatId: string; messageId: string; displayRevision: number; content: string }> | null>(null);
   const [displayRevisions, setDisplayRevisions] = useState<Readonly<Record<string, Readonly<Record<string, Readonly<{ revision: number; content: string }>>>>>>({});
   const [inspectorRouteRequest, setInspectorRouteRequest] = useState<Readonly<{ id: number; route: "overview" | "usage" | "activity" }> | undefined>();
@@ -132,6 +133,26 @@ export function StudioApp() {
     setAdmissionPhase("idle");
     setAdmissionMessage("");
   }, [navigation.selectedChatId]);
+
+  useEffect(() => {
+    if (!activeSheet) return;
+    const opener = sheetOpener.current;
+    const frame = window.requestAnimationFrame(() => {
+      const sheet = document.querySelector<HTMLElement>(`[data-studio-sheet="${activeSheet}"]`);
+      sheet?.querySelector<HTMLElement>("button:not(:disabled), [href], input:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex='-1'])")?.focus();
+    });
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.isComposing) return;
+      event.preventDefault();
+      setActiveSheet(null);
+    };
+    window.addEventListener("keydown", closeOnEscape, true);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("keydown", closeOnEscape, true);
+      window.requestAnimationFrame(() => opener?.focus());
+    };
+  }, [activeSheet]);
 
   useEffect(() => {
     let active = true;
@@ -301,9 +322,9 @@ export function StudioApp() {
   };
   return <div className="studio-application">
     <TitleBar title={title} actions={<>
-      <button type="button" className="studio-command-trigger" aria-label="Projects" aria-pressed={viewport < 760 ? activeSheet === "sidebar" : layout.sidebarOpen} onClick={() => { if (viewport < 760) { changeLayout({ sidebarOpen: true }); setActiveSheet((value) => value === "sidebar" ? null : "sidebar"); } else changeLayout({ sidebarOpen: !layout.sidebarOpen }); }}><NavigationIcon kind="menu" /></button>
-      <button type="button" className="studio-command-trigger" aria-label="Harness" aria-pressed={viewport < 760 ? activeSheet === "inspector" : layout.inspectorOpen} onClick={() => { if (viewport < 760) { changeLayout({ inspectorOpen: true }); setActiveSheet((value) => value === "inspector" ? null : "inspector"); } else changeLayout({ inspectorOpen: !layout.inspectorOpen }); }}><NavigationIcon kind="harness" /></button>
-      <button type="button" className="studio-command-trigger" aria-label={layout.editorOpen ? "Close editor" : "Open editor"} onClick={() => { changeLayout({ editorOpen: !layout.editorOpen }); setActiveSheet(layout.editorOpen ? null : "editor"); }}><NavigationIcon kind="editor" /></button>
+      <button type="button" className="studio-command-trigger" aria-label="Projects" aria-pressed={viewport < 760 ? activeSheet === "sidebar" : layout.sidebarOpen} onClick={(event) => { if (viewport < 760) { sheetOpener.current = event.currentTarget; changeLayout({ sidebarOpen: true }); setActiveSheet((value) => value === "sidebar" ? null : "sidebar"); } else changeLayout({ sidebarOpen: !layout.sidebarOpen }); }}><NavigationIcon kind="menu" /></button>
+      <button type="button" className="studio-command-trigger" aria-label="Harness" aria-pressed={viewport < 760 ? activeSheet === "inspector" : layout.inspectorOpen} onClick={(event) => { if (viewport < 760) { sheetOpener.current = event.currentTarget; changeLayout({ inspectorOpen: true }); setActiveSheet((value) => value === "inspector" ? null : "inspector"); } else changeLayout({ inspectorOpen: !layout.inspectorOpen }); }}><NavigationIcon kind="harness" /></button>
+      <button type="button" className="studio-command-trigger" aria-label={layout.editorOpen ? "Close editor" : "Open editor"} onClick={(event) => { if (!layout.editorOpen) sheetOpener.current = event.currentTarget; changeLayout({ editorOpen: !layout.editorOpen }); setActiveSheet(layout.editorOpen ? null : "editor"); }}><NavigationIcon kind="editor" /></button>
       <button type="button" className="studio-command-trigger" aria-label="Open command palette" onClick={openPalette}><NavigationIcon kind="command" /></button>
     </>} />
     <WorkspaceShell
