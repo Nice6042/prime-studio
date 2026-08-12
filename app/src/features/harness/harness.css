@@ -283,6 +283,7 @@
 
 .harness-operation-feedback,
 .harness-notice,
+.harness-recovery-unavailable,
 .harness-detail-unavailable { margin: 8px 12px 0; padding: 7px 9px; border-radius: 7px; background: rgb(142 133 240 / 0.1); color: #c9c5f2; font-size: 11.5px; }
 .harness-operation-feedback[role="alert"] { background: rgb(255 119 125 / 0.08); color: #ff9da2; }
 .harness-no-session { display: grid; place-content: center; min-block-size: 260px; padding: 28px; text-align: center; }

@@ -246,6 +246,18 @@ describe("HarnessInspector", () => {
     expect(screen.getByRole("status", { name: "Loading Harness details" })).toBeVisible();
   });
 
+  it("shows the production silent-worker recovery blocker instead of a working retry claim", async () => {
+    const source: HarnessInspectorAdapter = { ...adapter(), workerRecovery: {
+      status: "unavailable",
+      reason: "Prime Studio cannot safely retry a silent worker because the native Harness bridge does not expose a verified closure reason and retry identity.",
+    } };
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={source} />);
+
+    expect(await screen.findByRole("status", { name: "Silent worker recovery unavailable" }))
+      .toHaveTextContent("does not expose a verified closure reason and retry identity");
+    expect(screen.queryByRole("button", { name: /retry silent worker/i })).not.toBeInTheDocument();
+  });
+
   it("supports arrow-key tab navigation and restores the selected route per chat", async () => {
     const user = userEvent.setup();
     const view = render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={adapter()} />);

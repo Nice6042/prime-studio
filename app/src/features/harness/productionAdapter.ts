@@ -14,6 +14,8 @@ interface ProductionHarnessPorts {
   execute(request: HarnessStudioOperationRequest): Promise<Readonly<{ outcome: StudioOperationOutcome; session: RootSessionProjection | null }>>;
 }
 
+const TERMINAL_RUNTIME_STATES = new Set<RootSessionProjection["state"]>(["disconnected", "failed", "stopped"]);
+
 const realPorts: ProductionHarnessPorts = {
   load: loadHarnessInspector,
   async execute(request) {
@@ -44,7 +46,8 @@ function findBoundSession(store: StudioStore, operation: StudioOperation): RootS
     if (!fromChat || binding.accountId !== fromChat.accountId || (binding.agentId !== null && binding.agentId !== fromChat.chatId)) return null;
   }
   if (direct && fromChat && direct.sessionId !== fromChat.sessionId) return null;
-  return direct ?? fromChat;
+  const session = direct ?? fromChat;
+  return session?.freshness === "live" && !TERMINAL_RUNTIME_STATES.has(session.state) ? session : null;
 }
 
 export function createProductionHarnessInspectorAdapter(
@@ -60,6 +63,10 @@ export function createProductionHarnessInspectorAdapter(
     load: (sessionId: string) => store.getSnapshot().sessions[sessionId]
       ? ports.load(sessionId)
       : Promise.reject(new Error("The requested Harness session is not admitted by the native broker.")),
+    workerRecovery: Object.freeze({
+      status: "unavailable" as const,
+      reason: "Prime Studio cannot safely retry a silent worker because the native Harness bridge does not expose a verified closure reason and retry identity.",
+    }),
     async execute(operation: StudioOperation): Promise<StudioOperationOutcome> {
       const descriptor = STUDIO_ACTIONS[operation.action];
       if (descriptor.owner.kind === "renderer") return { status: "updated", revision: "renderer" };

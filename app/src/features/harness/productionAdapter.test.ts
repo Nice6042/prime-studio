@@ -57,4 +57,68 @@ describe("production Harness inspector adapter", () => {
     const adapter = createProductionHarnessInspectorAdapter(store, { load: vi.fn(), execute: vi.fn() });
     expect(adapter.availability).toEqual({ status: "unavailable", reason: "The verified Prime Harness broker is not live." });
   });
+
+  it("projects silent-worker recovery as unavailable because the native bridge has no closure identity", () => {
+    const adapter = createProductionHarnessInspectorAdapter(boundStore(), { load: vi.fn(), execute: vi.fn() });
+
+    expect(adapter.workerRecovery).toEqual({
+      status: "unavailable",
+      reason: "Prime Studio cannot safely retry a silent worker because the native Harness bridge does not expose a verified closure reason and retry identity.",
+    });
+    expect(adapter.settings?.harnessPolicy).not.toBe(true);
+  });
+
+  it.each(["disconnected", "unknown_outcome"] as const)("does not dispatch or retry a %s session", async (freshness) => {
+    const store = boundStore();
+    store.dispatch({ type: "harness/session-projected", session: { ...session, freshness } });
+    const execute = vi.fn();
+    const adapter = createProductionHarnessInspectorAdapter(store, { load: vi.fn(), execute });
+
+    await expect(adapter.execute({ action: "harness.session.prompt", payload: { sessionId: session.sessionId, text: "do not replay" } }))
+      .resolves.toMatchObject({ status: "rejected", retryable: false });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("blocks a worker whose runtime state is disconnected even when broker freshness is still live", async () => {
+    const store = boundStore();
+    store.dispatch({ type: "harness/session-projected", session: { ...session, state: "disconnected", freshness: "live" } });
+    const execute = vi.fn();
+    const adapter = createProductionHarnessInspectorAdapter(store, { load: vi.fn(), execute });
+
+    await expect(adapter.execute({ action: "harness.session.prompt", payload: { sessionId: session.sessionId, text: "do not replay" } }))
+      .resolves.toMatchObject({ status: "rejected", retryable: false });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it.each(["failed", "stopped"] as const)("blocks terminal runtime state %s even while broker freshness is live", async (state) => {
+    const store = boundStore();
+    store.dispatch({ type: "harness/session-projected", session: { ...session, state, freshness: "live" } });
+    const execute = vi.fn();
+    const adapter = createProductionHarnessInspectorAdapter(store, { load: vi.fn(), execute });
+
+    await expect(adapter.execute({ action: "harness.session.prompt", payload: { sessionId: session.sessionId, text: "do not replay" } }))
+      .resolves.toMatchObject({ status: "rejected", retryable: false });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a closed transport after exactly one dispatch and never retries it", async () => {
+    const execute = vi.fn(async () => { throw new Error("Daemon worker client closed"); });
+    const adapter = createProductionHarnessInspectorAdapter(boundStore(), { load: vi.fn(), execute });
+
+    await expect(adapter.execute({ action: "harness.session.prompt", payload: { sessionId: session.sessionId, text: "one attempt" } }))
+      .rejects.toThrow("Daemon worker client closed");
+    expect(execute).toHaveBeenCalledOnce();
+  });
+
+  it("does not turn a runtime-generation change into an automatic mutation replay", async () => {
+    const execute = vi.fn(async () => ({
+      outcome: { status: "rejected" as const, reason: "Session changed; refresh before retrying the operation.", retryable: true },
+      session: null,
+    }));
+    const adapter = createProductionHarnessInspectorAdapter(boundStore(), { load: vi.fn(), execute });
+
+    await expect(adapter.execute({ action: "harness.session.prompt", payload: { sessionId: session.sessionId, text: "one attempt" } }))
+      .resolves.toEqual({ status: "rejected", reason: "Session changed; refresh before retrying the operation.", retryable: true });
+    expect(execute).toHaveBeenCalledOnce();
+  });
 });

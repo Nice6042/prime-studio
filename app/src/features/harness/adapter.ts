@@ -88,6 +88,10 @@ export interface HarnessInspectorAdapter {
     | Readonly<{ status: "unavailable"; reason: string }>;
   load(sessionId: string): Promise<HarnessPanelDetails>;
   execute(operation: StudioOperation): Promise<StudioOperationOutcome>;
+  /** Available only when native authority supplies closure and retry identities. */
+  readonly workerRecovery?:
+    | Readonly<{ status: "available"; maximumAutomaticRetries: 1 }>
+    | Readonly<{ status: "unavailable"; reason: string }>;
   /** Explicit settings-operation authority; inspector availability alone is insufficient. */
   readonly settings?: Readonly<{
     harnessPolicy: boolean;
