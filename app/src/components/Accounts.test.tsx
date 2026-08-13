@@ -494,6 +494,7 @@ describe("Accounts removal confirmation", () => {
 
   afterEach(() => {
     updateRaceDefault = undefined;
+    vi.useRealTimers();
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 1024 });
   });
 
@@ -922,21 +923,26 @@ describe("Accounts removal confirmation", () => {
   });
 
   it("expires a prepared plan while the dialog remains open", async () => {
-    const user = userEvent.setup();
-    prepareMock.mockResolvedValueOnce(removalPlan(true, { expiresAtMs: Date.now() + 750 }));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    prepareMock.mockResolvedValueOnce(removalPlan(true, { expiresAtMs: Date.now() + 60_000 }));
     renderAccounts();
 
     const { dialog } = await prepareDataRemoval(user);
     expect(within(dialog).getByRole("button", { name: "Remove profile data" })).toBeDisabled();
 
-    expect(await within(dialog).findByText(/confirmation has expired/i, {}, { timeout: 2_000 })).toBeInTheDocument();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(within(dialog).getByText(/confirmation has expired/i)).toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "Remove profile data" })).not.toBeInTheDocument();
     expect(commitMock).not.toHaveBeenCalled();
   });
 
   it("focuses Prepare again when a live entry plan expires and removes the focused commit", async () => {
-    const user = userEvent.setup();
-    prepareMock.mockResolvedValueOnce(removalPlan(false, { expiresAtMs: Date.now() + 750 }));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    prepareMock.mockResolvedValueOnce(removalPlan(false, { expiresAtMs: Date.now() + 60_000 }));
     renderAccounts();
 
     const { dialog } = await openRemovalDialog(user);
@@ -945,7 +951,10 @@ describe("Accounts removal confirmation", () => {
     removeEntry.focus();
     expect(removeEntry).toHaveFocus();
 
-    await within(dialog).findByText(/confirmation has expired/i, {}, { timeout: 2_000 });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(within(dialog).getByText(/confirmation has expired/i)).toBeInTheDocument();
     const retry = within(dialog).getByRole("button", { name: "Prepare again" });
     expect(retry).toHaveFocus();
     expect(dialog).toContainElement(document.activeElement as HTMLElement);
