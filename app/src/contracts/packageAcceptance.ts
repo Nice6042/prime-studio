@@ -20,7 +20,7 @@ export const FEATURE_ACCEPTANCE: readonly PackageFeatureAcceptance[] = Object.fr
   row("SH-05", "center keeps a 340px minimum plus handle and border budget", "complete"),
   row("SH-06", "editor uses 280–600px up to 46 percent and may displace the inspector", "complete", ["layout.editor.resize", "layout.editor.toggle"]),
   row("SH-07", "narrow layouts use a 52px sidebar rail and sheet/replacement panel routes", "complete", ["layout.sidebar.toggle", "layout.inspector.toggle"]),
-  row("SH-08", "24px bottom status reports runtime, model, thinking, context, latency, throughput, and overload", "partial"),
+  row("SH-08", "24px bottom status reports runtime, model, thinking, context, latency, throughput, and overload", "complete"),
   row("SH-09", "dark, light, and system themes use semantic tokens", "complete", ["settings.preference.set"]),
   row("SH-10", "reduced motion controls pulse, blink, and pane/popover transitions", "complete", ["settings.preference.set"]),
 
@@ -98,7 +98,7 @@ export const FEATURE_ACCEPTANCE: readonly PackageFeatureAcceptance[] = Object.fr
   row("AC-06", "unseen Activity dot is content-evidence-backed and clears on visit", "complete", ["activity.seen.mark"]),
 
   row("ED-01", "split editor header shows path, counts, mode, and close", "partial", ["layout.editor.close"]),
-  row("ED-02", "Diff and Edit modes operate on one identity-bound artifact", "partial", ["editor.mode.select"]),
+  row("ED-02", "Diff and Edit modes operate on one identity-bound artifact", "complete", ["editor.mode.select"]),
   row("ED-03", "structured diff rows render bounded numbers, markers, additions, deletions, and context", "complete"),
   row("ED-04", "dirty edits save with expected revision and conflict handling", "complete", ["editor.content.change", "editor.file.save", "editor.conflict.reload", "editor.conflict.save-copy"]),
   row("ED-05", "Canvas edits apply a new Studio display revision without rewriting Harness history", "complete", ["editor.canvas.apply"]),
@@ -150,7 +150,7 @@ export const PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS = Object.freeze([
   "HR-13", "HR-14", "HR-16",
   "CU-02", "CU-03", "CU-06",
   "AC-03",
-  "ED-01", "ED-02", "ED-06",
+  "ED-01", "ED-06",
   "ST-06", "ST-07", "ST-09", "ST-13",
 ] as const);
 
