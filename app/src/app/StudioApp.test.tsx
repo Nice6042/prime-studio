@@ -611,6 +611,25 @@ describe("Studio application state", () => {
     expect(screen.getByText(/Open an identity-bound candidate from Harness/i)).toBeVisible();
   });
 
+  it("routes response copy through the shared dispatcher and native clipboard executor exactly once", async () => {
+    const writeText = vi.fn(async () => undefined);
+    const priorClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const store = createStudioStore(initialStudioState({ projectCatalog: catalogBoundToRootSession(), sessions: [rootSession] }));
+    try {
+      render(<AppProviders store={store}><StudioApp /></AppProviders>);
+
+      await userEvent.click(await screen.findByRole("button", { name: /^Copy$/ }));
+
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("Original answer"));
+      expect(writeText).toHaveBeenCalledTimes(1);
+      expect(screen.getByText("Message copied.", { selector: "span[role=status]" })).toBeVisible();
+    } finally {
+      if (priorClipboard) Object.defineProperty(navigator, "clipboard", priorClipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
   it("hydrates an opaque Harness candidate through the centralized dispatcher and opens the editor", async () => {
     const openArtifact = vi.fn(async () => ({
       kind: "opened" as const,

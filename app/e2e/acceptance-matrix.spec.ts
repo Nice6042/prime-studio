@@ -166,6 +166,25 @@ test("Canvas editor metadata meets the strict contrast gate", async ({ shellPage
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-editor-authority-matrix");
 });
 
+test("response copy and Canvas controls remain identity-qualified after a second response", async ({ shellPage }) => {
+  const composer = shellPage.getByRole("textbox", { name: "Message Prime Studio" });
+  await composer.fill("Add a second response for control identity coverage.");
+  await composer.press("Enter");
+  await expect(shellPage.getByText("Synthetic Harness response admitted through the verified Studio protocol.")).toBeVisible();
+
+  const copyIds = await shellPage.locator('[data-control-id^="conversation-copy-"]').evaluateAll((elements) => elements.map((element) => element.getAttribute("data-control-id")));
+  const canvasIds = await shellPage.locator('[data-control-id^="conversation-canvas-"]').evaluateAll((elements) => elements.map((element) => element.getAttribute("data-control-id")));
+  expect(copyIds).toHaveLength(2);
+  expect(canvasIds).toHaveLength(2);
+  expect(new Set(copyIds).size).toBe(copyIds.length);
+  expect(new Set(canvasIds).size).toBe(canvasIds.length);
+
+  await activateWithKeyboard(shellPage.locator('[data-control-id^="conversation-canvas-"]').nth(1));
+  const editor = shellPage.getByRole("region", { name: "Editor" });
+  await expect(editor.getByRole("tab", { name: "Canvas" })).toHaveAttribute("aria-selected", "true");
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-response-control-identities");
+});
+
 test("wide 1280 and 1600 layouts keep all attached panes ordered and usable", async ({ shellPage }) => {
   for (const width of [1280, 1600] as const) {
     await shellPage.setViewportSize({ width, height: width === 1280 ? 800 : 900 });

@@ -1060,6 +1060,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
             if (!layout.editorOpen) void dispatchOperation({ action: "layout.editor.toggle", payload: {} });
             setActiveSheet("editor");
           } : undefined}
+          onExecuteOperation={dispatchOperation}
           onSuggestionFill={navigation.selectedChatId ? (text) => { void dispatchOperation({ action: "conversation.suggestion.fill", payload: { chatId: navigation.selectedChatId!, text } }); } : undefined}
           onSelectUserVersion={navigation.selectedChatId ? (messageId, version) => { void dispatchOperation({ action: "conversation.user-version.select", payload: { chatId: navigation.selectedChatId!, messageId, version } }); } : undefined}
           onSelectAssistantVersion={navigation.selectedChatId ? (messageId, version) => { void dispatchOperation({ action: "conversation.assistant-version.select", payload: { chatId: navigation.selectedChatId!, messageId, version } }); } : undefined}

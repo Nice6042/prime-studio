@@ -72,6 +72,58 @@ describe("ParentConversation", () => {
     expect(screen.getByText("Display revision 2")).toBeVisible();
   });
 
+  it("routes each response copy through the shared operation executor with an identity-qualified control", async () => {
+    const executeOperation = vi.fn(async () => ({ status: "updated" as const, revision: 1 }));
+    const onOpenCanvas = vi.fn();
+    const twoResponses: RootSessionProjection = {
+      ...session,
+      parentMessages: [
+        ...session.parentMessages,
+        { channel: "parent", kind: "assistant", id: "a2", blocks: [{ kind: "text", text: "A distinct answer." }], streaming: false, emittedAtMs: 3 },
+      ],
+    };
+    render(<ParentConversation title="Harness architecture" session={twoResponses} archived={false} onExecuteOperation={executeOperation} onOpenCanvas={onOpenCanvas} />);
+
+    expect(screen.getAllByRole("button", { name: /^Copy$/ })[0]).toHaveAttribute("data-control-id", "conversation-copy-a1");
+    expect(screen.getAllByRole("button", { name: /^Edit answer in Canvas$/ })[0]).toHaveAttribute("data-control-id", "conversation-canvas-a1");
+    expect(screen.getAllByRole("button", { name: /^Copy$/ })[1]).toHaveAttribute("data-control-id", "conversation-copy-a2");
+    expect(screen.getAllByRole("button", { name: /^Edit answer in Canvas$/ })[1]).toHaveAttribute("data-control-id", "conversation-canvas-a2");
+
+    await userEvent.click(screen.getAllByRole("button", { name: /^Copy$/ })[1]!);
+
+    expect(executeOperation).toHaveBeenCalledTimes(1);
+    expect(executeOperation).toHaveBeenCalledWith({
+      action: "conversation.response.copy",
+      payload: { messageId: "a2", text: "A distinct answer." },
+    });
+    expect(screen.getByText("Message copied.", { selector: "span[role=status]" })).toBeVisible();
+  });
+
+  it("reports copied only after an accepted copy outcome", async () => {
+    const executeOperation = vi.fn(async () => ({ status: "accepted" as const, commandId: "copy-1" }));
+    render(<ParentConversation title="Harness architecture" session={session} archived={false} onExecuteOperation={executeOperation} />);
+
+    await userEvent.click(screen.getByRole("button", { name: /^Copy$/ }));
+
+    expect(executeOperation).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Message copied.", { selector: "span[role=status]" })).toBeVisible();
+  });
+
+  it.each([
+    ["unavailable", { status: "unavailable" as const, reason: "Clipboard access is unavailable." }, "Clipboard access is unavailable."],
+    ["rejected", { status: "rejected" as const, reason: "Clipboard permission was denied.", retryable: false }, "Clipboard permission was denied."],
+    ["unknown", { status: "unknown_outcome" as const, operationId: "copy-1", reason: "Clipboard result could not be verified." }, "Clipboard result could not be verified."],
+  ])("reports a truthful non-success message when copy is %s", async (_name, outcome, message) => {
+    const executeOperation = vi.fn(async () => outcome);
+    render(<ParentConversation title="Harness architecture" session={session} archived={false} onExecuteOperation={executeOperation} />);
+
+    await userEvent.click(screen.getByRole("button", { name: /^Copy$/ }));
+
+    expect(executeOperation).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(message, { selector: "span[role=status]" })).toBeVisible();
+    expect(screen.queryByText("Message copied.", { selector: "span[role=status]" })).not.toBeInTheDocument();
+  });
+
   it("routes versions, editing, branching, regeneration, work details, and edited files", async () => {
     const onEditUserMessage = vi.fn();
     const onBranchFrom = vi.fn();
