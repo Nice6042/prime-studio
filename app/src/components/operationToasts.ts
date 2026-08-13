@@ -7,21 +7,15 @@ export interface OperationToastProjection {
   readonly toast: ToastInput | null;
 }
 
-const PRIVATE_PAYLOAD_FIELDS = new Set([
-  "command", "content", "files", "folderPath", "response", "text", "title",
-]);
-
 function ownerFor(operation: StudioOperation): ToastOwner {
   const kind = STUDIO_ACTIONS[operation.action].owner.kind;
   return kind === "studio_durable" ? "studio_durable" : kind;
 }
 
 function safeScope(operation: StudioOperation) {
-  const values = Object.entries(operation.payload)
-    .filter(([key, value]) => !PRIVATE_PAYLOAD_FIELDS.has(key)
-      && (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean"))
-    .sort(([left], [right]) => left.localeCompare(right));
-  return JSON.stringify([operation.action, values]);
+  // Presentation scope is intentionally action-only. Payload values remain in
+  // the coordinator's private action ledger and never enter render state.
+  return JSON.stringify(["operation", operation.action]);
 }
 
 function title(owner: ToastOwner, unknown: boolean) {

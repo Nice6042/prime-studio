@@ -33,14 +33,14 @@ describe("toast operation coordinator", () => {
     await coordinator.execute({ action: "workspace.switch", payload: { workspaceId: "non-idempotent-target" } });
     const presentationId = coordinator.getSnapshot()[0]!.id;
     expect(coordinator.getSnapshot().flatMap((toast) => toast.actions)).toEqual([
-      { id: "operation-sensitive", label: "Retry", action: "workspace.switch" },
+      { id: "operation-sensitive:1", label: "Retry", action: "workspace.switch" },
     ]);
 
-    expect(await coordinator.retry("operation-sensitive")).toEqual(settled);
+    expect(await coordinator.retry("operation-sensitive:1")).toEqual(settled);
     expect(coordinator.getSnapshot().flatMap((toast) => toast.actions)).toEqual([]);
     expect(coordinator.getSnapshot()[0]?.id).toBe(presentationId);
 
-    const staleReplay = await coordinator.retry("operation-sensitive");
+    const staleReplay = await coordinator.retry("operation-sensitive:1");
     expect(staleReplay).toMatchObject({ status: "unavailable" });
     expect(calls).toBe(2);
   });
@@ -77,6 +77,71 @@ describe("toast operation coordinator", () => {
     expect(coordinator.getSnapshot().flatMap((toast) => toast.actions)).toHaveLength(MAX_ACTIONABLE_OPERATIONS);
   });
 
+  it("caller operationId collisions cannot merge reservations, overwrite actions, or replay the wrong operation", async () => {
+    const first = deferred<StudioOperationOutcome>();
+    const second = deferred<StudioOperationOutcome>();
+    const dispatched: StudioOperation[] = [];
+    const coordinator = new ToastOperationCoordinator({
+      createOperationId: () => "internal",
+      dispatch: (admitted) => {
+        dispatched.push(admitted);
+        return dispatched.length === 1 ? first.promise : second.promise;
+      },
+    });
+    const collision = "caller-supplied-collision";
+    const firstPending = coordinator.execute({ operationId: collision, action: "workspace.switch", payload: { workspaceId: "one" } });
+    const secondPending = coordinator.execute({ operationId: collision, action: "workspace.switch", payload: { workspaceId: "two" } });
+
+    expect(dispatched.map((item) => item.operationId)).toEqual(["internal:1", "internal:2"]);
+    second.resolve({ status: "rejected", reason: "Second retryable.", retryable: true });
+    first.resolve({ status: "rejected", reason: "First retryable.", retryable: true });
+    await Promise.all([firstPending, secondPending]);
+
+    expect(coordinator.getSnapshot().flatMap((toast) => toast.actions.map((action) => action.id)).sort())
+      .toEqual(["internal:1", "internal:2"]);
+    expect(coordinator.hasAction("internal:1")).toBe(true);
+    expect(coordinator.hasAction("internal:2")).toBe(true);
+  });
+
+  it("dismissal during a pending Retry permanently suppresses its late retryable presentation", async () => {
+    const retrySettlement = deferred<StudioOperationOutcome>();
+    let calls = 0;
+    const coordinator = new ToastOperationCoordinator({
+      createOperationId: () => "internal-retry",
+      dispatch: async (admitted) => {
+        calls += 1;
+        if (admitted.action === "toast.dismiss") return { status: "updated", revision: 1 };
+        if (calls === 1) return { status: "rejected", reason: "Retry safely.", retryable: true };
+        return retrySettlement.promise;
+      },
+    });
+    await coordinator.execute(operation(1));
+    const toastId = coordinator.getSnapshot()[0]!.id;
+    const retrying = coordinator.retry("internal-retry:1");
+
+    expect(await coordinator.execute({ action: "toast.dismiss", payload: { toastId } })).toMatchObject({ status: "updated" });
+    expect(coordinator.getSnapshot()).toEqual([]);
+    retrySettlement.resolve({ status: "rejected", reason: "Still retryable.", retryable: true });
+    await retrying;
+
+    expect(coordinator.getSnapshot()).toEqual([]);
+    expect(coordinator.hasAction("internal-retry:1")).toBe(false);
+  });
+
+  it("stale toast.dismiss is an explicit non-success and never reaches the dispatcher", async () => {
+    let dispatches = 0;
+    const coordinator = new ToastOperationCoordinator({
+      dispatch: async () => {
+        dispatches += 1;
+        return { status: "updated", revision: 1 };
+      },
+    });
+
+    expect(await coordinator.execute({ action: "toast.dismiss", payload: { toastId: "stale-toast" } }))
+      .toEqual({ status: "unavailable", reason: "This notification is already resolved." });
+    expect(dispatches).toBe(0);
+  });
+
   it("stable equivalent presentation dedupe coexists with a distinct privacy-safe per-operation action ledger", async () => {
     let id = 0;
     const coordinator = new ToastOperationCoordinator({
@@ -89,11 +154,11 @@ describe("toast operation coordinator", () => {
 
     const snapshot = coordinator.getSnapshot();
     expect(snapshot).toHaveLength(1);
-    expect(snapshot[0]?.actions.map((action) => action.id)).toEqual(["prompt-1", "prompt-2"]);
+    expect(snapshot[0]?.actions.map((action) => action.id)).toEqual(["prompt-1:1", "prompt-2:2"]);
     expect(JSON.stringify(snapshot)).not.toContain("private first prompt");
     expect(JSON.stringify(snapshot)).not.toContain("private second prompt");
-    expect(coordinator.hasAction("prompt-1")).toBe(true);
-    expect(coordinator.hasAction("prompt-2")).toBe(true);
+    expect(coordinator.hasAction("prompt-1:1")).toBe(true);
+    expect(coordinator.hasAction("prompt-2:2")).toBe(true);
   });
 
   it("max visible queue/DOM is bounded and no accepted actionable operation is silently evicted", async () => {
@@ -117,9 +182,9 @@ describe("toast operation coordinator", () => {
     const snapshot = coordinator.getSnapshot();
     expect(snapshot).toHaveLength(MAX_VISIBLE_TOASTS);
     expect(snapshot.flatMap((toast) => toast.actions).map((action) => action.id).sort()).toEqual([
-      "accepted-1", "accepted-2", "accepted-3", "accepted-4", "accepted-5",
+      "accepted-1:1", "accepted-2:2", "accepted-3:3", "accepted-4:4", "accepted-5:5",
     ]);
-    expect(Array.from({ length: MAX_ACTIONABLE_OPERATIONS }, (_, index) => coordinator.hasAction(`accepted-${index + 1}`))).toEqual([
+    expect(Array.from({ length: MAX_ACTIONABLE_OPERATIONS }, (_, index) => coordinator.hasAction(`accepted-${index + 1}:${index + 1}`))).toEqual([
       true, true, true, true, true,
     ]);
   });

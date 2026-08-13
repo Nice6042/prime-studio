@@ -3,10 +3,6 @@ import { useEffect, useRef, useState } from "react";
 import type { StudioOperation, StudioOperationOutcome } from "../contracts/studioOperations";
 import { MAX_VISIBLE_TOASTS, type StudioToast } from "./toastQueue";
 
-function completed(outcome: StudioOperationOutcome) {
-  return outcome.status === "accepted" || outcome.status === "queued" || outcome.status === "updated" || outcome.status === "cancelled";
-}
-
 export function Toasts({
   toasts,
   retry,
@@ -29,20 +25,31 @@ export function Toasts({
     return () => document.removeEventListener("focusin", remember, true);
   }, []);
 
-  const handOffFocus = () => window.requestAnimationFrame(() => {
+  const handOffFocus = (origin: HTMLElement, movedOutside: () => boolean, done: () => void) => window.requestAnimationFrame(() => {
+    if (movedOutside()) {
+      done();
+      return;
+    }
+    if (origin.isConnected) {
+      done();
+      return;
+    }
     const nextToast = document.querySelector<HTMLElement>(".toasts button:not(:disabled)");
     if (nextToast) {
       nextToast.focus();
+      done();
       return;
     }
     const prior = lastOutsideFocus.current;
     if (prior?.isConnected) {
       prior.focus();
+      done();
       return;
     }
     document.querySelector<HTMLElement>(
       '[data-toast-focus-fallback], [data-control-id="title-harness"], [data-control-id="settings.back"], [data-control-id="title-projects"], button:not(.toast-action):not(.toast-dismiss)',
     )?.focus();
+    done();
   });
 
   const attempt = async (toast: StudioToast, attemptId: string, run: () => Promise<StudioOperationOutcome>) => {
@@ -58,16 +65,19 @@ export function Toasts({
     attempts.current.add(attemptId);
     setPending((current) => new Set(current).add(attemptId));
     try {
-      const outcome = await run();
-      if (completed(outcome) && startedInside && !movedOutside) handOffFocus();
+      await run();
     } finally {
-      document.removeEventListener("focusin", watchFocus, true);
       attempts.current.delete(attemptId);
       setPending((current) => {
         const next = new Set(current);
         next.delete(attemptId);
         return next;
       });
+      if (startedInside && active) {
+        handOffFocus(active, () => movedOutside, () => document.removeEventListener("focusin", watchFocus, true));
+      } else {
+        document.removeEventListener("focusin", watchFocus, true);
+      }
     }
   };
 

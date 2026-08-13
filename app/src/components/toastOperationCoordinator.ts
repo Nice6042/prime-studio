@@ -44,6 +44,7 @@ export class ToastOperationCoordinator {
   private dispatch: Dispatcher;
   private listener: ((queue: readonly StudioToast[]) => void) | undefined;
   private readonly createOperationId: () => string;
+  private admissionSequence = 0;
 
   constructor(options: CoordinatorOptions) {
     this.dispatch = options.dispatch;
@@ -75,6 +76,9 @@ export class ToastOperationCoordinator {
   async execute(operation: StudioOperation): Promise<StudioOperationOutcome> {
     if (operation.action === "toast.dismiss") {
       const toastId = operation.payload.toastId;
+      if (!this.queue.some((toast) => toast.id === toastId)) {
+        return { status: "unavailable", reason: "This notification is already resolved." };
+      }
       const admitted = this.admit(operation);
       let outcome: StudioOperationOutcome;
       try {
@@ -87,7 +91,6 @@ export class ToastOperationCoordinator {
     }
 
     const admitted = this.admit(operation);
-    if (this.actions.has(admitted.operationId)) return this.retry(admitted.operationId);
     if (this.actions.size + this.reservations.size >= MAX_ACTIONABLE_OPERATIONS) {
       this.recordHardCapacity();
       return {
@@ -127,7 +130,8 @@ export class ToastOperationCoordinator {
   }
 
   private admit(operation: StudioOperation): AdmittedOperation {
-    return Object.freeze({ ...operation, operationId: operation.operationId ?? this.createOperationId() }) as AdmittedOperation;
+    const operationId = `${this.createOperationId()}:${++this.admissionSequence}`;
+    return Object.freeze({ ...operation, operationId }) as AdmittedOperation;
   }
 
   private settleNew(operation: AdmittedOperation, outcome: StudioOperationOutcome) {
@@ -144,6 +148,7 @@ export class ToastOperationCoordinator {
   private settleRetry(operation: AdmittedOperation, outcome: StudioOperationOutcome) {
     const projected = projectOperationToast(operation, outcome);
     if (projected.toast?.action) {
+      if (this.actions.get(operation.operationId) !== operation) return;
       this.replaceQueue(enqueueToast(this.queue, projected.toast));
       return;
     }

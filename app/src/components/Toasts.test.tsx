@@ -38,11 +38,13 @@ function Harness({
     <button type="button">Outside control</button>
     <Toasts toasts={toasts} retry={async (actionId) => {
       const outcome = await retry(actionId);
-      setToasts([]);
+      setToasts((current) => current.slice(1));
       return outcome;
     }} execute={async (operation) => {
       const outcome = await execute(operation);
-      setToasts([]);
+      if (operation.action === "toast.dismiss") {
+        setToasts((current) => current.filter((toast) => toast.id !== operation.payload.toastId));
+      }
       return outcome;
     }} />
   </>;
@@ -88,6 +90,53 @@ describe("typed toasts", () => {
 
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
     expect(outside).toHaveFocus();
+  });
+
+  it("hands focus off when a nonretryable settlement removes the focused Retry", async () => {
+    const user = userEvent.setup();
+    render(<Harness
+      initial={failure()}
+      retry={async () => ({ status: "rejected", reason: "Stale operation.", retryable: false })}
+      execute={async () => ({ status: "updated", revision: 1 })}
+    />);
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Outside control" })).toHaveFocus());
+  });
+
+  it("cancels deferred focus handoff when the user moves after settlement but before animation frame", async () => {
+    const settlement = deferred<StudioOperationOutcome>();
+    let frame: FrameRequestCallback | undefined;
+    const requestFrame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frame = callback;
+      return 1;
+    });
+    const user = userEvent.setup();
+    const anotherToast = enqueueToast(failure(), {
+      owner: "runtime",
+      scope: "another-failure",
+      severity: "error",
+      title: "Another failure",
+      message: "This toast remains visible.",
+    });
+    render(<Harness
+      initial={anotherToast}
+      retry={() => settlement.promise}
+      execute={async () => ({ status: "updated", revision: 1 })}
+    />);
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await act(async () => settlement.resolve({ status: "updated", revision: 2 }));
+    await waitFor(() => expect(frame).toBeDefined());
+    const outside = screen.getByRole("button", { name: "Outside control" });
+    outside.focus();
+    act(() => frame?.(performance.now()));
+
+    expect(outside).toHaveFocus();
+    expect(screen.getByRole("alert", { name: "Another failure" })).toBeInTheDocument();
+    requestFrame.mockRestore();
   });
 
   it("auto-dismisses passive status at 2.4 seconds through toast.dismiss", async () => {

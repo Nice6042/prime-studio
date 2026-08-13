@@ -27,4 +27,17 @@ describe("operation toast projection", () => {
     expect(JSON.stringify(first.toast)).not.toContain("private first");
     expect(JSON.stringify(second.toast)).not.toContain("private second");
   });
+
+  it.each([
+    { action: "composer.slash.execute" as const, payload: { chatId: "chat-1", commandId: "model", argument: "secret argument" }, secret: "secret argument" },
+    { action: "palette.query.change" as const, payload: { query: "secret query" }, secret: "secret query" },
+    { action: "settings.preference.set" as const, payload: { key: "token", value: "secret value" }, secret: "secret value" },
+  ])("never serializes arbitrary $action payload values into persistent scope", ({ action, payload, secret }) => {
+    const projection = projectOperationToast(
+      { action, payload, operationId: `operation-${action}` } as Parameters<typeof projectOperationToast>[0],
+      { status: "rejected", reason: "Failed.", retryable: true },
+    );
+
+    expect(JSON.stringify(projection)).not.toContain(secret);
+  });
 });
