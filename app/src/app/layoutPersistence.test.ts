@@ -100,6 +100,49 @@ describe("LayoutPersistenceCoordinator", () => {
     expect(writes).toEqual([{ ...initial, sidebarOpen: false, inspectorWidth: 600 }]);
   });
 
+  it("merges an early project toggle by membership without replacing unrelated durable expansion choices", async () => {
+    const optimistic = { ...initial, expandedProjectIds: ["project-a", "project-b"] };
+    const durable = { ...initial, inspectorWidth: 600, expandedProjectIds: ["project-a"] };
+    const writes: LayoutPreferencesV1[] = [];
+    const coordinator = new LayoutPersistenceCoordinator(
+      optimistic,
+      async (value) => { writes.push(value); return value; },
+      () => undefined,
+    );
+
+    const collapseA = coordinator.update((current) => ({
+      ...current,
+      expandedProjectIds: current.expandedProjectIds.filter((id) => id !== "project-a"),
+    }));
+    coordinator.adoptInitial(durable);
+    await collapseA;
+
+    expect(coordinator.snapshot()).toEqual({ ...durable, expandedProjectIds: [] });
+    expect(writes).toEqual([{ ...durable, expandedProjectIds: [] }]);
+  });
+
+  it("replays newer early project choices in order while retaining durable widths", async () => {
+    const optimistic = { ...initial, expandedProjectIds: ["project-a", "project-b"] };
+    const durable = { ...initial, sidebarWidth: 372, inspectorWidth: 556, expandedProjectIds: ["project-b"] };
+    const writes: LayoutPreferencesV1[] = [];
+    const coordinator = new LayoutPersistenceCoordinator(
+      optimistic,
+      async (value) => { writes.push(value); return value; },
+      () => undefined,
+    );
+
+    const collapseA = coordinator.update((current) => ({ ...current, expandedProjectIds: ["project-b"] }));
+    const reopenA = coordinator.update((current) => ({ ...current, expandedProjectIds: ["project-a", ...current.expandedProjectIds] }));
+    coordinator.adoptInitial(durable);
+    await Promise.all([collapseA, reopenA]);
+
+    expect(coordinator.snapshot()).toEqual({ ...durable, expandedProjectIds: ["project-a", "project-b"] });
+    expect(writes).toEqual([
+      { ...durable, expandedProjectIds: ["project-b"] },
+      { ...durable, expandedProjectIds: ["project-a", "project-b"] },
+    ]);
+  });
+
   it("rejects persistence after hydration fails instead of writing defaults", async () => {
     const writes: LayoutPreferencesV1[] = [];
     const coordinator = new LayoutPersistenceCoordinator(initial, async (value) => { writes.push(value); return value; }, () => undefined);

@@ -88,6 +88,41 @@ function ChatRow({ chat, pinned = false, onSelect }: { readonly chat: Navigation
   </button>;
 }
 
+function ProjectGroup({ project, onToggleProject, onSelectChat }: {
+  readonly project: NavigationProject;
+  readonly onToggleProject: (projectId: string) => void;
+  readonly onSelectChat: (chatId: string) => void;
+}) {
+  const chatListId = useId();
+  const toggle = () => onToggleProject(project.id);
+  const onDisclosureKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if ((event.key === "ArrowRight" && !project.expanded) || (event.key === "ArrowLeft" && project.expanded)) {
+      event.preventDefault();
+      toggle();
+    }
+  };
+  return <section className="project-group">
+    <button
+      type="button"
+      className="project-disclosure"
+      {...controlBinding(`sidebar-project-${project.id}`, "catalog.project.toggle")}
+      aria-label={`${project.name} project`}
+      aria-expanded={project.expanded}
+      aria-controls={chatListId}
+      onClick={toggle}
+      onKeyDown={onDisclosureKeyDown}
+    >
+      <span className="project-chevron" aria-hidden="true" data-expanded={project.expanded}><NavigationIcon kind="chevron" /></span>
+      <NavigationIcon kind="folder" />
+      <span>{project.name}</span>
+      {project.pinned && <span className="project-pin" title="Pinned"><NavigationIcon kind="pin" /></span>}
+    </button>
+    <div id={chatListId} className="chat-list" role="list" aria-label={`${project.name} chats`} hidden={!project.expanded}>
+      {project.chats.map((chat) => <div role="listitem" key={chat.id}><ChatRow chat={chat} onSelect={() => onSelectChat(chat.id)} /></div>)}
+    </div>
+  </section>;
+}
+
 export function ProjectSidebar({
   projects,
   query = "",
@@ -174,23 +209,7 @@ export function ProjectSidebar({
         {projects.flatMap((project) => project.chats.filter((chat) => chat.pinned)).map((chat) => <ChatRow key={chat.id} chat={chat} pinned onSelect={() => onSelectChat(chat.id)} />)}
       </div>
       <div className="project-section-heading"><span>Projects</span>{onNewProject && <button ref={newProjectRef} type="button" {...controlBinding("sidebar-new-project", "catalog.project.create")} aria-label="New project" onClick={() => setCreatingProject(true)}><NavigationIcon kind="add" /></button>}</div>
-      {projects.map((project) => <section className="project-group" key={project.id}>
-        <button
-          type="button"
-          className="project-disclosure"
-          {...controlBinding(`sidebar-project-${project.id}`, "catalog.project.toggle")}
-          aria-expanded={project.expanded}
-          onClick={() => onToggleProject(project.id)}
-        >
-          <span className="project-chevron" aria-hidden="true" data-expanded={project.expanded}><NavigationIcon kind="chevron" /></span>
-          <NavigationIcon kind="folder" />
-          <span>{project.name}</span>
-          {project.pinned && <span className="project-pin" title="Pinned"><NavigationIcon kind="pin" /></span>}
-        </button>
-        {project.expanded && <div className="chat-list" role="list" aria-label={`${project.name} chats`}>
-          {project.chats.map((chat) => <div role="listitem" key={chat.id}><ChatRow chat={chat} onSelect={() => onSelectChat(chat.id)} /></div>)}
-        </div>}
-      </section>)}
+      {projects.map((project) => <ProjectGroup key={project.id} project={project} onToggleProject={onToggleProject} onSelectChat={onSelectChat} />)}
       {projects.length === 0 && <p className="project-empty">No matching chats</p>}
       {onOpenArchived && <button type="button" className="project-archived" {...controlBinding("sidebar-archived", "route.archived.open")} onClick={onOpenArchived}><NavigationIcon kind="archive" />Archived chats</button>}
     </div>

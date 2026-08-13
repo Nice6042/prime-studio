@@ -42,6 +42,42 @@ describe("ProjectSidebar", () => {
     expect(onToggleProject).toHaveBeenCalledWith("project-a");
   });
 
+  it("links project disclosures to their chat groups and supports Left and Right expansion keys", async () => {
+    const onToggleProject = vi.fn();
+    const { rerender } = render(<ProjectSidebar {...workspaceProps} projects={projects.map((project) => ({ ...project, expanded: false }))} onSelectChat={() => undefined} onToggleProject={onToggleProject} onNewChat={() => undefined} onOpenSettings={() => undefined} />);
+    const collapsed = screen.getByRole("button", { name: "Prime Studio project" });
+    const groupId = collapsed.getAttribute("aria-controls");
+    expect(groupId).toBeTruthy();
+    expect(collapsed).toHaveAttribute("aria-expanded", "false");
+    expect(document.getElementById(groupId!)).toHaveAttribute("hidden");
+
+    collapsed.focus();
+    await userEvent.keyboard("{ArrowRight}");
+    expect(onToggleProject).toHaveBeenCalledWith("project-a");
+
+    onToggleProject.mockClear();
+    rerender(<ProjectSidebar {...workspaceProps} projects={projects} onSelectChat={() => undefined} onToggleProject={onToggleProject} onNewChat={() => undefined} onOpenSettings={() => undefined} />);
+    const expanded = screen.getByRole("button", { name: "Prime Studio project" });
+    expect(expanded).toHaveAttribute("aria-controls", groupId);
+    expect(document.getElementById(groupId!)).not.toHaveAttribute("hidden");
+    expanded.focus();
+    await userEvent.keyboard("{ArrowLeft}");
+    expect(onToggleProject).toHaveBeenCalledWith("project-a");
+  });
+
+  it("does not toggle an already expanded project on ArrowRight or a collapsed project on ArrowLeft", async () => {
+    const onToggleProject = vi.fn();
+    const { rerender } = render(<ProjectSidebar {...workspaceProps} projects={projects} onSelectChat={() => undefined} onToggleProject={onToggleProject} onNewChat={() => undefined} onOpenSettings={() => undefined} />);
+    screen.getByRole("button", { name: "Prime Studio project" }).focus();
+    await userEvent.keyboard("{ArrowRight}");
+    expect(onToggleProject).not.toHaveBeenCalled();
+
+    rerender(<ProjectSidebar {...workspaceProps} projects={projects.map((project) => ({ ...project, expanded: false }))} onSelectChat={() => undefined} onToggleProject={onToggleProject} onNewChat={() => undefined} onOpenSettings={() => undefined} />);
+    screen.getByRole("button", { name: "Prime Studio project" }).focus();
+    await userEvent.keyboard("{ArrowLeft}");
+    expect(onToggleProject).not.toHaveBeenCalled();
+  });
+
   it("focuses bounded search with Ctrl+F and routes global actions", async () => {
     const onSearch = vi.fn();
     const onNewChat = vi.fn();

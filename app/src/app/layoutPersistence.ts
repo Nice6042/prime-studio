@@ -16,7 +16,9 @@ function sameLayout(left: LayoutPreferencesV1, right: LayoutPreferencesV1): bool
     && left.expandedProjectIds.every((id, index) => id === right.expandedProjectIds[index]);
 }
 
-type LayoutPatch = { -readonly [Key in keyof LayoutPreferencesV1]?: LayoutPreferencesV1[Key] };
+type LayoutPatch = {
+  -readonly [Key in Exclude<keyof LayoutPreferencesV1, "expandedProjectIds">]?: LayoutPreferencesV1[Key]
+};
 
 function changedFields(before: LayoutPreferencesV1, after: LayoutPreferencesV1): LayoutPatch {
   const patch: LayoutPatch = {};
@@ -26,10 +28,27 @@ function changedFields(before: LayoutPreferencesV1, after: LayoutPreferencesV1):
   if (before.inspectorWidth !== after.inspectorWidth) patch.inspectorWidth = after.inspectorWidth;
   if (before.editorOpen !== after.editorOpen) patch.editorOpen = after.editorOpen;
   if (before.editorWidth !== after.editorWidth) patch.editorWidth = after.editorWidth;
-  if (before.expandedProjectIds.length !== after.expandedProjectIds.length || before.expandedProjectIds.some((id, index) => id !== after.expandedProjectIds[index])) {
-    patch.expandedProjectIds = after.expandedProjectIds;
-  }
   return patch;
+}
+
+type ProjectExpansionChanges = ReadonlyMap<string, boolean>;
+
+function changedProjectExpansions(before: LayoutPreferencesV1, after: LayoutPreferencesV1): ProjectExpansionChanges {
+  const beforeIds = new Set(before.expandedProjectIds);
+  const afterIds = new Set(after.expandedProjectIds);
+  const changes = new Map<string, boolean>();
+  for (const id of beforeIds) if (!afterIds.has(id)) changes.set(id, false);
+  for (const id of afterIds) if (!beforeIds.has(id)) changes.set(id, true);
+  return changes;
+}
+
+function applyProjectExpansionChanges(value: LayoutPreferencesV1, changes: ProjectExpansionChanges): LayoutPreferencesV1 {
+  if (changes.size === 0) return value;
+  const expanded = new Set(value.expandedProjectIds);
+  for (const [projectId, isExpanded] of changes) {
+    if (isExpanded) expanded.add(projectId); else expanded.delete(projectId);
+  }
+  return { ...value, expandedProjectIds: [...expanded].sort() };
 }
 
 /** Serializes native full-snapshot writes while keeping the renderer optimistic. */
@@ -43,6 +62,7 @@ export class LayoutPersistenceCoordinator {
   private resolveHydration!: () => void;
   private readonly pendingHydration: Array<{
     readonly patch: LayoutPatch;
+    readonly projectExpansionChanges: ProjectExpansionChanges;
     snapshot: LayoutPreferencesV1 | null;
   }> = [];
 
@@ -64,6 +84,7 @@ export class LayoutPersistenceCoordinator {
     let merged = value;
     for (const pending of this.pendingHydration) {
       merged = { ...merged, ...pending.patch };
+      merged = applyProjectExpansionChanges(merged, pending.projectExpansionChanges);
       pending.snapshot = merged;
     }
     this.pendingHydration.length = 0;
@@ -84,7 +105,11 @@ export class LayoutPersistenceCoordinator {
   update(transform: (current: LayoutPreferencesV1) => LayoutPreferencesV1): Promise<LayoutPersistenceResult> {
     const revision = ++this.localRevision;
     const next = transform(this.current);
-    const pending = { patch: changedFields(this.current, next), snapshot: this.hydrated ? next : null };
+    const pending = {
+      patch: changedFields(this.current, next),
+      projectExpansionChanges: changedProjectExpansions(this.current, next),
+      snapshot: this.hydrated ? next : null,
+    };
     if (!this.hydrated) this.pendingHydration.push(pending);
     this.current = next;
     this.apply(next);

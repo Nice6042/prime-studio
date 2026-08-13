@@ -15,6 +15,29 @@ test("production workspace presents the complete three-region shell", async ({ s
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-workspace");
 });
 
+test("project groups expose durable keyboard disclosures without changing chat truth", async ({ shellPage }, testInfo) => {
+  const disclosure = shellPage.getByRole("button", { name: "Personal project" });
+  await expect(disclosure).toHaveAttribute("aria-expanded", "true");
+  const groupId = await disclosure.getAttribute("aria-controls");
+  expect(groupId).toBeTruthy();
+  const group = shellPage.locator(`[id="${groupId}"]`);
+  await expect(group).toBeVisible();
+  await expect(group.getByRole("button", { name: /Prime Harness architecture.*status: Working/i })).toBeVisible();
+
+  await disclosure.focus();
+  await shellPage.keyboard.press("ArrowLeft");
+  await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+  await expect(group).toBeHidden();
+  await shellPage.keyboard.press("ArrowRight");
+  await expect(disclosure).toHaveAttribute("aria-expanded", "true");
+  await expect(group).toBeVisible();
+  const durableWrites = await shellPage.evaluate(() => (window as typeof window & { __PRIME_STUDIO_BROWSER_INVOKES__?: string[] }).__PRIME_STUDIO_BROWSER_INVOKES__?.filter((command) => command === "set_layout_preferences").length ?? 0);
+  expect(durableWrites).toBeGreaterThanOrEqual(2);
+
+  await shellPage.screenshot({ path: testInfo.outputPath("project-tree-wide.png"), fullPage: true });
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "project-tree-wide");
+});
+
 test("configured workspace footer owns a keyboard menu with explicit operation outcomes", async ({ shellPage }, testInfo) => {
   const trigger = shellPage.getByRole("button", { name: "Prime Studio workspace menu" });
   await expect(trigger).toContainText("D:\\fixture\\Prime Studio");

@@ -84,6 +84,33 @@ test("projects, Harness, and editor become controlled sheets", async ({ shellPag
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-narrow-sheets");
 });
 
+test("200 percent project sheet preserves keyboard expansion and grouping", async ({ shellPage }, testInfo) => {
+  await shellPage.setViewportSize({ width: 320, height: 600 });
+  await shellPage.getByRole("button", { name: "Projects" }).click();
+  const sheet = shellPage.locator('[data-studio-sheet="sidebar"]');
+  const disclosure = sheet.getByRole("button", { name: "Personal project" });
+  const groupId = await disclosure.getAttribute("aria-controls");
+  expect(groupId).toBeTruthy();
+  const group = sheet.locator(`[id="${groupId}"]`);
+  await disclosure.focus();
+  await shellPage.keyboard.press("ArrowLeft");
+  await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+  await expect(group).toBeHidden();
+  await shellPage.keyboard.press("ArrowRight");
+  await expect(disclosure).toHaveAttribute("aria-expanded", "true");
+  await expect(group).toBeVisible();
+  await expect(disclosure).toBeFocused();
+  await shellPage.screenshot({ path: testInfo.outputPath("project-tree-narrow.png"), fullPage: true });
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "project-tree-narrow");
+
+  await shellPage.setViewportSize({ width: 320, height: 200 });
+  await disclosure.scrollIntoViewIfNeeded();
+  await expect(disclosure).toBeFocused();
+  await shellPage.screenshot({ path: testInfo.outputPath("project-tree-320-2x.png"), fullPage: true });
+  await expectNoDocumentOverflow(shellPage);
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "project-tree-320-2x");
+});
+
 test("child composer stays locked, focusable, and in-view at 320 by 200", async ({ shellPage }) => {
   await shellPage.getByRole("button", { name: "Harness" }).click();
   const harness = shellPage.getByRole("complementary", { name: "Harness" });
