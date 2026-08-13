@@ -693,7 +693,10 @@ test("full operation catalog is closed and unsupported upstream operations are e
 
   let selected = "";
   const dispatched = await dispatchStudioHarnessOperation({
-    connection: { async setModel(provider: string, modelId: string) { selected = `${provider}/${modelId}`; return { provider, id: modelId }; } },
+    connection: {
+      async getModelCatalog() { return { models: [{ provider: "openai", id: "gpt-test" }] }; },
+      async setModel(provider: string, modelId: string) { selected = `${provider}/${modelId}`; return { provider, id: modelId }; },
+    },
     currentCursor: { runtimeGeneration: "generation-1", sequence: 9 },
   }, {
     operationId: "op-123456789013", action: "composer.model.select", payload: { chatId: "chat", modelId: "openai/gpt-test" },

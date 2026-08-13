@@ -113,6 +113,7 @@ const EXPLICITLY_UNSUPPORTED = new Map<StudioHarnessAction, string>([
   ["harness.overload.retry", "The installed Harness exposes retry cancellation and worker restart, but no verified retry-by-error operation."],
   ["activity.file.open", "Opening activity artifacts requires Studio artifact authorization."],
   ["editor.artifact.open", "Opening editor artifacts requires Studio artifact authorization."],
+  ["composer.slash.execute", "Composer slash commands are routed by Studio to their exact reviewed operation; raw slash text is not admitted as a prompt."],
 ]);
 
 function plain(value: unknown): value is Record<string, unknown> {
@@ -195,13 +196,28 @@ async function invoke(port: StudioHarnessOperationPort, method: string, ...argum
 }
 
 async function selectModel(port: StudioHarnessOperationPort, selector: string): Promise<unknown> {
-  const slash = selector.indexOf("/");
-  if (slash > 0) return invoke(port, "setModel", selector.slice(0, slash), selector.slice(slash + 1));
   const catalog = await invoke(port, "getModelCatalog");
   if (!plain(catalog) || !Array.isArray(catalog.models)) throw new ReferenceError("upstream model catalog is unavailable");
-  const matches = catalog.models.filter((model) => plain(model) && model.id === selector && typeof model.provider === "string");
-  if (matches.length !== 1) throw new TypeError("modelId is missing an unambiguous provider");
-  return invoke(port, "setModel", matches[0]!.provider, selector);
+  const matches = catalog.models.filter((model) => plain(model)
+    && typeof model.id === "string"
+    && typeof model.provider === "string"
+    && `${model.provider}/${model.id}` === selector);
+  if (matches.length !== 1) throw new ReferenceError("The selected model is absent or ambiguous in the verified model catalog.");
+  return invoke(port, "setModel", matches[0]!.provider, matches[0]!.id);
+}
+
+const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+
+async function selectThinking(port: StudioHarnessOperationPort, level: string): Promise<unknown> {
+  const state = await invoke(port, "getState");
+  if (!plain(state) || !Array.isArray(state.availableThinkingLevels)) {
+    throw new ReferenceError("upstream supported thinking levels are unavailable");
+  }
+  const available = new Set(state.availableThinkingLevels.filter((candidate): candidate is string =>
+    typeof candidate === "string" && THINKING_LEVELS.has(candidate),
+  ));
+  if (!available.has(level)) throw new ReferenceError("The selected thinking level is not supported by the verified active model.");
+  return invoke(port, "setThinkingLevel", level);
 }
 
 async function childTranscript(port: StudioHarnessOperationPort, childId: string): Promise<unknown> {
@@ -309,8 +325,7 @@ export async function dispatchStudioHarnessOperation(port: StudioHarnessOperatio
       case "conversation.files.review": data = await invoke(port, "getResourceSnapshot"); break;
       case "conversation.history.page": data = await invoke(port, "getMessages"); break;
       case "composer.model.select": data = await selectModel(port, field(p, "modelId")); break;
-      case "composer.thinking.select": data = await invoke(port, "setThinkingLevel", field(p, "level")); break;
-      case "composer.slash.execute": data = await invoke(port, "prompt", `/${field(p, "commandId")} ${text(p.argument)}`.trim()); break;
+      case "composer.thinking.select": data = await selectThinking(port, field(p, "level")); break;
       case "harness.session.prompt": data = await invoke(port, "prompt", text(p.text)); return { status: "accepted", commandId: operation.idempotencyKey! };
       case "harness.session.follow-up": data = await invoke(port, "followUp", text(p.text)); return { status: "queued", commandId: operation.idempotencyKey!, position: null };
       case "harness.session.steer": data = await invoke(port, "steer", text(p.text)); return { status: "accepted", commandId: operation.idempotencyKey! };
