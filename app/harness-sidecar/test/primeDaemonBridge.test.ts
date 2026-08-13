@@ -851,6 +851,8 @@ test("inspector projects only explicit daemon context and output evidence", asyn
 test("inspector projects exact cursor-bound child facts without parent transcript or host metadata leakage", async () => {
   const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
   let childWatchCalls = 0;
+  let emitHostileChildUpdateDuringCatalog = false;
+  const eventListeners = new Set<(event: unknown) => void>();
   const state = { activeSessionId: "root", cwd: "C:\\work", thinkingLevel: "high", serviceTier: "auto", availableThinkingLevels: [], isStreaming: false, isCompacting: false, isBashRunning: false, retryAttempt: 0, steeringMode: "all", followUpMode: "all", sessionId: "chat", leafId: null, autoCompactionEnabled: true, messageCount: 0, sessionActions: {}, compactionCount: 0, goal: {}, scopedModels: [], activeToolNames: [] };
   let children: ReadonlyArray<Readonly<Record<string, unknown>>> = [{
     id: "child-a", activeSessionId: "child-session-a", label: "Private task", status: "running",
@@ -865,8 +867,15 @@ test("inspector projects exact cursor-bound child facts without parent transcrip
       { role: "user", content: "parent-private-transcript", timestamp: 1 },
       { role: "user", content: "hostile parent command: Bearer parent-secret C:\\Users\\Person\\private.cmd --cwd D:\\private-workspace", timestamp: 2 },
     ], children, lastEventCursor: { generation: "generation-1", sequence: 4 } }; },
-    async getState() { return state; }, async getMessages() { return []; }, async getQueue() { return {}; }, async getSessionContext() { return {}; }, async getModelCatalog() { return { models: [{ provider: "openai-codex", id: "gpt-5.6-sol", contextWindow: 40_000 }] }; }, async getResourceSnapshot() { return {}; }, async getSessionStats() { return { tokens: {} }; }, async getToolDefinition() { return undefined; },
+    async getState() { return state; }, async getMessages() { return []; }, async getQueue() { return {}; }, async getSessionContext() { return {}; }, async getModelCatalog() {
+      if (emitHostileChildUpdateDuringCatalog) {
+        emitHostileChildUpdateDuringCatalog = false;
+        for (const listener of eventListeners) listener({ type: "rlm_child_update", child: { id: "child-a", error: "PID 41002 at C:\\Users\\Person\\private.cmd" } });
+      }
+      return { models: [{ provider: "openai-codex", id: "gpt-5.6-sol", contextWindow: 40_000 }] };
+    }, async getResourceSnapshot() { return {}; }, async getSessionStats() { return { tokens: {} }; }, async getToolDefinition() { return undefined; },
     async watchSession() { childWatchCalls += 1; throw new Error("parent inspector must not watch child"); },
+    subscribe(listener: (event: unknown) => void) { eventListeners.add(listener); return () => { eventListeners.delete(listener); }; },
     async prompt() {}, async steer() {}, async followUp() {}, async abort() {}, async dispose() {},
   };
   const bridge = new PrimeDaemonBridge({
@@ -902,6 +911,9 @@ test("inspector projects exact cursor-bound child facts without parent transcrip
     status: null, elapsedMs: null, provider: null, model: null, task: "Private task", summary: null,
     context: null, tokenUsage: null, transcript: [], activity: [], files: [], error: null,
   });
+
+  emitHostileChildUpdateDuringCatalog = true;
+  await assert.rejects(() => bridge.inspector("root", snapshot.cursor), /stale inspector cursor/u);
 });
 
 test("child pages are bounded and opaque cursors reject cross-child, malformed, and stale reuse", async () => {

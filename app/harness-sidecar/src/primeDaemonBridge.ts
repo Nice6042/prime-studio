@@ -956,6 +956,8 @@ export class PrimeDaemonBridge {
     const bound = await this.#bound(activeSessionId);
     if (!bound.initialized || !bound.studioGeneration) throw new Error("inspector cursor is unavailable");
     if (expectedCursor && (expectedCursor.runtimeGeneration !== bound.studioGeneration || expectedCursor.sequence !== bound.sequence)) throw new Error("stale inspector cursor");
+    if (bound.dirty) throw new Error("stale inspector cursor");
+    const inspectorEventRevision = bound.eventRevision;
     const connection = bound.connection;
     const [initialRaw, contextRaw, statsRaw, resourcesRaw, catalogRaw] = await Promise.all([
       this.#call(activeSessionId, "getInitialSnapshot"),
@@ -966,7 +968,9 @@ export class PrimeDaemonBridge {
     ]);
     const initial = plain(initialRaw) ? initialRaw : {};
     const upstream = this.#upstreamCursor(initial, await this.negotiate());
-    if (bound.publishedUpstreamGeneration !== upstream.generation || bound.publishedUpstreamSequence !== upstream.sequence) throw new Error("stale inspector cursor");
+    if (bound.dirty || bound.eventRevision !== inspectorEventRevision
+      || bound.publishedUpstreamGeneration !== upstream.generation
+      || bound.publishedUpstreamSequence !== upstream.sequence) throw new Error("stale inspector cursor");
     const cursor = Object.freeze({ runtimeGeneration: bound.studioGeneration, sequence: bound.sequence });
     const context = plain(contextRaw) ? contextRaw : {};
     const stats = plain(statsRaw) ? statsRaw : {};
