@@ -780,9 +780,12 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
           if (navigationRef.current.selectedChatId !== chatId) return false;
           const message = selectedSessionRef.current?.parentMessages.find((candidate) => candidate.kind === "assistant" && candidate.id === messageId);
           if (!message || message.kind !== "assistant" || message.streaming) return false;
-          const displayed = store.getSnapshot().canvasRevisions[chatId]?.[messageId];
+          const snapshot = store.getSnapshot();
+          const displayed = snapshot.canvasRevisions[chatId]?.[messageId];
           const source = message.blocks.filter((block) => block.kind === "text").map((block) => block.text).join("\n\n");
-          return (displayed?.revision ?? 1) === expectedRevision && (displayed?.content ?? source) === content;
+          const versionState = snapshot.conversationDisplay[chatId]?.messages[messageId];
+          const selectedVersion = versionState?.kind === "assistant" ? versionState.versions[versionState.selected]?.text : null;
+          return (displayed?.revision ?? 1) === expectedRevision && (displayed?.content ?? selectedVersion ?? source) === content;
         };
         if (!stillExact()) return { status: "rejected", reason: "The selected response changed before Canvas could open.", retryable: false };
         const admittedOpen = ++editorOpenAdmission.current;

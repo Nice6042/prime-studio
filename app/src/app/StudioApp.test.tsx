@@ -725,6 +725,19 @@ describe("Studio application state", () => {
     }
   }, 20_000);
 
+  it("opens Canvas from the visibly selected assistant version", async () => {
+    mockAvailableLayoutPersistence();
+    const store = createStudioStore(initialStudioState({ projectCatalog: catalogBoundToRootSession(), sessions: [rootSession] }));
+    store.dispatch({ type: "conversation/version-appended", chatId: chat.id, messageId: "a1", kind: "assistant", text: "Alternate answer" });
+    store.dispatch({ type: "conversation/version-selected", chatId: chat.id, messageId: "a1", kind: "assistant", version: 1 });
+
+    render(<AppProviders store={store}><StudioApp harnessAdapter={conversationAdapter([])} /></AppProviders>);
+    expect(await screen.findByText("Alternate answer", { selector: ".parent-assistant-copy p" })).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Edit answer in Canvas" }));
+
+    expect(await screen.findByRole("textbox", { name: "Canvas content" })).toHaveValue("Alternate answer");
+  });
+
   it("does not open a delayed Canvas outcome after the selected chat identity changes", async () => {
     const secondSession: RootSessionProjection = {
       ...rootSession, sessionId: "session-2", chatId: "daemon-chat-2", cursor: { runtimeGeneration: "g2", sequence: 1 },
