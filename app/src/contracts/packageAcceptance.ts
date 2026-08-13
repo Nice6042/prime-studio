@@ -78,7 +78,7 @@ export const FEATURE_ACCEPTANCE: readonly PackageFeatureAcceptance[] = Object.fr
   row("HR-13", "child status, elapsed, provider, model, task, context, and token facts are projected", "partial"),
   row("HR-14", "child Chat, Activity, and Files tabs load their own paged data", "partial", ["harness.child.tab-select", "harness.child.transcript-page"]),
   row("HR-15", "child composer is visibly locked with a Harness-owned explanation", "complete"),
-  row("HR-16", "Stop child invokes verified cancellation and reconciles its actual result", "partial", ["harness.child.stop"]),
+  row("HR-16", "Stop child invokes verified cancellation and reconciles its actual result", "complete", ["harness.child.stop"]),
   row("HR-17", "Back and close restore focus to the selected child row", "complete", ["harness.child.back"]),
   row("HR-18", "extension prompts exist only for verified runtime extension requests; no approvals dashboard", "complete", ["harness.extension.respond"]),
 
@@ -92,7 +92,7 @@ export const FEATURE_ACCEPTANCE: readonly PackageFeatureAcceptance[] = Object.fr
   row("CU-08", "Account-wide selection routes to Settings Usage without changing inspector scope", "complete", ["usage.account.open"]),
   row("AC-01", "Activity filters All, Agents, Tools, and Files", "complete", ["activity.filter.select"]),
   row("AC-02", "activity groups timestamps into Today and Yesterday using local presentation time", "complete"),
-  row("AC-03", "tool rows expand to redacted command, status, duration, and copy", "partial", ["activity.row.toggle", "activity.command.copy"]),
+  row("AC-03", "tool rows expand to redacted command, status, duration, and copy", "complete", ["activity.row.toggle", "activity.command.copy"]),
   row("AC-04", "affected file rows open identity-bound editor content", "complete", ["activity.file.open"]),
   row("AC-05", "View subagent selects its private inspector route", "complete", ["activity.child.open"]),
   row("AC-06", "unseen Activity dot is content-evidence-backed and clears on visit", "complete", ["activity.seen.mark"]),
@@ -147,9 +147,8 @@ export const PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS = Object.freeze([
   "CV-04", "CV-05", "CV-06", "CV-09", "CV-10", "CV-12",
   "CP-03", "CP-04", "CP-05", "CP-07",
   "HR-02", "HR-03", "HR-04", "HR-07", "HR-08", "HR-10",
-  "HR-13", "HR-14", "HR-16",
+  "HR-13", "HR-14",
   "CU-02", "CU-03", "CU-06",
-  "AC-03",
   "ED-01", "ED-04", "ED-05", "ED-06",
   "ST-06", "ST-07", "ST-09", "ST-13",
 ] as const);
