@@ -17,7 +17,7 @@ import { loadActivityAttentionEvidence } from "../../attention/attentionClient";
 import { loadHarnessComposerProjection } from "./composerProjectionClient";
 
 interface ProductionHarnessPorts {
-  load(sessionId: string): Promise<HarnessPanelDetails>;
+  load(sessionId: string, displayedCursor: RootSessionProjection["cursor"]): Promise<HarnessPanelDetails>;
   loadChildPage?(sessionId: string, childId: string, tab: "chat" | "activity" | "files", expectedCursor: RootSessionProjection["cursor"], pageCursor: string | null): Promise<HarnessChildDataPage>;
   loadComposer?(sessionId: string): Promise<NonNullable<HarnessPanelDetails["composer"]>>;
   execute(request: HarnessStudioOperationRequest): Promise<Readonly<{ outcome: StudioOperationOutcome; session: RootSessionProjection | null }>>;
@@ -78,9 +78,15 @@ export function createProductionHarnessInspectorAdapter(
         ? { status: "available" as const }
         : { status: "unavailable" as const, reason: "The verified Prime Harness broker is not live." };
     },
-    load: (sessionId: string) => store.getSnapshot().sessions[sessionId]
-      ? ports.load(sessionId)
-      : Promise.reject(new Error("The requested Harness session is not admitted by the native broker.")),
+    load: (sessionId: string, displayedCursor: RootSessionProjection["cursor"]) => {
+      const session = store.getSnapshot().sessions[sessionId];
+      if (!session
+        || session.cursor.runtimeGeneration !== displayedCursor.runtimeGeneration
+        || session.cursor.sequence !== displayedCursor.sequence) {
+        return Promise.reject(new Error("The requested Harness session revision is not admitted by the native broker."));
+      }
+      return ports.load(sessionId, displayedCursor);
+    },
     loadChildPage(sessionId: string, childId: string, tab: "chat" | "activity" | "files", displayedCursor: RootSessionProjection["cursor"], pageCursor: string | null) {
       const session = store.getSnapshot().sessions[sessionId];
       if (!session || !session.children.some((child) => child.id === childId) || !ports.loadChildPage) return Promise.reject(new Error("The requested Harness child is not admitted by the native broker."));
@@ -94,7 +100,9 @@ export function createProductionHarnessInspectorAdapter(
         throw new Error("The requested Harness session is not admitted by the native broker.");
       }
       if (ports.loadComposer) return ports.loadComposer(sessionId);
-      const details = await ports.load(sessionId);
+      const session = store.getSnapshot().sessions[sessionId];
+      if (!session) throw new Error("The requested Harness session is not admitted by the native broker.");
+      const details = await ports.load(sessionId, session.cursor);
       if (!details.composer) throw new Error("The verified Harness inspector did not project composer configuration.");
       return details.composer;
     },

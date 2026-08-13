@@ -87,8 +87,10 @@ function closedPayload(value: unknown): ScenarioRequest {
     if (!expectedCursor) throw new Error("request payload is invalid");
     return { type: "conversation_history_page", sessionId: payload.sessionId, expectedCursor, before: payload.before };
   }
-  if (payload.type === "inspector" && exactKeys(payload, ["type", "sessionId"]) && validId(payload.sessionId)) {
-    return { type: "inspector", sessionId: payload.sessionId };
+  if (payload.type === "inspector" && exactKeys(payload, ["type", "sessionId", "expectedCursor"]) && validId(payload.sessionId)) {
+    const expectedCursor = closedCursor(payload.expectedCursor);
+    if (!expectedCursor) throw new Error("request payload is invalid");
+    return { type: "inspector", sessionId: payload.sessionId, expectedCursor };
   }
   if (payload.type === "child_data_page" && exactKeys(payload, ["type", "sessionId", "childId", "tab", "expectedCursor", "pageCursor"]) && validId(payload.sessionId) && validId(payload.childId) && (payload.tab === "chat" || payload.tab === "activity" || payload.tab === "files") && (payload.pageCursor === null || validId(payload.pageCursor))) {
     const expectedCursor = closedCursor(payload.expectedCursor);
@@ -154,7 +156,7 @@ async function main(): Promise<void> {
         if (request.payload.type !== "discover_runtime") {
           bridge ??= await loadVerifiedPrimeDaemonBridge(mode.runtimeRoot);
           if (request.payload.type === "inspector") {
-            const detailsJson = JSON.stringify(await bridge.inspector(request.payload.sessionId));
+            const detailsJson = JSON.stringify(await bridge.inspector(request.payload.sessionId, request.payload.expectedCursor));
             if ([...detailsJson].length > 131_072) throw new Error("inspector response exceeds its bound");
             stdout.write(encodeFrame({ studioProtocol: 1, requestId: request.requestId, payload: { type: "inspector_result", detailsJson } }));
             continue;

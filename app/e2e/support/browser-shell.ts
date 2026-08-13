@@ -407,10 +407,25 @@ export const test = base.extend<ShellFixtures>({
             return { revision: attentionRevision, records: [{ ...attentionRecord }] };
           }
           case "harness_inspector": {
-            const request = args.request as { sessionId?: string } | undefined;
-            const current = projectedHarnessSessions.find((session) => session.sessionId === request?.sessionId) as { cursor?: { runtimeGeneration?: string; sequence?: number } } | undefined;
-            if (!current?.cursor?.runtimeGeneration || !Number.isSafeInteger(current.cursor.sequence)) throw new Error("Harness inspector unavailable");
+            const request = args.request as { sessionId?: string; expectedCursor?: { runtimeGeneration?: string; sequence?: number } } | undefined;
+            const current = projectedHarnessSessions.find((session) => session.sessionId === request?.sessionId) as { sessionId?: string; cursor?: { runtimeGeneration?: string; sequence?: number }; children?: Array<{ id: string; status: string; task: string; provider: string | null; model: string | null }> } | undefined;
+            if (!current?.sessionId || !current.cursor?.runtimeGeneration || !Number.isSafeInteger(current.cursor.sequence)
+              || request?.expectedCursor?.runtimeGeneration !== current.cursor.runtimeGeneration
+              || request.expectedCursor.sequence !== current.cursor.sequence) throw new Error("Harness inspector unavailable");
+            const children = Object.fromEntries((current.children ?? []).map((child) => [child.id, {
+              binding: { parentSessionId: current.sessionId, childId: child.id, cursor: current.cursor },
+              status: child.status === "unknown" ? null : child.status,
+              elapsedMs: null,
+              provider: child.provider,
+              model: child.model,
+              task: child.task,
+              summary: "Verified child task details are unavailable.",
+              context: null,
+              tokenUsage: null,
+              transcript: [], activity: [], files: [], error: null,
+            }]));
             return JSON.stringify({
+              binding: { parentSessionId: current.sessionId, cursor: current.cursor },
               observedAtMs: 1_775_995_220_000, startedAtMs: null, context: { usedTokens: 15_200, capacityTokens: 40_000 },
               extensionUi: { status: "available", requests: [
                 ...(!settledExtensionRequests.has("editor-browser") ? [{ id: "editor-browser", method: "editor", title: "Extension instructions", prefill: "Private runtime prompt", cursor: current.cursor }] : []),
@@ -428,7 +443,7 @@ export const test = base.extend<ShellFixtures>({
               activity: [{ id: "activity-browser", occurredAtMs: 1_775_995_218_000, group: "Tools", kind: "tool", title: "Redacted shell command", detail: "Completed", tool: { command: "[escaped] curl [REDACTED_SECRET] [REDACTED_PROFILE_PATH] \\n \\u{202E}", redacted: true, status: "succeeded", durationMs: null, files: [{ candidateId: "candidate-browser-activity", label: "activity-report.md" }] } }],
               outputs: [{ id: "output-browser", label: "Harness report", candidateId: "candidate-browser-output", kind: "file" }],
               sources: [{ id: "source-browser", label: "Harness contract", detail: "Verified fixture source", candidateId: "candidate-browser-source", kind: "file" }],
-              children: {},
+              children,
             });
           }
           case "harness_composer_projection": {

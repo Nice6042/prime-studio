@@ -77,7 +77,7 @@ export type ScenarioRequest =
       kind: "prompt" | "steer" | "follow_up" | "abort";
       text: string;
     }>
-  | Readonly<{ type: "inspector"; sessionId: string }>
+  | Readonly<{ type: "inspector"; sessionId: string; expectedCursor: Readonly<{ runtimeGeneration: string; sequence: number }> }>
   | Readonly<{ type: "child_data_page"; sessionId: string; childId: string; tab: "chat" | "activity" | "files"; expectedCursor: Readonly<{ runtimeGeneration: string; sequence: number }>; pageCursor: string | null }>
   | Readonly<{
       type: "studio_operation"; sessionId: string; operationId: string; action: StudioHarnessAction;
@@ -343,12 +343,19 @@ export class FakeDaemonController {
       } });
     }
     if (request.type === "inspector") {
+      if (request.expectedCursor.runtimeGeneration !== current.cursor.runtimeGeneration || request.expectedCursor.sequence !== current.cursor.sequence) {
+        return deepFreeze({ type: "error", code: "stale_cursor", message: "Session cursor does not match" });
+      }
       const observedAtMs = 1_775_995_200_000 + current.cursor.sequence * 1_000;
       const children = Object.fromEntries(current.children.map((child) => [id(child.id), {
-        summary: typeof child.task === "string" ? child.task : "Subagent", startedAtMs: null, context: null,
+        binding: { parentSessionId: current.sessionId, childId: child.id, cursor: current.cursor },
+        status: typeof child.status === "string" && child.status !== "unknown" ? child.status : null,
+        elapsedMs: null, provider: child.provider ?? null, model: child.model ?? null,
+        task: typeof child.task === "string" ? child.task : null, summary: null, context: null, tokenUsage: null,
         transcript: [], activity: [], files: [], error: null,
       }]));
       const details = {
+        binding: { parentSessionId: current.sessionId, cursor: current.cursor },
         observedAtMs, startedAtMs: null,
         extensionUi: { status: "unavailable", reason: "Deterministic fixtures do not emit verified extension UI requests." },
         context: { usedTokens: current.usage.totalTokens, capacityTokens: 200_000, turns: current.parentMessages.length, samples: [current.usage.totalTokens] },

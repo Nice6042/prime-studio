@@ -142,6 +142,7 @@ pub struct WorkerRetryResult {
 
 pub struct InspectorRequest {
     pub session_id: String,
+    pub expected_cursor: HarnessCursor,
 }
 
 pub struct ChildDataPageRequest {
@@ -954,11 +955,18 @@ impl HarnessBroker {
         {
             return Err(HarnessError::OwnershipViolation);
         }
+        let current_cursor = self
+            .committed
+            .get(&request.session_id)
+            .map(|session| session.cursor.clone())
+            .filter(|cursor| cursor == &request.expected_cursor)
+            .ok_or(HarnessError::ChronologyViolation)?;
         let sidecar = self.sidecar.clone().ok_or(HarnessError::StateViolation)?;
         let response = sidecar
             .request(
                 StudioRequest::Inspector {
                     session_id: request.session_id.clone(),
+                    expected_cursor: current_cursor.clone(),
                 },
                 Instant::now() + Duration::from_secs(10),
             )
@@ -973,6 +981,26 @@ impl HarnessBroker {
             .committed
             .get(&request.session_id)
             .ok_or(HarnessError::OwnershipViolation)?;
+        if current.cursor != current_cursor {
+            return Err(HarnessError::ChronologyViolation);
+        }
+        let authoritative_child_ids = current
+            .children
+            .iter()
+            .map(|child| child.id.as_str())
+            .collect::<BTreeSet<_>>();
+        let projected: serde_json::Value =
+            serde_json::from_str(&details_json).map_err(|_| HarnessError::ProtocolViolation)?;
+        let projected_child_ids = projected
+            .get("children")
+            .and_then(serde_json::Value::as_object)
+            .ok_or(HarnessError::ProtocolViolation)?
+            .keys()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>();
+        if !projected_child_ids.is_subset(&authoritative_child_ids) {
+            return Err(HarnessError::OwnershipViolation);
+        }
         let ownership = self
             .ownership
             .get(&request.session_id)
@@ -1738,6 +1766,7 @@ fn sanitize_inspector_artifacts(
     let root = details
         .as_object_mut()
         .ok_or(HarnessError::ProtocolViolation)?;
+    validate_inspector_bindings(root, session_id, cursor)?;
     if root.contains_key("activityEvidence") {
         return Err(HarnessError::ProtocolViolation);
     }
@@ -1859,6 +1888,79 @@ fn sanitize_inspector_artifacts(
         return Err(HarnessError::ProtocolViolation);
     }
     Ok((sanitized, candidates, activity_evidence))
+}
+
+fn validate_inspector_bindings(
+    root: &serde_json::Map<String, serde_json::Value>,
+    session_id: &str,
+    cursor: &HarnessCursor,
+) -> Result<(), HarnessError> {
+    let binding = root
+        .get("binding")
+        .and_then(serde_json::Value::as_object)
+        .filter(|binding| {
+            binding.keys().map(String::as_str).collect::<BTreeSet<_>>()
+                == BTreeSet::from(["cursor", "parentSessionId"])
+        })
+        .ok_or(HarnessError::ProtocolViolation)?;
+    if binding
+        .get("parentSessionId")
+        .and_then(serde_json::Value::as_str)
+        != Some(session_id)
+    {
+        return Err(HarnessError::OwnershipViolation);
+    }
+    validate_inspector_cursor(binding.get("cursor"), cursor)?;
+    let children = root
+        .get("children")
+        .and_then(serde_json::Value::as_object)
+        .ok_or(HarnessError::ProtocolViolation)?;
+    for (child_id, child) in children {
+        if !valid_id(child_id) {
+            return Err(HarnessError::ProtocolViolation);
+        }
+        let binding = child
+            .as_object()
+            .and_then(|child| child.get("binding"))
+            .and_then(serde_json::Value::as_object)
+            .filter(|binding| {
+                binding.keys().map(String::as_str).collect::<BTreeSet<_>>()
+                    == BTreeSet::from(["childId", "cursor", "parentSessionId"])
+            })
+            .ok_or(HarnessError::ProtocolViolation)?;
+        if binding
+            .get("parentSessionId")
+            .and_then(serde_json::Value::as_str)
+            != Some(session_id)
+            || binding.get("childId").and_then(serde_json::Value::as_str) != Some(child_id)
+        {
+            return Err(HarnessError::OwnershipViolation);
+        }
+        validate_inspector_cursor(binding.get("cursor"), cursor)?;
+    }
+    Ok(())
+}
+
+fn validate_inspector_cursor(
+    value: Option<&serde_json::Value>,
+    expected: &HarnessCursor,
+) -> Result<(), HarnessError> {
+    let cursor = value
+        .and_then(serde_json::Value::as_object)
+        .filter(|cursor| {
+            cursor.keys().map(String::as_str).collect::<BTreeSet<_>>()
+                == BTreeSet::from(["runtimeGeneration", "sequence"])
+        })
+        .ok_or(HarnessError::ProtocolViolation)?;
+    if cursor
+        .get("runtimeGeneration")
+        .and_then(serde_json::Value::as_str)
+        != Some(expected.runtime_generation.as_str())
+        || cursor.get("sequence").and_then(serde_json::Value::as_u64) != Some(expected.sequence)
+    {
+        return Err(HarnessError::ChronologyViolation);
+    }
+    Ok(())
 }
 
 fn validate_inspector_turn_usage(
@@ -2273,7 +2375,7 @@ mod artifact_candidate_tests {
 
     #[test]
     fn inspector_paths_become_opaque_candidates_before_renderer_projection() {
-        let source = r#"{"observedAtMs":1,"startedAtMs":null,"context":null,"extensionUi":{"status":"unavailable","reason":"No verified request."},"contributions":[],"notices":[],"activity":[{"id":"a","occurredAtMs":1,"group":"Tools","kind":"tool","title":"read","detail":"done","tool":{"command":"read","redacted":false,"status":"succeeded","durationMs":1,"files":["src/main.ts"]}},{"id":"b","occurredAtMs":2,"group":"Tools","kind":"tool","title":"read","detail":"done","tool":{"command":"read","redacted":false,"status":"succeeded","durationMs":1,"files":["src/main.ts"]}}],"outputs":[{"id":"o","label":"Report","path":"reports/out.md","kind":"file"}],"sources":[{"id":"s","label":"Rules","detail":"context","kind":"file","candidatePath":"AGENTS.md"}],"children":{}}"#;
+        let source = r#"{"binding":{"parentSessionId":"session-a","cursor":{"runtimeGeneration":"generation-a","sequence":1}},"observedAtMs":1,"startedAtMs":null,"context":null,"extensionUi":{"status":"unavailable","reason":"No verified request."},"contributions":[],"notices":[],"activity":[{"id":"a","occurredAtMs":1,"group":"Tools","kind":"tool","title":"read","detail":"done","tool":{"command":"read","redacted":false,"status":"succeeded","durationMs":1,"files":["src/main.ts"]}},{"id":"b","occurredAtMs":2,"group":"Tools","kind":"tool","title":"read","detail":"done","tool":{"command":"read","redacted":false,"status":"succeeded","durationMs":1,"files":["src/main.ts"]}}],"outputs":[{"id":"o","label":"Report","path":"reports/out.md","kind":"file"}],"sources":[{"id":"s","label":"Rules","detail":"context","kind":"file","candidatePath":"AGENTS.md"}],"children":{}}"#;
         let cursor = HarnessCursor {
             runtime_generation: "generation-a".to_owned(),
             sequence: 1,
@@ -2309,8 +2411,37 @@ mod artifact_candidate_tests {
     }
 
     #[test]
+    fn rejects_child_facts_not_bound_to_the_exact_parent_child_and_cursor() {
+        let cursor = HarnessCursor {
+            runtime_generation: "generation-a".to_owned(),
+            sequence: 7,
+        };
+        let source = r#"{"binding":{"parentSessionId":"session-a","cursor":{"runtimeGeneration":"generation-a","sequence":7}},"observedAtMs":1,"startedAtMs":null,"context":null,"extensionUi":{"status":"unavailable","reason":"No verified request."},"contributions":[],"notices":[],"activity":[],"outputs":[],"sources":[],"children":{"child-a":{"binding":{"parentSessionId":"session-a","childId":"child-a","cursor":{"runtimeGeneration":"generation-a","sequence":7}},"status":"running","elapsedMs":1,"provider":"openai-codex","model":"gpt-test","task":"Review","summary":null,"context":null,"tokenUsage":null,"transcript":[],"activity":[],"files":[],"error":null}}}"#;
+        assert!(sanitize_inspector_artifacts(source, "session-a", "project-a", &cursor).is_ok());
+        for substituted in [
+            source.replacen(
+                "\"parentSessionId\":\"session-a\"",
+                "\"parentSessionId\":\"session-b\"",
+                1,
+            ),
+            source.replace(
+                "\"children\":{\"child-a\":{\"binding\":{\"parentSessionId\":\"session-a\"",
+                "\"children\":{\"child-a\":{\"binding\":{\"parentSessionId\":\"session-b\"",
+            ),
+            source.replace("\"childId\":\"child-a\"", "\"childId\":\"child-b\""),
+            source.replace("generation-a", "generation-b"),
+            source.replace("\"sequence\":7", "\"sequence\":8"),
+        ] {
+            assert!(
+                sanitize_inspector_artifacts(&substituted, "session-a", "project-a", &cursor)
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
     fn inspector_rejects_malformed_or_non_chronological_turn_usage() {
-        let source = r#"{"observedAtMs":1,"startedAtMs":null,"context":null,"extensionUi":{"status":"unavailable","reason":"No verified request."},"turnUsage":{"totalTurns":2,"omittedTurns":0,"rows":[{"turn":1,"occurredAtMs":10,"input":4,"output":2,"cacheRead":1,"cacheWrite":0,"totalTokens":7},{"turn":2,"occurredAtMs":20,"input":5,"output":3,"cacheRead":0,"cacheWrite":0,"totalTokens":8}]},"contributions":[],"notices":[],"activity":[],"outputs":[],"sources":[],"children":{}}"#;
+        let source = r#"{"binding":{"parentSessionId":"session-a","cursor":{"runtimeGeneration":"generation-a","sequence":1}},"observedAtMs":1,"startedAtMs":null,"context":null,"extensionUi":{"status":"unavailable","reason":"No verified request."},"turnUsage":{"totalTurns":2,"omittedTurns":0,"rows":[{"turn":1,"occurredAtMs":10,"input":4,"output":2,"cacheRead":1,"cacheWrite":0,"totalTokens":7},{"turn":2,"occurredAtMs":20,"input":5,"output":3,"cacheRead":0,"cacheWrite":0,"totalTokens":8}]},"contributions":[],"notices":[],"activity":[],"outputs":[],"sources":[],"children":{}}"#;
         let cursor = HarnessCursor {
             runtime_generation: "generation-a".to_owned(),
             sequence: 1,
@@ -2332,7 +2463,7 @@ mod artifact_candidate_tests {
 
     #[test]
     fn inspector_rejects_malformed_or_cursor_substituted_extension_requests() {
-        let valid = r#"{"observedAtMs":1,"startedAtMs":null,"context":null,"extensionUi":{"status":"available","requests":[{"id":"request-1","method":"confirm","title":"Continue?","message":"Proceed with the extension action?","cursor":{"runtimeGeneration":"generation-a","sequence":1}}]},"contributions":[],"notices":[],"activity":[],"outputs":[],"sources":[],"children":{}}"#;
+        let valid = r#"{"binding":{"parentSessionId":"session-a","cursor":{"runtimeGeneration":"generation-a","sequence":1}},"observedAtMs":1,"startedAtMs":null,"context":null,"extensionUi":{"status":"available","requests":[{"id":"request-1","method":"confirm","title":"Continue?","message":"Proceed with the extension action?","cursor":{"runtimeGeneration":"generation-a","sequence":1}}]},"contributions":[],"notices":[],"activity":[],"outputs":[],"sources":[],"children":{}}"#;
         let cursor = HarnessCursor {
             runtime_generation: "generation-a".to_owned(),
             sequence: 1,

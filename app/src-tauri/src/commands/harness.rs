@@ -60,6 +60,7 @@ pub(crate) struct HarnessWorkerRetryInput {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub(crate) struct HarnessInspectorInput {
     session_id: String,
+    expected_cursor: HarnessCursor,
 }
 
 #[derive(Deserialize)]
@@ -574,6 +575,7 @@ pub(crate) async fn harness_inspector(
             .map_err(|_| "Harness broker is unavailable".to_owned())?;
         let raw = tauri::async_runtime::block_on(broker.inspector(InspectorRequest {
             session_id: request.session_id,
+            expected_cursor: request.expected_cursor,
         }))
         .map_err(|error| format!("Harness inspector failed: {}", error.code()))?;
         inspector_projection(raw, false)
@@ -660,6 +662,7 @@ pub(crate) async fn harness_composer_projection(
             .map_err(|_| "Harness broker is unavailable".to_owned())?;
         let raw = tauri::async_runtime::block_on(broker.inspector(InspectorRequest {
             session_id: request.session_id,
+            expected_cursor: request.expected_cursor,
         }))
         .map_err(|error| format!("Harness inspector failed: {}", error.code()))?;
         inspector_projection(raw, true)

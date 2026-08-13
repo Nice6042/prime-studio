@@ -848,13 +848,24 @@ test("inspector projects only explicit daemon context and output evidence", asyn
   assert.deepEqual(unavailable.outputs, []);
 });
 
-test("inspector never hydrates a child transcript through the parent projection", async () => {
+test("inspector projects exact cursor-bound child facts without parent transcript or host metadata leakage", async () => {
   const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
   let childWatchCalls = 0;
   const state = { activeSessionId: "root", cwd: "C:\\work", thinkingLevel: "high", serviceTier: "auto", availableThinkingLevels: [], isStreaming: false, isCompacting: false, isBashRunning: false, retryAttempt: 0, steeringMode: "all", followUpMode: "all", sessionId: "chat", leafId: null, autoCompactionEnabled: true, messageCount: 0, sessionActions: {}, compactionCount: 0, goal: {}, scopedModels: [], activeToolNames: [] };
+  let children: ReadonlyArray<Readonly<Record<string, unknown>>> = [{
+    id: "child-a", activeSessionId: "child-session-a", label: "Private task", status: "running",
+    durationMs: 12_345, model: "openai-codex/gpt-5.6-sol", tokenCount: 6_400, recap: "Child recap",
+    sessionDir: "C:\\Users\\Person\\.prime\\agent\\sessions", workerPid: 41_002,
+  }, {
+    id: "child-b", activeSessionId: "child-session-b", label: "Failed task", status: "error",
+    error: "worker PID 41002 failed at C:\\Users\\Person\\private.cmd",
+  }];
   const connection = {
-    async getInitialSnapshot() { return { state, messages: [], children: [{ id: "child-a", activeSessionId: "child-session-a", label: "Private task" }], lastEventCursor: { generation: "generation-1", sequence: 4 } }; },
-    async getState() { return state; }, async getMessages() { return []; }, async getQueue() { return {}; }, async getSessionContext() { return {}; }, async getModelCatalog() { return { models: [] }; }, async getResourceSnapshot() { return {}; }, async getSessionStats() { return { tokens: {} }; }, async getToolDefinition() { return undefined; },
+    async getInitialSnapshot() { return { state, messages: [
+      { role: "user", content: "parent-private-transcript", timestamp: 1 },
+      { role: "user", content: "hostile parent command: Bearer parent-secret C:\\Users\\Person\\private.cmd --cwd D:\\private-workspace", timestamp: 2 },
+    ], children, lastEventCursor: { generation: "generation-1", sequence: 4 } }; },
+    async getState() { return state; }, async getMessages() { return []; }, async getQueue() { return {}; }, async getSessionContext() { return {}; }, async getModelCatalog() { return { models: [{ provider: "openai-codex", id: "gpt-5.6-sol", contextWindow: 40_000 }] }; }, async getResourceSnapshot() { return {}; }, async getSessionStats() { return { tokens: {} }; }, async getToolDefinition() { return undefined; },
     async watchSession() { childWatchCalls += 1; throw new Error("parent inspector must not watch child"); },
     async prompt() {}, async steer() {}, async followUp() {}, async abort() {}, async dispose() {},
   };
@@ -863,10 +874,34 @@ test("inspector never hydrates a child transcript through the parent projection"
     client: { async connect() {}, async waitForHello() { return { type: "daemon_hello" as const, socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request() { return { type: "response", command: "list", success: true, data: { sessions: [{ activeSessionId: "root", isSessionActive: true, workerState: "ready" }] } }; }, close() {} },
     attach: async () => connection,
   });
-  await bridge.attach("root");
-  const details = await bridge.inspector("root");
+  const snapshot = await bridge.attach("root");
+  await assert.rejects(() => bridge.inspector("root", { ...snapshot.cursor, sequence: snapshot.cursor.sequence + 1 }), /stale inspector cursor/u);
+  await assert.rejects(() => bridge.inspector("root", { ...snapshot.cursor, runtimeGeneration: "crossed-generation" }), /stale inspector cursor/u);
+  const details = await bridge.inspector("root", snapshot.cursor);
   assert.equal(childWatchCalls, 0);
-  assert.deepEqual(details.children["child-a"]?.transcript, []);
+  assert.deepEqual(details.binding, { parentSessionId: "root", cursor: snapshot.cursor });
+  assert.deepEqual(details.children["child-a"], {
+    binding: { parentSessionId: "root", childId: "child-a", cursor: snapshot.cursor },
+    status: "running", elapsedMs: 12_345, provider: "openai-codex", model: "gpt-5.6-sol",
+    task: "Private task", summary: "Child recap", context: { usedTokens: 6_400, capacityTokens: 40_000 },
+    tokenUsage: null, transcript: [], activity: [], files: [], error: null,
+  });
+  assert.deepEqual(details.children["child-b"]?.error, { code: "child_failed", message: "Child failure details are unavailable.", retryable: false });
+  const serialized = JSON.stringify(details.children);
+  assert.equal(serialized.includes("parent-private-transcript"), false);
+  assert.equal(serialized.includes("parent-secret"), false);
+  assert.equal(serialized.includes("private.cmd"), false);
+  assert.equal(serialized.includes("private-workspace"), false);
+  assert.equal(serialized.includes("Person"), false);
+  assert.equal(serialized.includes("41002"), false);
+
+  children = [{ id: "child-a", activeSessionId: "child-session-a", label: "Private task", sessionDir: "C:\\private" }];
+  const unavailable = await bridge.inspector("root");
+  assert.deepEqual(unavailable.children["child-a"], {
+    binding: { parentSessionId: "root", childId: "child-a", cursor: snapshot.cursor },
+    status: null, elapsedMs: null, provider: null, model: null, task: "Private task", summary: null,
+    context: null, tokenUsage: null, transcript: [], activity: [], files: [], error: null,
+  });
 });
 
 test("child pages are bounded and opaque cursors reject cross-child, malformed, and stale reuse", async () => {

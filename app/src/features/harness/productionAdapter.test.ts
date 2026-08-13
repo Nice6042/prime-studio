@@ -59,8 +59,8 @@ describe("production Harness inspector adapter", () => {
     const execute = vi.fn(async () => ({ outcome: { status: "accepted" as const, commandId: "command-1" }, session: next }));
     const adapter = createProductionHarnessInspectorAdapter(store, { load, execute });
 
-    await adapter.load("daemon-active-1");
-    expect(load).toHaveBeenCalledWith("daemon-active-1");
+    await adapter.load("daemon-active-1", session.cursor);
+    expect(load).toHaveBeenCalledWith("daemon-active-1", session.cursor);
     await expect(adapter.execute({ action: "composer.model.select", payload: { chatId: "studio-chat-1", modelId: "openai/gpt-test" } })).resolves.toEqual({ status: "accepted", commandId: "command-1" });
     expect(execute).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "daemon-active-1", expectedCursor: session.cursor }));
     expect(store.getSnapshot().sessions["daemon-active-1"]?.cursor.sequence).toBe(8);
@@ -113,7 +113,7 @@ describe("production Harness inspector adapter", () => {
     const adapter = createProductionHarnessInspectorAdapter(store, { load: vi.fn(), execute });
     await expect(adapter.execute({ action: "composer.model.select", payload: { chatId: "missing-chat", modelId: "openai/gpt-test" } })).resolves.toMatchObject({ status: "rejected" });
     await expect(adapter.execute({ action: "harness.session.prompt", payload: { sessionId: "substituted", text: "no" } })).resolves.toMatchObject({ status: "rejected" });
-    await expect(adapter.load("substituted")).rejects.toThrow("not admitted");
+    await expect(adapter.load("substituted", session.cursor)).rejects.toThrow("not admitted");
     expect(execute).not.toHaveBeenCalled();
   });
 

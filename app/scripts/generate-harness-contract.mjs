@@ -223,7 +223,7 @@ export type StudioRequest =
   | { type: "attach_session"; sessionId: string }
   | { type: "retry_worker"; sessionId: string; observationId: string }
   | { type: "session_command"; sessionId: string; commandId: string; expectedCursor: HarnessCursor; kind: "prompt" | "steer" | "follow_up" | "abort"; text: string }
-  | { type: "inspector"; sessionId: string }
+  | { type: "inspector"; sessionId: string; expectedCursor: HarnessCursor }
   | { type: "child_data_page"; sessionId: string; childId: string; tab: "chat" | "activity" | "files"; expectedCursor: HarnessCursor; pageCursor: string | null }
   | { type: "refresh_session"; sessionId: string; knownCursor: HarnessCursor }
   | { type: "conversation_history_page"; sessionId: string; expectedCursor: HarnessCursor; before: string | null }
@@ -475,7 +475,10 @@ pub enum StudioRequest {
         kind: SessionCommandKind,
         text: String,
     },
-    Inspector { #[serde(rename = "sessionId")] session_id: String },
+    Inspector {
+        #[serde(rename = "sessionId")] session_id: String,
+        #[serde(rename = "expectedCursor")] expected_cursor: HarnessCursor,
+    },
     ChildDataPage {
         #[serde(rename = "sessionId")] session_id: String,
         #[serde(rename = "childId")] child_id: String,

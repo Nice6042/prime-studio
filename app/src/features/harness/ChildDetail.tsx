@@ -10,18 +10,26 @@ function timeLabel(value: number): string {
   return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(value));
 }
 
-function elapsed(startedAtMs: number | null, observedAtMs: number): string {
-  if (startedAtMs === null) return "—";
-  const total = Math.max(0, Math.floor((observedAtMs - startedAtMs) / 1_000));
+function elapsed(elapsedMs: number | null): string {
+  if (elapsedMs === null) return "Unavailable";
+  const total = Math.floor(elapsedMs / 1_000);
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
-export function ChildDetail({ sessionId, displayedCursor, child, details, observedAtMs, tab, pendingKey, onBack, onBackButton, onTab, onAction, onLoadPage }: {
+function exactDetails(sessionId: string, childId: string, cursor: HarnessCursor, details: HarnessChildDetails | null): HarnessChildDetails | null {
+  if (!details
+    || details.binding.parentSessionId !== sessionId
+    || details.binding.childId !== childId
+    || details.binding.cursor.runtimeGeneration !== cursor.runtimeGeneration
+    || details.binding.cursor.sequence !== cursor.sequence) return null;
+  return details;
+}
+
+export function ChildDetail({ sessionId, displayedCursor, child, details, tab, pendingKey, onBack, onBackButton, onTab, onAction, onLoadPage }: {
   readonly sessionId: string;
   readonly displayedCursor: HarnessCursor;
   readonly child: ChildAgentSummary;
   readonly details: HarnessChildDetails | null;
-  readonly observedAtMs: number;
   readonly tab: "chat" | "activity" | "files";
   readonly pendingKey: string | null;
   readonly onBack: () => void;
@@ -33,7 +41,19 @@ export function ChildDetail({ sessionId, displayedCursor, child, details, observ
   const tabs = ["chat", "activity", "files"] as const;
   const composerDescriptionId = useId();
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const percent = contextPercent(details?.context ?? null);
+  const facts = exactDetails(sessionId, child.id, displayedCursor, details);
+  const usedTokens = facts?.context?.usedTokens ?? null;
+  const capacityTokens = facts?.context?.capacityTokens ?? null;
+  const percent = usedTokens !== null && capacityTokens !== null ? contextPercent({ usedTokens, capacityTokens }) : null;
+  const title = facts?.task ?? "Unavailable";
+  const status = facts?.status ?? null;
+  const contextLabel = usedTokens !== null && capacityTokens !== null
+    ? `${compactTokenCount(usedTokens)} / ${compactTokenCount(capacityTokens)} context tokens`
+    : usedTokens !== null
+      ? `${compactTokenCount(usedTokens)} context tokens; capacity unavailable`
+      : capacityTokens !== null
+        ? `Used tokens unavailable; ${compactTokenCount(capacityTokens)} capacity`
+        : "Context tokens unavailable";
   const pageScope = JSON.stringify([sessionId, child.id, displayedCursor.runtimeGeneration, displayedCursor.sequence]);
   const [pageState, setPageState] = useState<Readonly<{ scope: string; pages: Partial<Record<typeof tab, HarnessChildDataPage>> }>>({ scope: pageScope, pages: {} });
   const pages = pageState.scope === pageScope ? pageState.pages : {};
@@ -81,15 +101,15 @@ export function ChildDetail({ sessionId, displayedCursor, child, details, observ
     selectTab(tabs[next]!);
   };
   return <div className="child-detail">
-    <header className="child-detail-nav"><button ref={onBackButton} type="button" data-control-id={back.controlId} aria-label="Back to Harness" onClick={onBack}><HarnessIcon kind="back" /></button><button type="button" data-control-id={crumb.controlId} onClick={onBack}>Harness</button><span>/</span><strong>{child.task}</strong><button type="button" data-control-id={close.controlId} aria-label="Close child detail" onClick={onBack}><HarnessIcon kind="close" /></button></header>
+    <header className="child-detail-nav"><button ref={onBackButton} type="button" data-control-id={back.controlId} aria-label="Back to Harness" onClick={onBack}><HarnessIcon kind="back" /></button><button type="button" data-control-id={crumb.controlId} onClick={onBack}>Harness</button><span>/</span><strong>{title}</strong><button type="button" data-control-id={close.controlId} aria-label="Close child detail" onClick={onBack}><HarnessIcon kind="close" /></button></header>
     <div className="child-detail-scroll">
-      <section className="child-status-card"><span className="harness-agent-dot" data-status={child.status} aria-hidden="true" /><div><h2>{child.task}</h2><p>{child.status}</p></div><div><strong>{elapsed(details?.startedAtMs ?? null, observedAtMs)}</strong><span>Elapsed</span></div></section>
-      <div className="child-facts"><div><span>Provider</span><strong>{child.provider ?? "Unavailable"}</strong></div><div><span>Model</span><strong>{child.model ?? "Unavailable"}</strong></div></div>
-      <section className="child-summary"><span>Task summary</span><p>{details?.summary ?? "Verified child task details are unavailable."}</p></section>
-      <section className="child-context"><div><span>Context utilization</span><strong>{percent === null ? "Unavailable" : `${percent}%`}</strong></div><span className="harness-progress"><i style={{ inlineSize: `${percent ?? 0}%` }} /></span><small>{details?.context ? `${compactTokenCount(details.context.usedTokens)} / ${compactTokenCount(details.context.capacityTokens)} tokens` : "Context totals unavailable"}</small></section>
-      {details?.error && <section className="child-error" role="alert"><strong>{details.error.code}</strong><p>{details.error.message}</p>{details.error.code === "server_is_overloaded" ? <button type="button" data-control-id={retry.controlId} onClick={() => onAction({ action: "harness.overload.retry", payload: { sessionId, errorId: details.error!.code } }, `child-retry:${child.id}`)}>Retry task</button> : details.error.retryable ? <button type="button" disabled title="The runtime did not provide a retry admission handle.">Retry task</button> : null}</section>}
+      <section className="child-status-card"><span className="harness-agent-dot" data-status={status ?? "unknown"} aria-hidden="true" /><div><h2>{title}</h2><p>{status ?? "Unavailable"}</p></div><div><strong>{elapsed(facts?.elapsedMs ?? null)}</strong><span>Elapsed</span></div></section>
+      <div className="child-facts"><div><span>Provider</span><strong>{facts?.provider ?? "Unavailable"}</strong></div><div><span>Model</span><strong>{facts?.model ?? "Unavailable"}</strong></div></div>
+      <section className="child-summary"><span>Task recap</span><p>{facts ? facts.summary ?? "Task recap unavailable." : "Verified child facts are unavailable for this session revision."}</p></section>
+      <section className="child-context"><div><span>Context utilization</span><strong>{percent === null ? "Unavailable" : `${percent}%`}</strong></div><span className="harness-progress"><i style={{ inlineSize: `${percent ?? 0}%` }} /></span><small>{contextLabel}</small><small>{facts?.tokenUsage ? `${compactTokenCount(facts.tokenUsage.totalTokens)} total usage tokens` : "Usage tokens unavailable"}</small></section>
+      {facts?.error && <section className="child-error" role="alert"><strong>{facts.error.code}</strong><p>{facts.error.message}</p>{facts.error.code === "server_is_overloaded" ? <button type="button" data-control-id={retry.controlId} onClick={() => onAction({ action: "harness.overload.retry", payload: { sessionId, errorId: facts.error!.code } }, `child-retry:${child.id}`)}>Retry task</button> : facts.error.retryable ? <button type="button" disabled title="The runtime did not provide a retry admission handle.">Retry task</button> : null}</section>}
       <div className="child-tabs" role="tablist" aria-label="Child details">{tabs.map((item, index) => { const binding = createControlBinding(`harness.child.tab-select:${child.id}:${item}`, "harness.child.tab-select"); return <button type="button" data-control-id={binding.controlId} role="tab" aria-selected={tab === item} tabIndex={tab === item ? 0 : -1} ref={(node) => { tabRefs.current[index] = node; }} key={item} onClick={() => selectTab(item)} onKeyDown={(event) => onTabKey(event, index)}>{item[0]?.toLocaleUpperCase()}{item.slice(1)}</button>; })}</div>
-      <section className="child-panel" role="tabpanel" aria-label={`${tab} for ${child.task}`}>
+      <section className="child-panel" role="tabpanel" aria-label={`${tab} for ${title}`}>
         {pagePhase === "loading" && <p role="status">Loading child {tab}…</p>}
         {pagePhase === "error" && <p role="alert">Child {tab} could not be loaded.</p>}
         {page?.status === "unavailable" && <p role="status" aria-label={`Child ${tab} unavailable`}>{page.reason}</p>}

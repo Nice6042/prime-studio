@@ -83,9 +83,25 @@ export interface HarnessActivityItem {
 }
 
 export interface HarnessChildDetails {
-  readonly summary: string;
-  readonly startedAtMs: number | null;
-  readonly context: HarnessContextWindow | null;
+  readonly binding: Readonly<{
+    parentSessionId: string;
+    childId: string;
+    cursor: RootSessionProjection["cursor"];
+  }>;
+  readonly status: "queued" | "running" | "done" | "error" | "cancelled" | null;
+  readonly elapsedMs: number | null;
+  readonly provider: string | null;
+  readonly model: string | null;
+  readonly task: string | null;
+  readonly summary: string | null;
+  readonly context: Readonly<{ usedTokens: number | null; capacityTokens: number | null }> | null;
+  readonly tokenUsage: Readonly<{
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    totalTokens: number;
+  }> | null;
   readonly transcript: readonly Readonly<{
     id: string;
     actor: string;
@@ -107,6 +123,7 @@ export interface HarnessChildDetails {
 }
 
 export interface HarnessPanelDetails {
+  readonly binding?: Readonly<{ parentSessionId: string; cursor: RootSessionProjection["cursor"] }>;
   readonly observedAtMs: number;
   readonly startedAtMs: number | null;
   readonly context: HarnessContextWindow | null;
@@ -168,7 +185,7 @@ export interface HarnessInspectorAdapter {
   readonly availability:
     | Readonly<{ status: "available" }>
     | Readonly<{ status: "unavailable"; reason: string }>;
-  load(sessionId: string): Promise<HarnessPanelDetails>;
+  load(sessionId: string, displayedCursor: RootSessionProjection["cursor"]): Promise<HarnessPanelDetails>;
   loadChildPage?(sessionId: string, childId: string, tab: "chat" | "activity" | "files", displayedCursor: RootSessionProjection["cursor"], pageCursor: string | null): Promise<HarnessChildDataPage>;
   /** Native broker evidence minted from the last hydrated Activity payload. */
   readonly loadActivityEvidence?: (sessionId: string) => Promise<AttentionEvidence | null>;

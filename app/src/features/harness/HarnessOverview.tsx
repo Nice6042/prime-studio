@@ -50,12 +50,12 @@ export function HarnessOverview({ session, compatibility, details, nowMs, pendin
     </section>
     <section className="harness-agent-group" aria-labelledby="active-agents-title">
       <div className="harness-group-heading"><h2 id="active-agents-title">Active · {active.length}</h2><button type="button" data-control-id={activeViewAll.controlId} onClick={onOpenActivity}>View all</button></div>
-      {active.map((child) => <AgentRow key={child.id} child={child} details={details?.children[child.id]} observedAtMs={observedAtMs} onOpen={() => onOpenChild(child.id)} />)}
+      {active.map((child) => <AgentRow key={child.id} sessionId={session.sessionId} cursor={session.cursor} child={child} details={details?.children[child.id]} onOpen={() => onOpenChild(child.id)} />)}
       {active.length === 0 && <p className="harness-empty">No child agents are active.</p>}
     </section>
     <section className="harness-agent-group" aria-labelledby="done-agents-title">
       <div className="harness-group-heading"><h2 id="done-agents-title">Done · {done.length}</h2><button type="button" data-control-id={doneViewAll.controlId} onClick={onOpenActivity}>View all</button></div>
-      {done.map((child) => <AgentRow key={child.id} child={child} details={details?.children[child.id]} observedAtMs={observedAtMs} onOpen={() => onOpenChild(child.id)} />)}
+      {done.map((child) => <AgentRow key={child.id} sessionId={session.sessionId} cursor={session.cursor} child={child} details={details?.children[child.id]} onOpen={() => onOpenChild(child.id)} />)}
       {done.length === 0 && <p className="harness-empty">No child agents have finished.</p>}
     </section>
     <div className="harness-operational">

@@ -610,6 +610,10 @@ export async function retryHarnessWorker(sessionId: string, observationId: strin
 }
 
 export interface HarnessInspectorDetails {
+  readonly binding: Readonly<{
+    parentSessionId: string;
+    cursor: RootSessionProjection["cursor"];
+  }>;
   readonly observedAtMs: number;
   readonly startedAtMs: number | null;
   readonly context: Readonly<{
@@ -678,13 +682,24 @@ export interface HarnessInspectorDetails {
     Record<
       string,
       Readonly<{
-        summary: string;
-        startedAtMs: number | null;
-        context: Readonly<{
-          usedTokens: number;
-          capacityTokens: number;
-          turns?: number;
-          samples?: readonly number[];
+        binding: Readonly<{
+          parentSessionId: string;
+          childId: string;
+          cursor: RootSessionProjection["cursor"];
+        }>;
+        status: "queued" | "running" | "done" | "error" | "cancelled" | null;
+        elapsedMs: number | null;
+        provider: string | null;
+        model: string | null;
+        task: string | null;
+        summary: string | null;
+        context: Readonly<{ usedTokens: number | null; capacityTokens: number | null }> | null;
+        tokenUsage: Readonly<{
+          input: number;
+          output: number;
+          cacheRead: number;
+          cacheWrite: number;
+          totalTokens: number;
         }> | null;
         transcript: readonly Readonly<{
           id: string;
@@ -781,8 +796,16 @@ function decodeExtensionUi(value: unknown, expectedCursor?: RootSessionProjectio
   return { status: "available", requests };
 }
 
-export function decodeHarnessInspectorDetails(value: unknown, expectedCursor?: RootSessionProjection["cursor"]): HarnessInspectorDetails {
-  const source = recordWithOptional(detach(value), ["observedAtMs", "startedAtMs", "context", "contributions", "notices", "activity", "outputs", "sources", "children", "extensionUi"], ["turnUsage"]);
+export function decodeHarnessInspectorDetails(value: unknown, expectedParentSessionId?: string, expectedCursor?: RootSessionProjection["cursor"]): HarnessInspectorDetails {
+  const source = recordWithOptional(detach(value), ["binding", "observedAtMs", "startedAtMs", "context", "contributions", "notices", "activity", "outputs", "sources", "children", "extensionUi"], ["turnUsage"]);
+  const rawBinding = record(source.binding, ["parentSessionId", "cursor"]);
+  const rawBindingCursor = record(rawBinding.cursor, ["runtimeGeneration", "sequence"]);
+  const binding = {
+    parentSessionId: id(rawBinding.parentSessionId),
+    cursor: { runtimeGeneration: id(rawBindingCursor.runtimeGeneration), sequence: safeInteger(rawBindingCursor.sequence) },
+  };
+  if (expectedParentSessionId !== undefined && binding.parentSessionId !== expectedParentSessionId) fail();
+  if (expectedCursor && (binding.cursor.runtimeGeneration !== expectedCursor.runtimeGeneration || binding.cursor.sequence !== expectedCursor.sequence)) fail();
   const childrenSource = source.children;
   if (!childrenSource || typeof childrenSource !== "object" || Array.isArray(childrenSource) || Object.getPrototypeOf(childrenSource) !== Object.prototype) fail();
   const childrenEntries = Object.entries(childrenSource);
@@ -790,7 +813,25 @@ export function decodeHarnessInspectorDetails(value: unknown, expectedCursor?: R
   const children: Record<string, HarnessInspectorDetails["children"][string]> = {};
   for (const [childId, value] of childrenEntries) {
     id(childId);
-    const child = record(value, ["summary", "startedAtMs", "context", "transcript", "activity", "files", "error"]);
+    const child = record(value, ["binding", "status", "elapsedMs", "provider", "model", "task", "summary", "context", "tokenUsage", "transcript", "activity", "files", "error"]);
+    const rawChildBinding = record(child.binding, ["parentSessionId", "childId", "cursor"]);
+    const rawChildCursor = record(rawChildBinding.cursor, ["runtimeGeneration", "sequence"]);
+    const childBinding = {
+      parentSessionId: id(rawChildBinding.parentSessionId), childId: id(rawChildBinding.childId),
+      cursor: { runtimeGeneration: id(rawChildCursor.runtimeGeneration), sequence: safeInteger(rawChildCursor.sequence) },
+    };
+    if (childBinding.childId !== childId || childBinding.parentSessionId !== binding.parentSessionId
+      || childBinding.cursor.runtimeGeneration !== binding.cursor.runtimeGeneration || childBinding.cursor.sequence !== binding.cursor.sequence) fail();
+    const childContext = child.context === null ? null : (() => {
+      const context = record(child.context, ["usedTokens", "capacityTokens"]);
+      return { usedTokens: nullableSafeInteger(context.usedTokens), capacityTokens: nullableSafeInteger(context.capacityTokens) };
+    })();
+    const tokenUsage = child.tokenUsage === null ? null : (() => {
+      const usage = record(child.tokenUsage, ["input", "output", "cacheRead", "cacheWrite", "totalTokens"]);
+      const projected = { input: safeInteger(usage.input), output: safeInteger(usage.output), cacheRead: safeInteger(usage.cacheRead), cacheWrite: safeInteger(usage.cacheWrite), totalTokens: safeInteger(usage.totalTokens) };
+      if (projected.totalTokens !== projected.input + projected.output + projected.cacheRead + projected.cacheWrite) fail();
+      return projected;
+    })();
     const error =
       child.error === null
         ? null
@@ -803,9 +844,15 @@ export function decodeHarnessInspectorDetails(value: unknown, expectedCursor?: R
             };
           })();
     children[childId] = {
-      summary: bounded(child.summary, 8_192, true),
-      startedAtMs: nullableSafeInteger(child.startedAtMs),
-      context: inspectorContext(child.context),
+      binding: childBinding,
+      status: child.status === null ? null : oneOf(child.status, new Set(["queued", "running", "done", "error", "cancelled"] as const)),
+      elapsedMs: nullableSafeInteger(child.elapsedMs),
+      provider: child.provider === null ? null : bounded(child.provider, 200),
+      model: child.model === null ? null : bounded(child.model, 200),
+      task: child.task === null ? null : bounded(child.task, 200),
+      summary: child.summary === null ? null : bounded(child.summary, 8_192, true),
+      context: childContext,
+      tokenUsage,
       transcript: array(child.transcript, 4_096).map((entry) => {
         const item = record(entry, ["id", "actor", "occurredAtMs", "text"]);
         return {
@@ -862,6 +909,7 @@ export function decodeHarnessInspectorDetails(value: unknown, expectedCursor?: R
   const activityIds = new Set<string>();
   const activityFileCandidateIds = new Set<string>();
   const result: HarnessInspectorDetails = {
+    binding,
     observedAtMs: safeInteger(source.observedAtMs),
     startedAtMs: nullableSafeInteger(source.startedAtMs),
     context: inspectorContext(source.context),
@@ -947,11 +995,11 @@ export function decodeHarnessInspectorDetails(value: unknown, expectedCursor?: R
   return deepFreeze(result);
 }
 
-export async function loadHarnessInspector(sessionId: string): Promise<HarnessInspectorDetails> {
+export async function loadHarnessInspector(sessionId: string, expectedCursor: RootSessionProjection["cursor"]): Promise<HarnessInspectorDetails> {
   const exactSessionId = id(sessionId);
   const detailsJson = bounded(
     await invoke("harness_inspector", {
-      request: { sessionId: exactSessionId },
+      request: { sessionId: exactSessionId, expectedCursor },
     }),
     131_072,
     true,
@@ -961,7 +1009,7 @@ export async function loadHarnessInspector(sessionId: string): Promise<HarnessIn
     // response's admitted session cursor. The renderer rechecks it against the
     // displayed projection before rendering; do not couple decoding to the
     // process-global live cursor ledger, which may have advanced concurrently.
-    return decodeHarnessInspectorDetails(JSON.parse(detailsJson));
+    return decodeHarnessInspectorDetails(JSON.parse(detailsJson), exactSessionId, expectedCursor);
   } catch (error) {
     if (error instanceof HarnessProjectionError) throw error;
     return fail();

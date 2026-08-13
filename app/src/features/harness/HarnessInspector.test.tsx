@@ -6,6 +6,7 @@ import type { RootSessionProjection } from "../../entities/harness/types";
 import type { StudioOperation } from "../../contracts/studioOperations";
 import { reconcileAttentionSnapshot } from "../../attention/attentionLedger";
 import {
+  type HarnessChildDetails,
   type HarnessInspectorAdapter,
   type HarnessPanelDetails,
 } from "./adapter";
@@ -37,6 +38,7 @@ const session: RootSessionProjection = {
 };
 
 const details: HarnessPanelDetails = {
+  binding: { parentSessionId: "root-a", cursor: { runtimeGeneration: "g1", sequence: 10 } },
   observedAtMs: 1_725_700_800_000,
   startedAtMs: 1_725_700_000_000,
   extensionUi: { status: "available", requests: [] },
@@ -57,9 +59,11 @@ const details: HarnessPanelDetails = {
   sources: [{ id: "source-1", label: "Harness contract", detail: "Generated protocol schema", candidateId: "candidate-source", kind: "document" }],
   children: {
     "child-1": {
+      binding: { parentSessionId: "root-a", childId: "child-1", cursor: { runtimeGeneration: "g1", sequence: 10 } },
+      status: "running", elapsedMs: 760_000, provider: "OpenAI", model: "gpt-test", task: "Review protocol",
       summary: "Review the runtime protocol and report compatibility gaps.",
-      startedAtMs: 1_725_700_040_000,
       context: { usedTokens: 6_400, capacityTokens: 40_000 },
+      tokenUsage: null,
       transcript: [
         { id: "child-msg-1", actor: "Harness", occurredAtMs: 1_725_700_050_000, text: "Task accepted." },
         { id: "child-msg-2", actor: "Agent", occurredAtMs: 1_725_700_060_000, text: "Reading the protocol schema." },
@@ -69,7 +73,9 @@ const details: HarnessPanelDetails = {
       error: null,
     },
     "child-3": {
-      summary: "Verify the release candidate.", startedAtMs: 1_725_700_040_000,
+      binding: { parentSessionId: "root-a", childId: "child-3", cursor: { runtimeGeneration: "g1", sequence: 10 } },
+      status: "error", elapsedMs: 760_000, provider: "OpenAI", model: "gpt-test", task: "Verify release",
+      summary: "Verify the release candidate.", tokenUsage: null,
       context: null, transcript: [], activity: [], files: [],
       error: { code: "worker_exited", message: "Worker exited without a final report.", retryable: true },
     },
@@ -282,7 +288,7 @@ describe("HarnessInspector", () => {
     expect(screen.queryByText("0:16")).not.toBeInTheDocument();
   });
 
-  it("uses one presentation timer for every elapsed row and never fabricates null progress", async () => {
+  it("ticks parent elapsed while preserving authoritative child duration and never fabricates null progress", async () => {
     let monotonicNow = 500;
     const presentationTicks: TimerHandler[] = [];
     vi.spyOn(performance, "now").mockImplementation(() => monotonicNow);
@@ -320,7 +326,7 @@ describe("HarnessInspector", () => {
     });
 
     expect(within(mainAgent).getByText("13:21")).toBeVisible();
-    expect(within(numericProgress).getByText("12:41")).toBeVisible();
+    expect(within(numericProgress).getByText("12:40")).toBeVisible();
   });
 
   it("routes every overview action through the typed adapter and reports success", async () => {
@@ -555,6 +561,40 @@ describe("HarnessInspector", () => {
     releaseFirst();
   });
 
+  it("renders child facts only when they are bound to the exact parent, child, generation, and cursor", async () => {
+    const child = { id: "child-1", status: "running" as const, task: "Root snapshot task", provider: "stale-provider", model: "stale-model", progress: null };
+    const exact = {
+      binding: { parentSessionId: "root-a", childId: "child-1", cursor: { runtimeGeneration: "g1", sequence: 10 } },
+      status: "running", elapsedMs: 125_000, provider: "openai-codex", model: "gpt-5.6-sol",
+      task: "Inspect the child authority boundary", summary: "Reviewing exact child evidence.",
+      context: { usedTokens: 6_400, capacityTokens: 40_000 }, tokenUsage: null,
+      transcript: [], activity: [], files: [], error: null,
+    } as unknown as HarnessChildDetails;
+    const common = { sessionId: "root-a", displayedCursor: { runtimeGeneration: "g1", sequence: 10 }, child, observedAtMs: 999_999_999, tab: "chat" as const, pendingKey: null, onBack: vi.fn(), onTab: vi.fn(), onAction: vi.fn(), onLoadPage: vi.fn(async () => ({ status: "unavailable" as const, tab: "chat" as const, reason: "No child transcript evidence." })) };
+    const view = render(<ChildDetail {...common} details={exact} />);
+
+    expect(screen.getByRole("heading", { name: "Inspect the child authority boundary" })).toBeVisible();
+    expect(screen.getByText("running")).toBeVisible();
+    expect(screen.getByText("2:05")).toBeVisible();
+    expect(screen.getByText("openai-codex")).toBeVisible();
+    expect(screen.getByText("gpt-5.6-sol")).toBeVisible();
+    expect(screen.getByText("6.4k / 40k context tokens")).toBeVisible();
+    expect(screen.getByText("Usage tokens unavailable")).toBeVisible();
+    expect(screen.queryByText("stale-provider")).not.toBeInTheDocument();
+    expect(screen.queryByText("stale-model")).not.toBeInTheDocument();
+
+    view.rerender(<ChildDetail {...common} details={{ ...exact, elapsedMs: null }} />);
+    expect(screen.getByText("Elapsed").previousElementSibling).toHaveTextContent("Unavailable");
+    expect(screen.queryByText("2:05")).not.toBeInTheDocument();
+
+    const stale = { ...exact, binding: { ...exact.binding, cursor: { ...exact.binding.cursor, sequence: 9 } } } as unknown as HarnessChildDetails;
+    view.rerender(<ChildDetail {...common} details={stale} />);
+    expect(screen.getAllByText("Unavailable").length).toBeGreaterThanOrEqual(5);
+    expect(screen.getByText("Verified child facts are unavailable for this session revision.")).toBeVisible();
+    expect(screen.queryByText("openai-codex")).not.toBeInTheDocument();
+    expect(screen.queryByText("Inspect the child authority boundary")).not.toBeInTheDocument();
+  });
+
   it("shows truthful child failure and exposes typed retry", async () => {
     const commands: StudioOperation[] = [];
     const user = userEvent.setup();
@@ -742,7 +782,7 @@ describe("HarnessInspector", () => {
     const replacement = { ...session, sessionId: "root-b", chatId: "chat-b", cursor: { runtimeGeneration: "g2", sequence: 1 } };
     view.rerender(<HarnessInspector chatId="chat-b" session={replacement} compatibility={compatibility} adapter={source} />);
 
-    expect(source.load).toHaveBeenCalledWith("root-b");
+    expect(source.load).toHaveBeenCalledWith("root-b", replacement.cursor);
     await act(async () => { resolveA?.(aDetails); });
     expect(screen.queryByText("A private output")).not.toBeInTheDocument();
     fireEvent.click(screen.getByText("Outputs"));

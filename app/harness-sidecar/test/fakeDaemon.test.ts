@@ -106,7 +106,7 @@ test("compiled sidecar serves discovery and bootstrap from the deterministic fak
     text: "Verify the transport",
   });
   assert.equal(command.payload.type, "command_result");
-  const inspector = await request("request_inspector_001", { type: "inspector", sessionId: "session-e2e" });
+  const inspector = await request("request_inspector_001", { type: "inspector", sessionId: "session-e2e", expectedCursor: { runtimeGeneration: "fake-generation-1", sequence: 9 } });
   assert.equal(inspector.payload.type, "inspector_result");
   assert.equal(typeof inspector.payload.detailsJson, "string");
   const childPage = await request("request_child_page_001", { type: "child_data_page", sessionId: "session-e2e", childId: "child-runtime", tab: "chat", expectedCursor: { runtimeGeneration: "fake-generation-1", sequence: 9 }, pageCursor: null });
@@ -158,10 +158,10 @@ test("fake daemon attach and command chronology are idempotent and cursor-bound"
 
 test("fake daemon inspector and Studio operation routes preserve production response parity", async () => {
   const controller = new FakeDaemonController(await loadFakeDaemonScenario(scenarioPath));
-  const inspector = controller.handle({ type: "inspector", sessionId: "session-e2e" });
+  const inspector = controller.handle({ type: "inspector", sessionId: "session-e2e", expectedCursor: { runtimeGeneration: "fake-generation-1", sequence: 7 } });
   assert.equal(inspector.type, "inspector_result");
   const details = inspector.type === "inspector_result" ? JSON.parse(inspector.detailsJson) as Record<string, unknown> : {};
-  assert.deepEqual(Object.keys(details).sort(), ["activity", "children", "context", "contributions", "extensionUi", "notices", "observedAtMs", "outputs", "sources", "startedAtMs"]);
+  assert.deepEqual(Object.keys(details).sort(), ["activity", "binding", "children", "context", "contributions", "extensionUi", "notices", "observedAtMs", "outputs", "sources", "startedAtMs"]);
   assert.deepEqual(details.extensionUi, { status: "unavailable", reason: "Deterministic fixtures do not emit verified extension UI requests." });
 
   const operation = {

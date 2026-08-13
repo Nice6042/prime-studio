@@ -62,6 +62,10 @@ export interface PrimeDaemonBridgePorts {
 }
 
 export interface PrimeHarnessInspectorDetails {
+  readonly binding: Readonly<{
+    parentSessionId: string;
+    cursor: Readonly<{ runtimeGeneration: string; sequence: number }>;
+  }>;
   readonly observedAtMs: number;
   readonly startedAtMs: number | null;
   readonly context: Readonly<{ usedTokens: number; capacityTokens: number; turns?: number; samples?: readonly number[] }> | null;
@@ -83,7 +87,15 @@ export interface PrimeHarnessInspectorDetails {
   readonly outputs: readonly Readonly<{ id: string; label: string; candidatePath: string; kind: string }>[];
   readonly sources: readonly Readonly<{ id: string; label: string; detail: string; kind: string; candidatePath?: string }>[];
   readonly children: Readonly<Record<string, Readonly<{
-    summary: string; startedAtMs: number | null; context: PrimeHarnessInspectorDetails["context"];
+    binding: Readonly<{ parentSessionId: string; childId: string; cursor: Readonly<{ runtimeGeneration: string; sequence: number }> }>;
+    status: "queued" | "running" | "done" | "error" | "cancelled" | null;
+    elapsedMs: number | null;
+    provider: string | null;
+    model: string | null;
+    task: string | null;
+    summary: string | null;
+    context: Readonly<{ usedTokens: number | null; capacityTokens: number | null }> | null;
+    tokenUsage: Readonly<{ input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number }> | null;
     transcript: readonly Readonly<{ id: string; actor: string; occurredAtMs: number; text: string }>[];
     activity: readonly Readonly<{ id: string; occurredAtMs: number; label: string }>[];
     files: readonly Readonly<{ id: string; path: string; change: "added" | "modified" | "deleted" | "read" }>[];
@@ -233,6 +245,24 @@ function safeInteger(value: unknown): number {
 function optionalSafeInteger(value: unknown): number | null {
   if (value === undefined || value === null) return null;
   return safeInteger(value);
+}
+
+function evidenceInteger(value: unknown): number | null {
+  return Number.isSafeInteger(value) && (value as number) >= 0 ? value as number : null;
+}
+
+function childModelFacts(rawModel: unknown, catalog: unknown): Readonly<{ provider: string | null; model: string | null; capacityTokens: number | null }> {
+  if (typeof rawModel !== "string" || rawModel.length === 0 || [...rawModel].length > 200) {
+    return Object.freeze({ provider: null, model: null, capacityTokens: null });
+  }
+  const separator = rawModel.indexOf("/");
+  const provider = separator > 0 ? rawModel.slice(0, separator) : null;
+  const model = separator > 0 ? rawModel.slice(separator + 1) : rawModel;
+  const candidates = plain(catalog) && Array.isArray(catalog.models)
+    ? catalog.models.filter((candidate) => plain(candidate) && typeof candidate.provider === "string" && typeof candidate.id === "string" && `${candidate.provider}/${candidate.id}` === rawModel)
+    : [];
+  const capacityTokens = candidates.length === 1 && plain(candidates[0]) ? evidenceInteger(candidates[0].contextWindow) : null;
+  return Object.freeze({ provider, model, capacityTokens: capacityTokens && capacityTokens > 0 ? capacityTokens : null });
 }
 
 function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
@@ -922,8 +952,10 @@ export class PrimeDaemonBridge {
     return format === "html" ? this.#call(activeSessionId, "exportToHtml", path) : this.#call(activeSessionId, "exportToJsonl", path);
   }
 
-  async inspector(activeSessionId: string): Promise<PrimeHarnessInspectorDetails> {
+  async inspector(activeSessionId: string, expectedCursor?: Readonly<{ runtimeGeneration: string; sequence: number }>): Promise<PrimeHarnessInspectorDetails> {
     const bound = await this.#bound(activeSessionId);
+    if (!bound.initialized || !bound.studioGeneration) throw new Error("inspector cursor is unavailable");
+    if (expectedCursor && (expectedCursor.runtimeGeneration !== bound.studioGeneration || expectedCursor.sequence !== bound.sequence)) throw new Error("stale inspector cursor");
     const connection = bound.connection;
     const [initialRaw, contextRaw, statsRaw, resourcesRaw, catalogRaw] = await Promise.all([
       this.#call(activeSessionId, "getInitialSnapshot"),
@@ -933,6 +965,9 @@ export class PrimeDaemonBridge {
       this.#call(activeSessionId, "getModelCatalog"),
     ]);
     const initial = plain(initialRaw) ? initialRaw : {};
+    const upstream = this.#upstreamCursor(initial, await this.negotiate());
+    if (bound.publishedUpstreamGeneration !== upstream.generation || bound.publishedUpstreamSequence !== upstream.sequence) throw new Error("stale inspector cursor");
+    const cursor = Object.freeze({ runtimeGeneration: bound.studioGeneration, sequence: bound.sequence });
     const context = plain(contextRaw) ? contextRaw : {};
     const stats = plain(statsRaw) ? statsRaw : {};
     const statsTokens = plain(stats.tokens) ? stats.tokens : {};
@@ -1007,13 +1042,26 @@ export class PrimeDaemonBridge {
       for (const raw of initial.children.slice(0, 256)) {
         if (!plain(raw) || typeof raw.id !== "string") continue;
         const childId = boundedString(raw.id, 128);
-        let error: { code: string; message: string; retryable: boolean } | null = raw.status === "error"
-          ? { code: "child_failed", message: typeof raw.error === "string" ? boundedString(raw.error, 200) : "Child agent failed.", retryable: false }
+        const status = ["queued", "running", "done", "error", "cancelled"].includes(String(raw.status))
+          ? raw.status as "queued" | "running" | "done" | "error" | "cancelled"
+          : null;
+        const modelFacts = childModelFacts(raw.model, catalogRaw);
+        const usedTokens = evidenceInteger(raw.tokenCount);
+        const error: { code: string; message: string; retryable: boolean } | null = status === "error"
+          ? { code: "child_failed", message: "Child failure details are unavailable.", retryable: false }
           : null;
         children[childId] = Object.freeze({
-          summary: typeof raw.recap === "string" ? boundedString(raw.recap, 200) : typeof raw.label === "string" ? boundedString(raw.label, 200) : "Subagent",
-          startedAtMs: null,
-          context: typeof raw.tokenCount === "number" ? { usedTokens: safeInteger(raw.tokenCount), capacityTokens: 0 } : null,
+          binding: Object.freeze({ parentSessionId: activeSessionId, childId, cursor }),
+          status,
+          elapsedMs: evidenceInteger(raw.durationMs),
+          provider: modelFacts.provider,
+          model: modelFacts.model,
+          task: typeof raw.label === "string" ? boundedString(raw.label, 200) : null,
+          summary: typeof raw.recap === "string" ? boundedString(raw.recap, 200) : null,
+          context: usedTokens !== null || modelFacts.capacityTokens !== null
+            ? Object.freeze({ usedTokens, capacityTokens: modelFacts.capacityTokens })
+            : null,
+          tokenUsage: null,
           transcript: [], activity: [], files: [], error,
         });
       }
@@ -1033,10 +1081,13 @@ export class PrimeDaemonBridge {
     const startedAtMs = optionalSafeInteger(stats.startedAtMs ?? initial.startedAtMs ?? initialState.startedAtMs);
     const turnUsage = projectTurnUsage(messages, statsTokens);
     return Object.freeze({
+      binding: Object.freeze({ parentSessionId: activeSessionId, cursor }),
       observedAtMs: Date.now(), startedAtMs,
       context: contextDetails,
       ...(turnUsage ? { turnUsage } : {}),
-      contributions: Object.freeze(Object.entries(children).flatMap(([id, child]) => child.context ? [{ id, label: child.summary, tokens: child.context.usedTokens }] : [])),
+      contributions: Object.freeze(Object.entries(children).flatMap(([id, child]) => child.context !== null && child.context.usedTokens !== null && child.task !== null
+        ? [{ id, label: child.task, tokens: child.context.usedTokens }]
+        : [])),
       notices: Object.freeze([]), activity: Object.freeze(activity.slice(-300)), outputs: Object.freeze(outputs),
       sources: Object.freeze(sources.slice(0, 512)), children: Object.freeze(children),
       composer: composerProjection(connection, initial, catalogRaw),
@@ -1367,7 +1418,7 @@ export class PrimeDaemonBridge {
       const status = ["queued", "running", "done", "error", "cancelled"].includes(String(raw.status)) ? raw.status as "queued" | "running" | "done" | "error" | "cancelled" : "unknown" as const;
       const model = typeof raw.model === "string" ? boundedString(raw.model, 200) : null;
       const separator = model?.indexOf("/") ?? -1;
-      return [{ id: boundedString(raw.id, 128), status, task: boundedString(raw.label ?? raw.recap ?? "Subagent", 200), provider: separator > 0 ? model!.slice(0, separator) : null, model: separator > 0 ? model!.slice(separator + 1) : model, progress: status === "done" ? 1 : null }];
+      return [{ id: boundedString(raw.id, 128), status, task: boundedString(typeof raw.label === "string" ? raw.label : "Unavailable", 200), provider: separator > 0 ? model!.slice(0, separator) : null, model: separator > 0 ? model!.slice(separator + 1) : model, progress: status === "done" ? 1 : null }];
     }) : [];
     const queueRaw = await bound.connection.getQueue();
     const queueObject = plain(queueRaw) ? queueRaw : {};

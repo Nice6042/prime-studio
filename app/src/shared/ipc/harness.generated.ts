@@ -1,4 +1,4 @@
-// Generated from harness-v1.schema.json; SHA-256: 46e390312243a1f33be938cbc8e02148426e8bc746e6a8c73ea94c0f2ef3dfa9
+// Generated from harness-v1.schema.json; SHA-256: 94e7905fc31b07702e413a0dabd4ea784978d689f4502754b6346c0207503c39
 // Do not edit by hand. Run npm run generate:harness-contract.
 
 export const STUDIO_HARNESS_PROTOCOL = 1 as const;
@@ -147,7 +147,7 @@ export type StudioRequest =
   | { type: "attach_session"; sessionId: string }
   | { type: "retry_worker"; sessionId: string; observationId: string }
   | { type: "session_command"; sessionId: string; commandId: string; expectedCursor: HarnessCursor; kind: "prompt" | "steer" | "follow_up" | "abort"; text: string }
-  | { type: "inspector"; sessionId: string }
+  | { type: "inspector"; sessionId: string; expectedCursor: HarnessCursor }
   | { type: "child_data_page"; sessionId: string; childId: string; tab: "chat" | "activity" | "files"; expectedCursor: HarnessCursor; pageCursor: string | null }
   | { type: "refresh_session"; sessionId: string; knownCursor: HarnessCursor }
   | { type: "conversation_history_page"; sessionId: string; expectedCursor: HarnessCursor; before: string | null }

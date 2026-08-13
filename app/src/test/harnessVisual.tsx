@@ -30,6 +30,7 @@ const session: RootSessionProjection = {
 };
 
 const details: HarnessPanelDetails = {
+  binding: { parentSessionId: session.sessionId, cursor: session.cursor },
   extensionUi: { status: "available", requests: [] },
   observedAtMs: now, startedAtMs: now - 767_000,
   context: { usedTokens: 15_200, capacityTokens: 40_000, turns: 12, samples: [.19, .24, .31, .38] },
@@ -43,9 +44,9 @@ const details: HarnessPanelDetails = {
     { id: "a3", occurredAtMs: now - 120_000, group: "Today", kind: "file", title: "Harness panel updated", detail: "HarnessInspector.tsx", artifactCandidateId: "candidate-activity" },
   ],
   children: {
-    fidelity: { summary: "Compare the operational inspector against the approved Prime Studio handoff.", startedAtMs: now - 620_000, context: { usedTokens: 6_400, capacityTokens: 40_000 }, transcript: [{ id: "m1", actor: "Harness", occurredAtMs: now - 610_000, text: "Task accepted. Reading the handoff and current implementation." }, { id: "m2", actor: "Agent", occurredAtMs: now - 430_000, text: "The information hierarchy is mapped. Verifying keyboard and narrow-width behavior next." }], activity: [{ id: "ca1", occurredAtMs: now - 600_000, label: "Opened prototype handoff" }, { id: "ca2", occurredAtMs: now - 410_000, label: "Compared panel geometry" }], files: [{ id: "cf1", label: "HarnessInspector.tsx", candidateId: "candidate-child", change: "modified" }], error: null },
-    architecture: { summary: "Wire runtime commands to typed operation outcomes.", startedAtMs: now - 520_000, context: { usedTokens: 4_100, capacityTokens: 40_000 }, transcript: [], activity: [], files: [], error: null },
-    usage: { summary: "Verify chat-only token attribution.", startedAtMs: now - 980_000, context: { usedTokens: 3_200, capacityTokens: 40_000 }, transcript: [], activity: [], files: [], error: null },
+    fidelity: { binding: { parentSessionId: session.sessionId, childId: "fidelity", cursor: session.cursor }, status: "running", elapsedMs: 620_000, provider: "openai-codex", model: "gpt-5.6-sol", task: "Interface fidelity review", summary: "Compare the operational inspector against the approved Prime Studio handoff.", context: { usedTokens: 6_400, capacityTokens: 40_000 }, tokenUsage: null, transcript: [{ id: "m1", actor: "Harness", occurredAtMs: now - 610_000, text: "Task accepted. Reading the handoff and current implementation." }, { id: "m2", actor: "Agent", occurredAtMs: now - 430_000, text: "The information hierarchy is mapped. Verifying keyboard and narrow-width behavior next." }], activity: [{ id: "ca1", occurredAtMs: now - 600_000, label: "Opened prototype handoff" }, { id: "ca2", occurredAtMs: now - 410_000, label: "Compared panel geometry" }], files: [{ id: "cf1", label: "HarnessInspector.tsx", candidateId: "candidate-child", change: "modified" }], error: null },
+    architecture: { binding: { parentSessionId: session.sessionId, childId: "architecture", cursor: session.cursor }, status: "running", elapsedMs: 520_000, provider: "openai-codex", model: "gpt-5.6-sol", task: "Architecture integration", summary: "Wire runtime commands to typed operation outcomes.", context: { usedTokens: 4_100, capacityTokens: 40_000 }, tokenUsage: null, transcript: [], activity: [], files: [], error: null },
+    usage: { binding: { parentSessionId: session.sessionId, childId: "usage", cursor: session.cursor }, status: "done", elapsedMs: 980_000, provider: "openai-codex", model: "gpt-5.6-terra", task: "Usage model", summary: "Verify chat-only token attribution.", context: { usedTokens: 3_200, capacityTokens: 40_000 }, tokenUsage: null, transcript: [], activity: [], files: [], error: null },
   },
 };
 

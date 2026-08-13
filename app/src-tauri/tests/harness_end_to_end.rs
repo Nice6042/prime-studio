@@ -177,6 +177,7 @@ fn tauri_broker_bootstraps_through_the_real_sidecar_against_a_fake_daemon() {
     assert_eq!(live_refreshed.cursor.sequence, 10);
     let inspector = tauri::async_runtime::block_on(broker.inspector(InspectorRequest {
         session_id: "session-e2e".to_owned(),
+        expected_cursor: live_refreshed.cursor.clone(),
     }))
     .unwrap();
     let inspector: serde_json::Value = serde_json::from_str(&inspector).unwrap();

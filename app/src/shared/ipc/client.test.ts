@@ -495,9 +495,15 @@ describe("Harness IPC client", () => {
       ],
       children: {
         child: {
-          summary: "Review",
-          startedAtMs: 1,
+          binding: { parentSessionId: "root", childId: "child", cursor: session.cursor },
+          status: "running",
+          elapsedMs: 1,
+          provider: "openai-codex",
+          model: "gpt-test",
+          task: "Review",
+          summary: "Reviewing",
           context: null,
+          tokenUsage: null,
           transcript: [
             {
               id: "message-1",
@@ -512,44 +518,61 @@ describe("Harness IPC client", () => {
         },
       },
     };
-    mocks.invoke.mockResolvedValueOnce(JSON.stringify(details));
-    await expect(loadHarnessInspector("root")).resolves.toEqual(details);
+    const boundDetails = { ...details, binding: { parentSessionId: "root", cursor: session.cursor } };
+    mocks.invoke.mockResolvedValueOnce(JSON.stringify(boundDetails));
+    await expect(loadHarnessInspector("root", session.cursor)).resolves.toEqual(boundDetails);
     expect(mocks.invoke).toHaveBeenLastCalledWith("harness_inspector", {
-      request: { sessionId: "root" },
+      request: { sessionId: "root", expectedCursor: session.cursor },
     });
 
+    mocks.invoke.mockResolvedValueOnce(JSON.stringify({ ...boundDetails, binding: { ...boundDetails.binding, parentSessionId: "other-root" } }));
+    await expect(loadHarnessInspector("root", session.cursor)).rejects.toThrow("Harness projection unavailable");
+
+    mocks.invoke.mockResolvedValueOnce(JSON.stringify({ ...boundDetails, binding: { ...boundDetails.binding, cursor: { ...session.cursor, runtimeGeneration: "other-generation" } } }));
+    await expect(loadHarnessInspector("root", session.cursor)).rejects.toThrow("Harness projection unavailable");
+
+    const boundChild = boundDetails.children.child;
+    for (const binding of [
+      { ...boundChild.binding, parentSessionId: "other-root" },
+      { ...boundChild.binding, childId: "other-child" },
+      { ...boundChild.binding, cursor: { ...session.cursor, sequence: session.cursor.sequence + 1 } },
+    ]) {
+      mocks.invoke.mockResolvedValueOnce(JSON.stringify({ ...boundDetails, children: { child: { ...boundChild, binding } } }));
+      await expect(loadHarnessInspector("root", session.cursor)).rejects.toThrow("Harness projection unavailable");
+    }
+
     mocks.invoke.mockResolvedValueOnce(JSON.stringify({ ...details, untrusted: true }));
-    await expect(loadHarnessInspector("root")).rejects.toThrow("Harness projection unavailable");
+    await expect(loadHarnessInspector("root", session.cursor)).rejects.toThrow("Harness projection unavailable");
 
     mocks.invoke.mockResolvedValueOnce(JSON.stringify({ ...details, outputs: [{ id: "output-1", label: "Report", path: "C:\\secrets.txt", kind: "file" }] }));
-    await expect(loadHarnessInspector("root")).rejects.toThrow("Harness projection unavailable");
+    await expect(loadHarnessInspector("root", session.cursor)).rejects.toThrow("Harness projection unavailable");
 
     mocks.invoke.mockResolvedValueOnce(JSON.stringify({ ...details, turnUsage: { ...details.turnUsage, rows: [{ ...details.turnUsage.rows[0], totalTokens: 18 }] } }));
-    await expect(loadHarnessInspector("root")).rejects.toThrow("Harness projection unavailable");
+    await expect(loadHarnessInspector("root", session.cursor)).rejects.toThrow("Harness projection unavailable");
 
     mocks.invoke.mockResolvedValueOnce(JSON.stringify({ ...details, turnUsage: { ...details.turnUsage, rows: [...details.turnUsage.rows].reverse() } }));
-    await expect(loadHarnessInspector("root")).rejects.toThrow("Harness projection unavailable");
+    await expect(loadHarnessInspector("root", session.cursor)).rejects.toThrow("Harness projection unavailable");
 
     mocks.invoke.mockResolvedValueOnce(JSON.stringify({ ...details, extensionUi: { status: "available", requests: [{ ...details.extensionUi.requests[0], method: "approval" }] } }));
-    await expect(loadHarnessInspector("root")).rejects.toThrow("Harness projection unavailable");
+    await expect(loadHarnessInspector("root", session.cursor)).rejects.toThrow("Harness projection unavailable");
 
     const activity = details.activity[0];
     mocks.invoke.mockResolvedValueOnce(JSON.stringify({ ...details, activity: [{ ...activity, tool: { ...activity.tool, redacted: "yes" } }] }));
-    await expect(loadHarnessInspector("root")).rejects.toThrow("Harness projection unavailable");
+    await expect(loadHarnessInspector("root", session.cursor)).rejects.toThrow("Harness projection unavailable");
 
     mocks.invoke.mockResolvedValueOnce(JSON.stringify({ ...details, activity: [{ ...activity, tool: { ...activity.tool, durationMs: -1 } }] }));
-    await expect(loadHarnessInspector("root")).rejects.toThrow("Harness projection unavailable");
+    await expect(loadHarnessInspector("root", session.cursor)).rejects.toThrow("Harness projection unavailable");
 
     mocks.invoke.mockResolvedValueOnce(JSON.stringify({ ...details, activity: [{ ...activity, tool: { ...activity.tool, command: "show \u202Etxt.exe" } }] }));
-    await expect(loadHarnessInspector("root")).rejects.toThrow("Harness projection unavailable");
+    await expect(loadHarnessInspector("root", session.cursor)).rejects.toThrow("Harness projection unavailable");
 
     mocks.invoke.mockResolvedValueOnce(JSON.stringify({ ...details, activity: [activity, { ...activity }] }));
-    await expect(loadHarnessInspector("root")).rejects.toThrow("Harness projection unavailable");
+    await expect(loadHarnessInspector("root", session.cursor)).rejects.toThrow("Harness projection unavailable");
 
     mocks.invoke.mockResolvedValueOnce(JSON.stringify({ ...details, activity: [activity, { ...activity, id: "activity-2", tool: { ...activity.tool, files: [...activity.tool.files] } }] }));
-    await expect(loadHarnessInspector("root")).rejects.toThrow("Harness projection unavailable");
+    await expect(loadHarnessInspector("root", session.cursor)).rejects.toThrow("Harness projection unavailable");
 
-    expect(() => decodeHarnessInspectorDetails({ ...details, extensionUi: { status: "available", requests: [{ ...details.extensionUi.requests[0], cursor: { ...session.cursor, sequence: 2 } }] } }, session.cursor)).toThrow("Harness projection unavailable");
+    expect(() => decodeHarnessInspectorDetails({ ...details, extensionUi: { status: "available", requests: [{ ...details.extensionUi.requests[0], cursor: { ...session.cursor, sequence: 2 } }] } }, "root", session.cursor)).toThrow("Harness projection unavailable");
   });
 
   it("routes closed Harness actions and validates the operation outcome", async () => {

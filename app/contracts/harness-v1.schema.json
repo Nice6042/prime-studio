@@ -360,8 +360,11 @@
       }
     },
     "InspectorRequest": {
-      "type": "object", "additionalProperties": false, "required": ["type", "sessionId"],
-      "properties": { "type": { "const": "inspector" }, "sessionId": { "$ref": "#/$defs/Id" } }
+      "type": "object", "additionalProperties": false, "required": ["type", "sessionId", "expectedCursor"],
+      "properties": {
+        "type": { "const": "inspector" }, "sessionId": { "$ref": "#/$defs/Id" },
+        "expectedCursor": { "$ref": "#/$defs/HarnessCursor" }
+      }
     },
     "ChildDataPageTab": { "type": "string", "enum": ["chat", "activity", "files"] },
     "ChildDataPageRequest": {
