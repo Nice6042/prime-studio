@@ -797,12 +797,11 @@ struct DisplayFileLock {
 impl DisplayFileLock {
     fn open(destination: &Path, create: bool) -> std::io::Result<File> {
         use std::os::unix::fs::OpenOptionsExt;
-        const O_NOFOLLOW: std::ffi::c_int = 0x0002_0000;
         let file = OpenOptions::new()
             .read(true)
             .write(true)
             .create(create)
-            .custom_flags(O_NOFOLLOW)
+            .custom_flags(libc::O_NOFOLLOW)
             .open(lock_path(destination)?)?;
         if is_reparse(&file.metadata()?) {
             return Err(std::io::Error::new(
@@ -818,11 +817,8 @@ impl DisplayFileLock {
     }
     fn acquire(destination: &Path) -> std::io::Result<Self> {
         use std::os::fd::AsRawFd;
-        unsafe extern "C" {
-            fn flock(fd: std::ffi::c_int, operation: std::ffi::c_int) -> std::ffi::c_int;
-        }
         let file = Self::open(destination, false)?;
-        if unsafe { flock(file.as_raw_fd(), 2) } != 0 {
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
             return Err(std::io::Error::last_os_error());
         }
         Ok(Self { file })
@@ -843,11 +839,8 @@ impl DisplayFileLock {
 impl Drop for DisplayFileLock {
     fn drop(&mut self) {
         use std::os::fd::AsRawFd;
-        unsafe extern "C" {
-            fn flock(fd: std::ffi::c_int, operation: std::ffi::c_int) -> std::ffi::c_int;
-        }
         unsafe {
-            flock(self.file.as_raw_fd(), 8);
+            libc::flock(self.file.as_raw_fd(), libc::LOCK_UN);
         }
     }
 }
