@@ -44,8 +44,8 @@ describe("Prime Studio package acceptance catalog", () => {
   it("derives the current implementation summary from the audited feature rows", () => {
     expect(PACKAGE_IMPLEMENTATION_SUMMARY).toEqual(summarizePackageImplementation(FEATURE_ACCEPTANCE));
     expect(PACKAGE_IMPLEMENTATION_SUMMARY).toEqual({
-      complete: 69,
-      partial: 44,
+      complete: 67,
+      partial: 46,
       placeholder: 0,
       missing: 0,
       explicitly_unavailable: 2,
@@ -59,8 +59,8 @@ describe("Prime Studio package acceptance catalog", () => {
       .map(status)).toEqual(Array(8).fill("complete"));
     expect(["CV-07", "AC-04", "SH-04"]
       .map(status)).toEqual(Array(3).fill("complete"));
-    expect(["CV-05", "CP-03", "HR-07", "ED-01"]
-      .map(status)).toEqual(Array(4).fill("partial"));
+    expect(["CV-05", "CV-09", "CP-03", "HR-07", "ED-01", "ED-05"]
+      .map(status)).toEqual(Array(6).fill("partial"));
     expect(status("CP-01")).toBe("complete");
     expect(status("CV-15")).toBe("partial");
   });
@@ -128,10 +128,11 @@ describe("Prime Studio package acceptance catalog", () => {
 
     expect(status("AU-06")).toBe("complete");
     expect(status("PL-04")).toBe("complete");
-    expect(["CV-09", "ED-04", "ED-05"].map(status)).toEqual(Array(3).fill("complete"));
-    expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).not.toContain("CV-09");
+    expect(status("ED-04")).toBe("complete");
+    expect(["CV-09", "ED-05"].map(status)).toEqual(Array(2).fill("partial"));
+    expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).toContain("CV-09");
     expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).not.toContain("ED-04");
-    expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).not.toContain("ED-05");
+    expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).toContain("ED-05");
   });
 
   it("records the reviewed shared monotonic clock as complete", () => {
