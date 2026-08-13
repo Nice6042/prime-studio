@@ -132,10 +132,11 @@ test("workspace menu transfers focus across pane and rail replacements without r
 
   await replacementPaneTrigger.click();
   await shellPage.setViewportSize({ width: 700, height: 800 });
-  const replacementSheetTrigger = shellPage.locator('[data-studio-sheet="sidebar"] [data-control-id="sidebar-workspace-menu"]');
   await expect(shellPage.getByRole("menu", { name: "Workspace actions" })).toHaveCount(0);
-  await expect(replacementSheetTrigger).toBeFocused();
-  await expect(replacementSheetTrigger).toHaveAttribute("aria-expanded", "false");
+  await expect(shellPage.locator('[data-studio-sheet="sidebar"]')).toHaveCount(0);
+  const replacementRailTrigger = shellPage.locator('[data-control-id="rail-workspace-menu"]');
+  await expect(replacementRailTrigger).toBeFocused();
+  await expect(replacementRailTrigger).toHaveAttribute("aria-expanded", "false");
 });
 
 test("Harness keeps child work, activity, and current-chat usage out of the parent chat", async ({ shellPage }) => {

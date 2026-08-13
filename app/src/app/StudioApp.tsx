@@ -121,6 +121,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const [paletteOpener, setPaletteOpener] = useState<HTMLElement | null>(null);
   const [activeSheet, setActiveSheet] = useState<"sidebar" | "inspector" | "editor" | null>(null);
   const sheetOpener = useRef<HTMLElement | null>(null);
+  const suppressSheetOpenerRestore = useRef(false);
   const sidebarReplacementFocus = useRef<"rail-expand" | "sidebar-collapse" | null>(null);
   const sidebarHadFocus = useRef(false);
   const previousSidebarHost = useRef<"pane" | "rail" | "sheet" | null>(null);
@@ -291,7 +292,13 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     return () => {
       window.cancelAnimationFrame(frame);
       window.removeEventListener("keydown", closeOnEscape, true);
-      window.requestAnimationFrame(() => opener?.focus());
+      window.requestAnimationFrame(() => {
+        if (suppressSheetOpenerRestore.current) {
+          suppressSheetOpenerRestore.current = false;
+          return;
+        }
+        opener?.focus();
+      });
     };
   }, [activeSheet]);
 
@@ -764,7 +771,10 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       ? "rail"
       : null;
   useLayoutEffect(() => {
-    if (solvedSidebarMode !== "rail" && activeSheet === "sidebar") setActiveSheet(null);
+    if (solvedSidebarMode !== "rail" && activeSheet === "sidebar") {
+      suppressSheetOpenerRestore.current = true;
+      setActiveSheet(null);
+    }
   }, [activeSheet, solvedSidebarMode]);
   useLayoutEffect(() => {
     if (workspaceMenuHost === null || workspaceMenuHost === workspaceFooterHost) return;
