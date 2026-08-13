@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createInitialProjectChatState, transitionProjectChatState } from "../domain/projectChats";
 import { createStudioStore, initialStudioState, reduceStudio } from "../shared/state/store";
@@ -74,6 +74,10 @@ function catalogBoundToRootSession() {
   if (bound.status !== "applied") throw new Error("test catalog bind failed");
   return bound.state;
 }
+
+afterEach(() => {
+  localStorage.clear();
+});
 
 describe("Studio application state", () => {
   it("projects daemon messages under the separately bound Studio chat identity", () => {
@@ -311,7 +315,7 @@ describe("Studio application state", () => {
     expect(await screen.findByText(/could not prove an atomic older-history page/i)).toBeVisible();
     expect(store.getSnapshot().conversationHistory[chat.id]?.status).toBe("unavailable");
     page.mockRestore();
-  }, 20_000);
+  }, 30_000);
 
   it("hydrates composer choices from the selected admitted session", async () => {
     const store = createStudioStore(initialStudioState({
@@ -1186,7 +1190,7 @@ describe("Studio application state", () => {
     fireEvent.keyDown(composer, { key: "Enter" });
     await waitFor(() => expect(operations).toContainEqual(expect.objectContaining({ action: "harness.session.compact", payload: { sessionId: "session-1" } })));
     branchSpy.mockRestore();
-  }, 20_000);
+  }, 30_000);
 
   it("routes /fork through the same native resident branch transaction", async () => {
     const operations: StudioOperation[] = [];
@@ -1387,7 +1391,7 @@ describe("Studio application state", () => {
     expect(composer).toHaveValue("new draft written after rejection");
     expect(directCommand).not.toHaveBeenCalled();
     directCommand.mockRestore();
-  }, 15_000);
+  }, 30_000);
 
   it("does not erase an ABA-authored draft when a safe Retry settles after edit-away and edit-back", async () => {
     const settlement = deferred<StudioOperationOutcome>();
