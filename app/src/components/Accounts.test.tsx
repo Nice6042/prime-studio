@@ -23,7 +23,6 @@ vi.mock("../rpc", () => {
     AccountDeletionError,
     accountStatuses: vi.fn(),
     accountUsage: vi.fn(),
-    codexSubscriptionUsage: vi.fn(),
     addAccount: vi.fn(),
     beginAccountLogin: vi.fn(),
     renameAccount: vi.fn(),
@@ -76,7 +75,6 @@ const removalPlan = (
 
 const accountStatusesMock = vi.mocked(rpc.accountStatuses);
 const accountUsageMock = vi.mocked(rpc.accountUsage);
-const codexUsageMock = vi.mocked(rpc.codexSubscriptionUsage);
 const prepareMock = vi.mocked(rpc.prepareRemoveAccount);
 const commitMock = vi.mocked(rpc.commitRemoveAccount);
 const listAccountsStrictMock = vi.mocked(rpc.listAccountsStrict);
@@ -101,6 +99,7 @@ function renderAccounts(defaultAccount: string | null = null) {
       onUse={vi.fn()}
       defaultAccount={defaultAccount}
       onDefaultAccount={onDefaultAccount}
+      quota={{ accountFacts: [{ scope: "account", accountId: account.id, provider: "anthropic", source: "anthropic_rate_limits", availability: "unavailable", reason: "anthropic_not_reported" }], providerFacts: [] }}
     />,
   );
   return { onChanged, onDefaultAccount };
@@ -245,7 +244,6 @@ describe("Accounts status polling", () => {
     vi.useFakeTimers();
     accountStatusesMock.mockReset();
     accountUsageMock.mockReset().mockResolvedValue(null);
-    codexUsageMock.mockReset().mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -465,7 +463,6 @@ describe("Accounts accessible controls", () => {
   beforeEach(() => {
     accountStatusesMock.mockReset().mockResolvedValue([]);
     accountUsageMock.mockReset().mockResolvedValue(null);
-    codexUsageMock.mockReset().mockResolvedValue(null);
   });
 
   it("names the Add-account provider picker", async () => {
@@ -490,7 +487,6 @@ describe("Accounts removal confirmation", () => {
   beforeEach(() => {
     accountStatusesMock.mockReset().mockResolvedValue([]);
     accountUsageMock.mockReset().mockResolvedValue(null);
-    codexUsageMock.mockReset().mockResolvedValue(null);
     prepareMock.mockReset();
     commitMock.mockReset();
     listAccountsStrictMock.mockReset();
@@ -498,6 +494,7 @@ describe("Accounts removal confirmation", () => {
 
   afterEach(() => {
     updateRaceDefault = undefined;
+    vi.useRealTimers();
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 1024 });
   });
 
@@ -926,21 +923,26 @@ describe("Accounts removal confirmation", () => {
   });
 
   it("expires a prepared plan while the dialog remains open", async () => {
-    const user = userEvent.setup();
-    prepareMock.mockResolvedValueOnce(removalPlan(true, { expiresAtMs: Date.now() + 750 }));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    prepareMock.mockResolvedValueOnce(removalPlan(true, { expiresAtMs: Date.now() + 60_000 }));
     renderAccounts();
 
     const { dialog } = await prepareDataRemoval(user);
     expect(within(dialog).getByRole("button", { name: "Remove profile data" })).toBeDisabled();
 
-    expect(await within(dialog).findByText(/confirmation has expired/i, {}, { timeout: 2_000 })).toBeInTheDocument();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(within(dialog).getByText(/confirmation has expired/i)).toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "Remove profile data" })).not.toBeInTheDocument();
     expect(commitMock).not.toHaveBeenCalled();
   });
 
   it("focuses Prepare again when a live entry plan expires and removes the focused commit", async () => {
-    const user = userEvent.setup();
-    prepareMock.mockResolvedValueOnce(removalPlan(false, { expiresAtMs: Date.now() + 750 }));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    prepareMock.mockResolvedValueOnce(removalPlan(false, { expiresAtMs: Date.now() + 60_000 }));
     renderAccounts();
 
     const { dialog } = await openRemovalDialog(user);
@@ -949,7 +951,10 @@ describe("Accounts removal confirmation", () => {
     removeEntry.focus();
     expect(removeEntry).toHaveFocus();
 
-    await within(dialog).findByText(/confirmation has expired/i, {}, { timeout: 2_000 });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(within(dialog).getByText(/confirmation has expired/i)).toBeInTheDocument();
     const retry = within(dialog).getByRole("button", { name: "Prepare again" });
     expect(retry).toHaveFocus();
     expect(dialog).toContainElement(document.activeElement as HTMLElement);

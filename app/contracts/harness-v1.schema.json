@@ -1,0 +1,572 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:prime-studio:harness:v1",
+  "title": "Studio Harness Protocol v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["studioProtocol", "requestId", "payload"],
+  "properties": {
+    "studioProtocol": { "const": 1 },
+    "requestId": { "$ref": "#/$defs/RequestId" },
+    "payload": {
+      "oneOf": [
+        { "$ref": "#/$defs/StudioRequest" },
+        { "$ref": "#/$defs/StudioResponse" },
+        { "$ref": "#/$defs/HarnessEvent" }
+      ]
+    }
+  },
+  "$defs": {
+    "SafeInteger": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "FiniteNumber": { "type": "number", "minimum": 0, "maximum": 1e15 },
+    "Id": { "type": "string", "pattern": "^[!-~]{1,128}$" },
+    "RequestId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,96}$" },
+    "Label": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "Text": { "type": "string", "maxLength": 131072 },
+    "Path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "Digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "HarnessCapability": {
+      "type": "string",
+      "enum": [
+        "attach_snapshot",
+        "event_sequence",
+        "resident_sessions",
+        "session_input_admission",
+        "model_catalog",
+        "extension_ui",
+        "chunked_snapshot",
+        "prompt_admission_cancellation",
+        "queue_management",
+        "resource_snapshot",
+        "delete_child",
+        "heartbeat_catalog",
+        "heartbeat_management",
+        "side_question_transcript",
+        "transient_bash"
+      ]
+    },
+    "HarnessUnavailableReason": {
+      "type": "string",
+      "enum": [
+        "not_installed",
+        "runtime_identity_mismatch",
+        "unsupported_protocol",
+        "unsupported_schema",
+        "missing_mandatory_capability",
+        "transport_unavailable",
+        "security_verification_failed"
+      ]
+    },
+    "RuntimeIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["packageName", "packageVersion", "packageDigest", "entrypointDigest", "protocolName", "protocolVersion", "schemaRevision", "schemaId", "capabilities"],
+      "properties": {
+        "packageName": { "const": "prime-agent" },
+        "packageVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "packageDigest": { "$ref": "#/$defs/Digest" },
+        "entrypointDigest": { "$ref": "#/$defs/Digest" },
+        "protocolName": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "protocolVersion": { "type": "integer", "minimum": 0, "maximum": 65535 },
+        "schemaRevision": { "type": "integer", "minimum": 0, "maximum": 65535 },
+        "schemaId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "capabilities": { "type": "array", "maxItems": 128, "uniqueItems": true, "items": { "$ref": "#/$defs/HarnessCapability" } }
+      }
+    },
+    "UnavailableFeature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability", "reason"],
+      "properties": {
+        "capability": { "$ref": "#/$defs/HarnessCapability" },
+        "reason": { "$ref": "#/$defs/HarnessUnavailableReason" }
+      }
+    },
+    "ReadyCompatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "profile", "capabilities"],
+      "properties": {
+        "status": { "const": "ready" },
+        "profile": { "$ref": "#/$defs/Id" },
+        "capabilities": { "type": "array", "maxItems": 128, "uniqueItems": true, "items": { "$ref": "#/$defs/HarnessCapability" } }
+      }
+    },
+    "DegradedCompatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "profile", "capabilities", "unavailable"],
+      "properties": {
+        "status": { "const": "degraded" },
+        "profile": { "$ref": "#/$defs/Id" },
+        "capabilities": { "type": "array", "maxItems": 128, "uniqueItems": true, "items": { "$ref": "#/$defs/HarnessCapability" } },
+        "unavailable": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/UnavailableFeature" } }
+      }
+    },
+    "ReadOnlyCompatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason", "runtime"],
+      "properties": {
+        "status": { "const": "read_only" },
+        "reason": { "$ref": "#/$defs/HarnessUnavailableReason" },
+        "runtime": { "oneOf": [{ "$ref": "#/$defs/RuntimeIdentity" }, { "type": "null" }] }
+      }
+    },
+    "UnavailableCompatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason"],
+      "properties": {
+        "status": { "const": "unavailable" },
+        "reason": { "$ref": "#/$defs/HarnessUnavailableReason" }
+      }
+    },
+    "HarnessCompatibility": {
+      "oneOf": [
+        { "$ref": "#/$defs/ReadyCompatibility" },
+        { "$ref": "#/$defs/DegradedCompatibility" },
+        { "$ref": "#/$defs/ReadOnlyCompatibility" },
+        { "$ref": "#/$defs/UnavailableCompatibility" }
+      ]
+    },
+    "HarnessCursor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runtimeGeneration", "sequence"],
+      "properties": {
+        "runtimeGeneration": { "$ref": "#/$defs/Id" },
+        "sequence": { "$ref": "#/$defs/SafeInteger" }
+      }
+    },
+    "TextBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "text"],
+      "properties": { "kind": { "const": "text" }, "text": { "$ref": "#/$defs/Text" } }
+    },
+    "ThinkingBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "text", "redacted"],
+      "properties": { "kind": { "const": "thinking" }, "text": { "$ref": "#/$defs/Text" }, "redacted": { "type": "boolean" } }
+    },
+    "ToolCallBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "toolCallId", "toolId", "status"],
+      "properties": {
+        "kind": { "const": "tool_call" },
+        "toolCallId": { "$ref": "#/$defs/Id" },
+        "toolId": { "$ref": "#/$defs/Id" },
+        "status": { "type": "string", "enum": ["pending", "running", "blocked", "succeeded", "failed"] }
+      }
+    },
+    "MessageBlock": {
+      "oneOf": [
+        { "$ref": "#/$defs/TextBlock" },
+        { "$ref": "#/$defs/ThinkingBlock" },
+        { "$ref": "#/$defs/ToolCallBlock" }
+      ]
+    },
+    "ParentUserMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["channel", "kind", "id", "text", "emittedAtMs"],
+      "properties": {
+        "channel": { "const": "parent" }, "kind": { "const": "user" }, "id": { "$ref": "#/$defs/Id" },
+        "text": { "$ref": "#/$defs/Text" }, "emittedAtMs": { "$ref": "#/$defs/SafeInteger" }
+      }
+    },
+    "ParentAssistantMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["channel", "kind", "id", "blocks", "streaming", "emittedAtMs"],
+      "properties": {
+        "channel": { "const": "parent" }, "kind": { "const": "assistant" }, "id": { "$ref": "#/$defs/Id" },
+        "blocks": { "type": "array", "maxItems": 1024, "items": { "$ref": "#/$defs/MessageBlock" } },
+        "streaming": { "type": "boolean" }, "emittedAtMs": { "$ref": "#/$defs/SafeInteger" }
+      }
+    },
+    "ParentNoticeMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["channel", "kind", "id", "text", "emittedAtMs"],
+      "properties": {
+        "channel": { "const": "parent" }, "kind": { "const": "notice" }, "id": { "$ref": "#/$defs/Id" },
+        "text": { "$ref": "#/$defs/Text" }, "emittedAtMs": { "$ref": "#/$defs/SafeInteger" }
+      }
+    },
+    "ParentMessage": {
+      "oneOf": [
+        { "$ref": "#/$defs/ParentUserMessage" },
+        { "$ref": "#/$defs/ParentAssistantMessage" },
+        { "$ref": "#/$defs/ParentNoticeMessage" }
+      ]
+    },
+    "ChildAgentSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status", "task", "provider", "model", "progress"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" },
+        "status": { "type": "string", "enum": ["queued", "running", "done", "error", "cancelled", "unknown"] },
+        "task": { "$ref": "#/$defs/Label" },
+        "provider": { "oneOf": [{ "$ref": "#/$defs/Label" }, { "type": "null" }] },
+        "model": { "oneOf": [{ "$ref": "#/$defs/Label" }, { "type": "null" }] },
+        "progress": { "oneOf": [{ "type": "number", "minimum": 0, "maximum": 1 }, { "type": "null" }] }
+      }
+    },
+    "QueueItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "state"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" }, "label": { "$ref": "#/$defs/Label" },
+        "state": { "type": "string", "enum": ["queued", "admitted", "running", "cancelled"] }
+      }
+    },
+    "ToolDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "enabled", "configurable"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" }, "label": { "$ref": "#/$defs/Label" },
+        "enabled": { "type": "boolean" }, "configurable": { "type": "boolean" }
+      }
+    },
+    "ContextSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "kind", "availability"],
+      "properties": {
+        "id": { "$ref": "#/$defs/Id" }, "label": { "$ref": "#/$defs/Label" }, "kind": { "$ref": "#/$defs/Id" },
+        "availability": { "type": "string", "enum": ["available", "unavailable"] }
+      }
+    },
+    "CurrentChatUsage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input", "output", "cacheRead", "cacheWrite", "totalTokens", "cost"],
+      "properties": {
+        "input": { "$ref": "#/$defs/SafeInteger" }, "output": { "$ref": "#/$defs/SafeInteger" },
+        "cacheRead": { "$ref": "#/$defs/SafeInteger" }, "cacheWrite": { "$ref": "#/$defs/SafeInteger" },
+        "totalTokens": { "$ref": "#/$defs/SafeInteger" },
+        "cost": { "oneOf": [{ "$ref": "#/$defs/FiniteNumber" }, { "type": "null" }] }
+      }
+    },
+    "TurnPerformanceProjection": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["status", "sessionId", "cursor", "firstTokenLatencyMs", "outputTokens", "generationDurationMs", "tokensPerSecond"],
+          "properties": {
+            "status": { "const": "available" },
+            "sessionId": { "$ref": "#/$defs/Id" },
+            "cursor": { "$ref": "#/$defs/HarnessCursor" },
+            "firstTokenLatencyMs": { "type": "number", "minimum": 0, "maximum": 86400000 },
+            "outputTokens": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+            "generationDurationMs": { "type": "number", "minimum": 1, "maximum": 86400000 },
+            "tokensPerSecond": { "type": "number", "minimum": 0, "maximum": 1000000 }
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["status", "sessionId", "cursor", "reason"],
+          "properties": {
+            "status": { "const": "unavailable" },
+            "sessionId": { "$ref": "#/$defs/Id" },
+            "cursor": { "$ref": "#/$defs/HarnessCursor" },
+            "reason": { "type": "string", "enum": ["event_chronology_unavailable", "event_chronology_incomplete", "event_chronology_invalid", "generation_changed"] }
+          }
+        }
+      ]
+    },
+    "RootSessionSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sessionId", "accountId", "provider", "projectId", "chatId", "cursor", "state", "parentMessages", "children", "queue", "tools", "resources", "usage", "workerRecovery", "performance"],
+      "properties": {
+        "sessionId": { "$ref": "#/$defs/Id" },
+        "accountId": { "oneOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] },
+        "provider": { "oneOf": [{ "type": "string", "pattern": "^[A-Za-z0-9_.:@+-]{1,128}$" }, { "type": "null" }] },
+        "projectId": { "$ref": "#/$defs/Id" }, "chatId": { "$ref": "#/$defs/Id" },
+        "cursor": { "$ref": "#/$defs/HarnessCursor" },
+        "state": { "type": "string", "enum": ["idle", "working", "blocked", "failed", "disconnected", "stopped"] },
+        "parentMessages": { "type": "array", "maxItems": 300, "items": { "$ref": "#/$defs/ParentMessage" } },
+        "children": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/ChildAgentSummary" } },
+        "queue": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/QueueItem" } },
+        "tools": { "type": "array", "maxItems": 512, "items": { "$ref": "#/$defs/ToolDefinition" } },
+        "resources": { "type": "array", "maxItems": 512, "items": { "$ref": "#/$defs/ContextSource" } },
+        "usage": { "$ref": "#/$defs/CurrentChatUsage" },
+        "workerRecovery": { "$ref": "#/$defs/WorkerRecoveryProjection" },
+        "performance": { "$ref": "#/$defs/TurnPerformanceProjection" }
+      }
+    },
+    "ParentHistoryPage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sessionId", "snapshotCursor", "messages", "totalMessages", "omittedBefore", "omittedAfter", "olderCursor", "truncatedByBytes"],
+      "properties": {
+        "sessionId": { "$ref": "#/$defs/Id" },
+        "snapshotCursor": { "$ref": "#/$defs/HarnessCursor" },
+        "messages": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/ParentMessage" } },
+        "totalMessages": { "$ref": "#/$defs/SafeInteger" },
+        "omittedBefore": { "$ref": "#/$defs/SafeInteger" },
+        "omittedAfter": { "$ref": "#/$defs/SafeInteger" },
+        "olderCursor": { "oneOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] },
+        "truncatedByBytes": { "type": "boolean" }
+      }
+    },
+    "WorkerRecoveryProjection": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "closureReason", "observationId", "automaticRetryCount", "detail"],
+      "properties": {
+        "status": { "type": "string", "enum": ["starting", "ready", "recovering", "retryable_failure", "retrying", "recovered", "terminal_failure"] },
+        "closureReason": { "oneOf": [{ "type": "string", "enum": ["unexpected_worker_disconnect", "supervisor_recovery_exhausted"] }, { "type": "null" }] },
+        "observationId": { "oneOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] },
+        "automaticRetryCount": { "type": "integer", "minimum": 0, "maximum": 1 },
+        "detail": { "oneOf": [{ "$ref": "#/$defs/Label" }, { "type": "null" }] }
+      }
+    },
+    "DiscoverRuntimeRequest": {
+      "type": "object", "additionalProperties": false, "required": ["type"],
+      "properties": { "type": { "const": "discover_runtime" } }
+    },
+    "BootstrapRequest": {
+      "type": "object", "additionalProperties": false, "required": ["type"],
+      "properties": { "type": { "const": "bootstrap" } }
+    },
+    "AttachSessionRequest": {
+      "type": "object", "additionalProperties": false, "required": ["type", "sessionId"],
+      "properties": { "type": { "const": "attach_session" }, "sessionId": { "$ref": "#/$defs/Id" } }
+    },
+    "RetryWorkerRequest": {
+      "type": "object", "additionalProperties": false, "required": ["type", "sessionId", "observationId"],
+      "properties": { "type": { "const": "retry_worker" }, "sessionId": { "$ref": "#/$defs/Id" }, "observationId": { "$ref": "#/$defs/Id" } }
+    },
+    "SessionCommandKind": {
+      "type": "string", "enum": ["prompt", "steer", "follow_up", "abort"]
+    },
+    "SessionCommandRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "sessionId", "commandId", "expectedCursor", "kind", "text"],
+      "properties": {
+        "type": { "const": "session_command" },
+        "sessionId": { "$ref": "#/$defs/Id" },
+        "commandId": { "$ref": "#/$defs/Id" },
+        "expectedCursor": { "$ref": "#/$defs/HarnessCursor" },
+        "kind": { "$ref": "#/$defs/SessionCommandKind" },
+        "text": { "$ref": "#/$defs/Text" }
+      }
+    },
+    "InspectorRequest": {
+      "type": "object", "additionalProperties": false, "required": ["type", "sessionId", "expectedCursor"],
+      "properties": {
+        "type": { "const": "inspector" }, "sessionId": { "$ref": "#/$defs/Id" },
+        "expectedCursor": { "$ref": "#/$defs/HarnessCursor" }
+      }
+    },
+    "ChildDataPageTab": { "type": "string", "enum": ["chat", "activity", "files"] },
+    "ChildDataPageRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "sessionId", "childId", "tab", "expectedCursor", "pageCursor"],
+      "properties": {
+        "type": { "const": "child_data_page" }, "sessionId": { "$ref": "#/$defs/Id" },
+        "childId": { "$ref": "#/$defs/Id" }, "tab": { "$ref": "#/$defs/ChildDataPageTab" },
+        "expectedCursor": { "$ref": "#/$defs/HarnessCursor" },
+        "pageCursor": { "oneOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] }
+      }
+    },
+    "RefreshSessionRequest": {
+      "type": "object", "additionalProperties": false, "required": ["type", "sessionId", "knownCursor"],
+      "properties": { "type": { "const": "refresh_session" }, "sessionId": { "$ref": "#/$defs/Id" }, "knownCursor": { "$ref": "#/$defs/HarnessCursor" } }
+    },
+    "PageParentHistoryRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "sessionId", "expectedCursor", "before"],
+      "properties": {
+        "type": { "const": "conversation_history_page" },
+        "sessionId": { "$ref": "#/$defs/Id" },
+        "expectedCursor": { "$ref": "#/$defs/HarnessCursor" },
+        "before": { "oneOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] }
+      }
+    },
+    "HarnessStudioAction": {
+      "type": "string", "enum": [
+        "conversation.user-version.create", "conversation.response.regenerate", "conversation.branch.create", "conversation.files.review", "conversation.archive-fork", "conversation.history.page",
+        "composer.model.select", "composer.thinking.select", "composer.slash.execute",
+        "harness.session.prompt", "harness.session.follow-up", "harness.session.steer", "harness.session.abort", "harness.session.export", "harness.session.compact",
+        "harness.child.stop", "harness.child.transcript-page", "harness.queue.run-now", "harness.queue.remove", "harness.tool.set-enabled", "harness.context-source.open",
+        "harness.overload.retry", "harness.extension.respond", "usage.current.refresh", "activity.file.open", "editor.artifact.open", "settings.harness-policy.set", "settings.tool.set-enabled"
+      ]
+    },
+    "StudioOperationRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "sessionId", "operationId", "action", "payloadJson", "expectedCursor", "idempotencyKey"],
+      "properties": {
+        "type": { "const": "studio_operation" }, "sessionId": { "$ref": "#/$defs/Id" }, "operationId": { "$ref": "#/$defs/Id" },
+        "action": { "$ref": "#/$defs/HarnessStudioAction" }, "payloadJson": { "$ref": "#/$defs/Text" },
+        "expectedCursor": { "oneOf": [{ "$ref": "#/$defs/HarnessCursor" }, { "type": "null" }] },
+        "idempotencyKey": { "oneOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] }
+      }
+    },
+    "CreateResidentRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "creationId", "name", "cwd"],
+      "properties": {
+        "type": { "const": "create_resident" },
+        "creationId": { "$ref": "#/$defs/Id" },
+        "name": { "$ref": "#/$defs/Label" },
+        "cwd": { "$ref": "#/$defs/Path" }
+      }
+    },
+    "BranchResidentRequest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "creationId", "sourceSessionId", "entryId", "name"],
+      "properties": {
+        "type": { "const": "branch_resident" },
+        "creationId": { "$ref": "#/$defs/Id" },
+        "sourceSessionId": { "$ref": "#/$defs/Id" },
+        "entryId": { "$ref": "#/$defs/Id" },
+        "name": { "$ref": "#/$defs/Label" }
+      }
+    },
+    "StudioRequest": {
+      "oneOf": [
+        { "$ref": "#/$defs/DiscoverRuntimeRequest" },
+        { "$ref": "#/$defs/BootstrapRequest" },
+        { "$ref": "#/$defs/CreateResidentRequest" },
+        { "$ref": "#/$defs/BranchResidentRequest" },
+        { "$ref": "#/$defs/AttachSessionRequest" },
+        { "$ref": "#/$defs/RetryWorkerRequest" },
+        { "$ref": "#/$defs/SessionCommandRequest" },
+        { "$ref": "#/$defs/InspectorRequest" },
+        { "$ref": "#/$defs/ChildDataPageRequest" },
+        { "$ref": "#/$defs/RefreshSessionRequest" },
+        { "$ref": "#/$defs/PageParentHistoryRequest" },
+        { "$ref": "#/$defs/StudioOperationRequest" }
+      ]
+    },
+    "DiscoverRuntimeResponse": {
+      "type": "object", "additionalProperties": false, "required": ["type", "runtime", "compatibility"],
+      "properties": {
+        "type": { "const": "discover_runtime_result" },
+        "runtime": { "oneOf": [{ "$ref": "#/$defs/RuntimeIdentity" }, { "type": "null" }] },
+        "compatibility": { "$ref": "#/$defs/HarnessCompatibility" }
+      }
+    },
+    "BootstrapResponse": {
+      "type": "object", "additionalProperties": false, "required": ["type", "compatibility", "sessions"],
+      "properties": {
+        "type": { "const": "bootstrap_result" },
+        "compatibility": { "$ref": "#/$defs/HarnessCompatibility" },
+        "sessions": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/RootSessionSnapshot" } }
+      }
+    },
+    "SnapshotResponse": {
+      "type": "object", "additionalProperties": false, "required": ["type", "snapshot"],
+      "properties": { "type": { "const": "snapshot_result" }, "snapshot": { "$ref": "#/$defs/RootSessionSnapshot" } }
+    },
+    "CommandResponse": {
+      "type": "object", "additionalProperties": false, "required": ["type", "commandId", "outcome", "snapshot"],
+      "properties": {
+        "type": { "const": "command_result" },
+        "commandId": { "$ref": "#/$defs/Id" },
+        "outcome": { "type": "string", "enum": ["accepted", "queued", "reconciled"] },
+        "snapshot": { "$ref": "#/$defs/RootSessionSnapshot" }
+      }
+    },
+    "WorkerRetryResponse": {
+      "type": "object", "additionalProperties": false, "required": ["type", "observationId", "outcome", "snapshot"],
+      "properties": {
+        "type": { "const": "worker_retry_result" },
+        "observationId": { "$ref": "#/$defs/Id" },
+        "outcome": { "type": "string", "enum": ["recovered", "terminal_failure"] },
+        "snapshot": { "$ref": "#/$defs/RootSessionSnapshot" }
+      }
+    },
+    "ResidentCreatedResponse": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "creationId", "snapshot"],
+      "properties": {
+        "type": { "const": "resident_created" },
+        "creationId": { "$ref": "#/$defs/Id" },
+        "snapshot": { "$ref": "#/$defs/RootSessionSnapshot" }
+      }
+    },
+    "ResidentBranchedResponse": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "creationId", "sourceSessionId", "entryId", "snapshot"],
+      "properties": {
+        "type": { "const": "resident_branched" },
+        "creationId": { "$ref": "#/$defs/Id" },
+        "sourceSessionId": { "$ref": "#/$defs/Id" },
+        "entryId": { "$ref": "#/$defs/Id" },
+        "snapshot": { "$ref": "#/$defs/RootSessionSnapshot" }
+      }
+    },
+    "ProtocolErrorResponse": {
+      "type": "object", "additionalProperties": false, "required": ["type", "code", "message"],
+      "properties": {
+        "type": { "const": "error" }, "code": { "$ref": "#/$defs/Id" }, "message": { "$ref": "#/$defs/Label" }
+      }
+    },
+    "InspectorResponse": {
+      "type": "object", "additionalProperties": false, "required": ["type", "detailsJson"],
+      "properties": { "type": { "const": "inspector_result" }, "detailsJson": { "$ref": "#/$defs/Text" } }
+    },
+    "ChildDataPageResponse": {
+      "type": "object", "additionalProperties": false, "required": ["type", "pageJson"],
+      "properties": { "type": { "const": "child_data_page_result" }, "pageJson": { "$ref": "#/$defs/Text" } }
+    },
+    "ParentHistoryPageResponse": {
+      "type": "object", "additionalProperties": false, "required": ["type", "page"],
+      "properties": { "type": { "const": "conversation_history_page_result" }, "page": { "$ref": "#/$defs/ParentHistoryPage" } }
+    },
+    "StudioOperationResponse": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "operationId", "status", "commandId", "position", "revision", "reason", "retryable", "snapshot"],
+      "properties": {
+        "type": { "const": "studio_operation_result" }, "operationId": { "$ref": "#/$defs/Id" },
+        "status": { "type": "string", "enum": ["accepted", "queued", "updated", "cancelled", "unavailable", "rejected", "unknown_outcome"] },
+        "commandId": { "oneOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] },
+        "position": { "oneOf": [{ "$ref": "#/$defs/SafeInteger" }, { "type": "null" }] },
+        "revision": { "oneOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] },
+        "reason": { "oneOf": [{ "$ref": "#/$defs/Label" }, { "type": "null" }] },
+        "retryable": { "oneOf": [{ "type": "boolean" }, { "type": "null" }] },
+        "snapshot": { "oneOf": [{ "$ref": "#/$defs/RootSessionSnapshot" }, { "type": "null" }] }
+      }
+    },
+    "StudioResponse": {
+      "oneOf": [
+        { "$ref": "#/$defs/DiscoverRuntimeResponse" },
+        { "$ref": "#/$defs/BootstrapResponse" },
+        { "$ref": "#/$defs/SnapshotResponse" },
+        { "$ref": "#/$defs/CommandResponse" },
+        { "$ref": "#/$defs/WorkerRetryResponse" },
+        { "$ref": "#/$defs/ResidentCreatedResponse" },
+        { "$ref": "#/$defs/ResidentBranchedResponse" },
+        { "$ref": "#/$defs/InspectorResponse" },
+        { "$ref": "#/$defs/ChildDataPageResponse" },
+        { "$ref": "#/$defs/ParentHistoryPageResponse" },
+        { "$ref": "#/$defs/StudioOperationResponse" },
+        { "$ref": "#/$defs/ProtocolErrorResponse" }
+      ]
+    },
+    "SnapshotEvent": {
+      "type": "object", "additionalProperties": false, "required": ["type", "snapshot"],
+      "properties": { "type": { "const": "snapshot" }, "snapshot": { "$ref": "#/$defs/RootSessionSnapshot" } }
+    },
+    "SessionStateEvent": {
+      "type": "object", "additionalProperties": false, "required": ["type", "sessionId", "cursor", "state"],
+      "properties": {
+        "type": { "const": "session_state" }, "sessionId": { "$ref": "#/$defs/Id" },
+        "cursor": { "$ref": "#/$defs/HarnessCursor" },
+        "state": { "type": "string", "enum": ["idle", "working", "blocked", "failed", "disconnected", "stopped"] }
+      }
+    },
+    "HarnessEvent": {
+      "oneOf": [{ "$ref": "#/$defs/SnapshotEvent" }, { "$ref": "#/$defs/SessionStateEvent" }]
+    }
+  }
+}

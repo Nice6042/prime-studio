@@ -65,7 +65,7 @@ function makeBackgroundInert(backdrop: HTMLElement): () => void {
 }
 
 function isTopmostBackdrop(backdrop: HTMLElement): boolean {
-  const backdrops = document.querySelectorAll<HTMLElement>(".modal-backdrop");
+  const backdrops = document.querySelectorAll<HTMLElement>(".modal-backdrop, [data-studio-overlay]");
   return backdrops.item(backdrops.length - 1) === backdrop;
 }
 
@@ -91,10 +91,12 @@ export function useModalSurfaceFocus(
   dialogRef: RefObject<HTMLElement | null>,
   initialFocusRef: RefObject<HTMLElement | null>,
   restoreFallbackRef?: RefObject<HTMLElement | null>,
+  enabled = true,
 ) {
   const openerRef = useRef<HTMLElement | null>(null);
 
   useLayoutEffect(() => {
+    if (!enabled) return;
     const backdrop = backdropRef.current;
     const dialog = dialogRef.current;
     if (!backdrop || !dialog) return;
@@ -127,7 +129,7 @@ export function useModalSurfaceFocus(
         if (canReceiveFocus(restoreTarget)) restoreTarget.focus();
       });
     };
-  }, [backdropRef, dialogRef, initialFocusRef, restoreFallbackRef]);
+  }, [backdropRef, dialogRef, enabled, initialFocusRef, restoreFallbackRef]);
 
   return (event: KeyboardEvent<HTMLElement>) => {
     if (event.key !== "Tab") return;

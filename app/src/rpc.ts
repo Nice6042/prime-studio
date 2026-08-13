@@ -19,6 +19,7 @@ import type {
   DiskSessionContent,
   FleetReport,
   KernelStatus,
+  LayoutPreferencesV1,
   ModelInfo,
   PrimeEvent,
   RpcCommand,
@@ -28,6 +29,17 @@ import type {
   UsageRow,
   WorkspaceFile,
 } from "./types";
+import type { ArtifactOpenResult, ArtifactRef, ArtifactSaveCopyRequest, ArtifactSaveCopyResult, ArtifactSaveRequest, ArtifactSaveResult } from "./entities/editor/types";
+
+// The versioned Harness projection is the only new integration surface.
+// Legacy session methods below remain isolated until verified activation.
+export {
+  attachHarnessSession,
+  bootstrapHarness,
+  pageHarnessConversationHistory,
+  sendHarnessCommand,
+  subscribeHarnessEvents,
+} from "./shared/ipc/client";
 
 type EventHandler = (sessionKey: string, event: PrimeEvent) => void;
 type ExitHandler = (sessionKey: string, text: string) => void;
@@ -486,9 +498,146 @@ export const accountUsage = (id: string, since?: number) =>
 export const accountUsageSeries = (id: string, days: number) =>
   safeInvoke<UsageRow[]>("account_usage_series", { id, days }, []);
 
+export type UsageCsvExportResult =
+  | Readonly<{ status: "cancelled" }>
+  | Readonly<{ status: "saved"; path: string; rows: number; bytes: number }>;
+
+function decodeUsageCsvExportResult(value: unknown): UsageCsvExportResult {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("usage export result is invalid");
+  const result = value as Record<string, unknown>;
+  if (result.status === "cancelled" && Reflect.ownKeys(result).length === 1) return Object.freeze({ status: "cancelled" });
+  if (result.status === "saved" && Reflect.ownKeys(result).length === 4 && typeof result.path === "string" && result.path.length > 0 && result.path.length <= 32_768 && Number.isSafeInteger(result.rows) && (result.rows as number) >= 0 && (result.rows as number) <= 100_000 && Number.isSafeInteger(result.bytes) && (result.bytes as number) >= 0 && (result.bytes as number) <= 8 * 1024 * 1024) {
+    return Object.freeze({ status: "saved", path: result.path, rows: result.rows as number, bytes: result.bytes as number });
+  }
+  throw new Error("usage export result is invalid");
+}
+
+export async function exportAccountUsageCsv(csv: string, rangeDays: 7 | 30 | 90): Promise<UsageCsvExportResult> {
+  if (typeof csv !== "string" || csv.length > 8 * 1024 * 1024 || ![7, 30, 90].includes(rangeDays)) throw new Error("usage export request is invalid");
+  return decodeUsageCsvExportResult(await strictInvoke<unknown>("export_account_usage_csv", { request: { csv, rangeDays } }));
+}
+
+function validArtifactRef(ref: ArtifactRef): boolean {
+  const id = /^[A-Za-z0-9_.:-]{1,128}$/;
+  return Boolean(ref && id.test(ref.brokerId) && id.test(ref.rootSessionId) && id.test(ref.artifactId) && Number.isSafeInteger(ref.revision) && ref.revision > 0);
+}
+
+export async function openEditorArtifact(artifactRef: ArtifactRef): Promise<ArtifactOpenResult> {
+  if (!validArtifactRef(artifactRef)) throw new Error("artifact reference is invalid");
+  return strictInvoke<ArtifactOpenResult>("editor_artifact_open", { request: { artifactRef } });
+}
+
+export async function reloadEditorArtifact(artifactRef: ArtifactRef): Promise<ArtifactOpenResult> {
+  if (!validArtifactRef(artifactRef)) throw new Error("artifact reference is invalid");
+  return strictInvoke<ArtifactOpenResult>("editor_artifact_reload", { request: { artifactRef } });
+}
+
+export async function openHarnessArtifactCandidate(sessionId: string, candidateId: string): Promise<ArtifactOpenResult> {
+  const id = /^[A-Za-z0-9_.:-]{1,128}$/;
+  if (!id.test(sessionId) || !id.test(candidateId)) throw new Error("Harness artifact candidate is invalid");
+  return strictInvoke<ArtifactOpenResult>("harness_artifact_open", { request: { sessionId, candidateId } });
+}
+
+export async function saveEditorArtifact(request: ArtifactSaveRequest): Promise<ArtifactSaveResult> {
+  if (!validArtifactRef(request.ref) || request.expectedRevision !== request.ref.revision || !/^sha256:[0-9a-f]{64}$/.test(request.expectedIdentity) || request.content.length > 2 * 1024 * 1024 || request.content.includes("\0")) throw new Error("artifact save request is invalid");
+  return strictInvoke<ArtifactSaveResult>("editor_artifact_save", { request });
+}
+
+export async function saveEditorArtifactCopy(request: ArtifactSaveCopyRequest): Promise<ArtifactSaveCopyResult> {
+  if (!validArtifactRef(request.ref) || request.content.length > 2 * 1024 * 1024 || request.content.includes("\0")) throw new Error("artifact copy request is invalid");
+  return strictInvoke<ArtifactSaveCopyResult>("editor_artifact_save_copy", { request });
+}
+
+const USAGE_ROW_KEYS = ["ts", "provider", "cost", "input", "output", "cacheRead", "cacheWrite"] as const;
+const MAX_USAGE_ROWS = 100_000;
+
+function readUsageSnapshot(value: unknown): UsageRow[] {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) throw new Error();
+  const ownKeys = Reflect.ownKeys(value);
+  const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
+  if (!lengthDescriptor || !("value" in lengthDescriptor) || !Number.isSafeInteger(lengthDescriptor.value) || lengthDescriptor.value < 0 || lengthDescriptor.value > MAX_USAGE_ROWS) throw new Error();
+  const length = lengthDescriptor.value as number;
+  if (ownKeys.length !== length + 1 || !ownKeys.includes("length")) throw new Error();
+  const result: UsageRow[] = [];
+  const aggregate = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
+  for (let index = 0; index < length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (!descriptor || !("value" in descriptor)) throw new Error();
+    const row = exactDataRecord(descriptor.value, USAGE_ROW_KEYS);
+    if (!row || !Number.isSafeInteger(row.ts) || (row.ts as number) < 0 || typeof row.provider !== "string" || !/^[a-z0-9-]{0,64}$/.test(row.provider)) throw new Error();
+    if (typeof row.cost !== "number" || !Number.isFinite(row.cost) || row.cost < 0) throw new Error();
+    aggregate.cost += row.cost;
+    if (!Number.isFinite(aggregate.cost)) throw new Error();
+    for (const key of ["input", "output", "cacheRead", "cacheWrite"] as const) {
+      if (!Number.isSafeInteger(row[key]) || (row[key] as number) < 0) throw new Error();
+      aggregate[key] += row[key] as number;
+      if (!Number.isSafeInteger(aggregate[key])) throw new Error();
+    }
+    result.push(Object.freeze({
+      ts: row.ts as number,
+      provider: row.provider,
+      cost: row.cost as number,
+      input: row.input as number,
+      output: row.output as number,
+      cacheRead: row.cacheRead as number,
+      cacheWrite: row.cacheWrite as number,
+    }));
+  }
+  return Object.freeze(result) as unknown as UsageRow[];
+}
+
+/** Strict account-history projection: bridge and malformed data remain failures, never zero usage. */
+export async function accountUsageSeriesStrict(id: string, days: 7 | 30 | 90): Promise<UsageRow[]> {
+  if (!ACCOUNT_ID.test(id) || ![7, 30, 90].includes(days)) throw new Error("account usage request is invalid");
+  const value = await strictInvoke<unknown>("account_usage_series", { id, days });
+  try {
+    readUsageSnapshot(value);
+    return readUsageSnapshot(structuredClone(value));
+  } catch {
+    throw new Error("account usage snapshot is invalid");
+  }
+}
+
 /** Real ChatGPT quota snapshot from the Codex CLI's logs; null when it has never run. */
 export const codexSubscriptionUsage = () =>
   safeInvoke<CodexSubscription | null>("codex_subscription_usage", {}, null);
+
+function readRateWindow(value: unknown): CodexSubscription["secondary"] {
+  const row = exactDataRecord(value, ["usedPercent", "windowMinutes", "resetsAt"]);
+  if (!row || typeof row.usedPercent !== "number" || !Number.isFinite(row.usedPercent) || row.usedPercent < 0 || row.usedPercent > 100
+    || !Number.isSafeInteger(row.windowMinutes) || (row.windowMinutes as number) <= 0
+    || !Number.isSafeInteger(row.resetsAt) || (row.resetsAt as number) < 0) throw new Error();
+  return Object.freeze({
+    usedPercent: row.usedPercent,
+    windowMinutes: row.windowMinutes,
+    resetsAt: row.resetsAt,
+  }) as CodexSubscription["secondary"];
+}
+
+/** Strict Codex projection: null means no log; bridge/malformed data remain failures. */
+export async function codexSubscriptionUsageStrict(): Promise<CodexSubscription | null> {
+  const value = await strictInvoke<unknown>("codex_subscription_usage", {});
+  if (value === null) return null;
+  try {
+    const row = exactDataRecord(value, ["usedPercent", "windowMinutes", "resetsAt", "planType", "secondary", "staleAsOf"]);
+    if (!row || (row.planType !== null && row.planType !== undefined && (typeof row.planType !== "string" || row.planType.length > 64))
+      || (row.secondary !== null && row.secondary !== undefined && typeof row.secondary !== "object")
+      || !Number.isSafeInteger(row.staleAsOf) || (row.staleAsOf as number) < 0) throw new Error();
+    const primary = readRateWindow({
+      usedPercent: row.usedPercent,
+      windowMinutes: row.windowMinutes,
+      resetsAt: row.resetsAt,
+    })!;
+    return Object.freeze({
+      ...primary,
+      planType: row.planType as string | null | undefined,
+      secondary: row.secondary === null || row.secondary === undefined ? row.secondary as null | undefined : readRateWindow(row.secondary),
+      staleAsOf: row.staleAsOf as number,
+    });
+  } catch {
+    throw new Error("Codex quota snapshot is invalid");
+  }
+}
 
 export const listModels = () => safeInvoke<ModelInfo[]>("list_models", {}, []);
 
@@ -526,6 +675,39 @@ export const schedulerProjection = () =>
 /** `null`/empty clears the key. Returns the whole file back. */
 export const setAppSetting = (key: keyof AppSettings, value: string | null) =>
   strictInvoke<AppSettings>("set_app_setting", { key, value });
+
+function decodeLayoutPreferences(value: unknown): LayoutPreferencesV1 {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid layout preferences.");
+  const source = value as Record<string, unknown>;
+  const keys = ["schemaVersion", "sidebarOpen", "sidebarWidth", "inspectorOpen", "inspectorWidth", "editorOpen", "editorWidth", "expandedProjectIds"];
+  const actual = Object.keys(source).sort();
+  if (actual.length !== keys.length || actual.some((key, index) => key !== [...keys].sort()[index])) throw new Error("Invalid layout preferences.");
+  const width = (candidate: unknown, minimum: number, maximum: number) => {
+    if (!Number.isSafeInteger(candidate) || (candidate as number) < minimum || (candidate as number) > maximum) throw new Error("Invalid layout preferences.");
+    return candidate as number;
+  };
+  if (source.schemaVersion !== 1 || typeof source.sidebarOpen !== "boolean" || typeof source.inspectorOpen !== "boolean" || typeof source.editorOpen !== "boolean") throw new Error("Invalid layout preferences.");
+  if (!Array.isArray(source.expandedProjectIds) || source.expandedProjectIds.length > 100 || source.expandedProjectIds.some((id) => typeof id !== "string" || id.length === 0 || id.length > 160 || /[\u0000-\u001f\u007f-\u009f]/u.test(id))) throw new Error("Invalid layout preferences.");
+  const expandedProjectIds = Array.from(new Set(source.expandedProjectIds));
+  return Object.freeze({
+    schemaVersion: 1,
+    sidebarOpen: source.sidebarOpen,
+    sidebarWidth: width(source.sidebarWidth, 210, 380),
+    inspectorOpen: source.inspectorOpen,
+    inspectorWidth: width(source.inspectorWidth, 300, 600),
+    editorOpen: source.editorOpen,
+    editorWidth: width(source.editorWidth, 280, 600),
+    expandedProjectIds: Object.freeze(expandedProjectIds),
+  });
+}
+
+export async function getLayoutPreferences(): Promise<LayoutPreferencesV1> {
+  return decodeLayoutPreferences(await strictInvoke<unknown>("get_layout_preferences", {}));
+}
+
+export async function setLayoutPreferences(preferences: LayoutPreferencesV1): Promise<LayoutPreferencesV1> {
+  return decodeLayoutPreferences(await strictInvoke<unknown>("set_layout_preferences", { preferences }));
+}
 
 // ---- Windows computer-use readiness ------------------------------------
 
@@ -654,6 +836,12 @@ export const readWorkspaceFile = (path: string) =>
 
 /** http/https only — the backend refuses anything else. */
 export const openExternal = (url: string) => safeInvoke<null>("open_external", { url }, null);
+
+/** Operation-owned navigation must surface native denial instead of inventing success. */
+export const openExternalStrict = (url: string) => strictInvoke<void>("open_external", { url });
+
+/** Opens the exact third-party notices installed with this application. */
+export const openPackagedLicenseNotices = () => strictInvoke<void>("open_external", { url: "prime-studio:packaged-license-notices" });
 
 /** Files prime already changed in the session's folder. Empty outside a git repo. */
 export const filesTouched = (cwd: string) =>

@@ -1,22 +1,37 @@
 # Prime Studio
 
-Prime Studio is a Windows-first Tauri and React development snapshot exploring a
-desktop interface for a separately installed
+Prime Studio is a Windows-first Tauri and React desktop workspace for a separately installed
 [prime-agent](https://github.com/PrimeIntellect-ai/prime-agent) runtime.
 
 > [!IMPORTANT]
-> This repository is not a working Prime desktop client, a supported product, or a
-> release candidate. Do not use it with production accounts or important data.
+> This repository is a development snapshot, not a supported product or release
+> candidate. The product shell and typed fake-Harness integration work, but production
+> runtime activation remains unavailable. Do not use it with production accounts or
+> important data.
+
+It is not a working Prime desktop client against a real provider until that activation
+boundary is implemented and independently verified.
 
 ## Status
 
-The production backend starts with every elevated effect class unavailable. The
-checked-in authority gate rejects Prime process execution, live RPC, authentication,
-external navigation, workspace reads, browser execution, and computer use unless a
-future trusted verifier explicitly enables them. The current process verifier also
-stops before constructing or spawning a Prime process.
+The app now has one product entry: a responsive three-pane workspace with projects on
+the left, the clean parent conversation and composer in the center, and the Harness
+inspector on the right. The inspector owns child-agent transcripts, queue, tools,
+activity, context sources, and current-chat usage. Account-wide usage remains in
+Settings. Browser and native development tests exercise the same typed projections.
 
-Consequently, the application cannot currently:
+The native path includes a closed Studio Harness Protocol, Rust broker, verified
+sidecar launch boundary, cursor-bound session commands, and a deterministic fake
+daemon. An explicit debug-only profile exercises the real
+Tauri -> Rust -> sidecar -> fake-daemon path without credentials or a real workspace.
+
+Production still starts with every elevated effect class unavailable. The checked-in
+authority gate rejects live Prime execution, authentication, external navigation,
+workspace effects, browser execution, and computer use unless a trusted native
+verifier enables the exact capability. The production activation receipt for a real
+Prime Harness profile is deliberately not shipped yet.
+
+Consequently, a normal production build cannot currently:
 
 - start or attach to a real Prime session;
 - send a live prompt or stream a live response;
@@ -24,20 +39,22 @@ Consequently, the application cannot currently:
 - read live provider usage or workspace artifacts; or
 - perform browser or computer-use actions.
 
-The source tree does include presentation components, strict protocol models,
-account-registry code, process-isolation primitives, recovery logic, and test
-harnesses. Tests and browser fixtures demonstrate those isolated boundaries; they do
-not activate production capabilities.
+The deterministic fake profile can attach its synthetic root session, admit typed
+prompt/steer/follow-up/abort commands, return parent replies, update current-chat
+usage, and project child-agent detail only into the right inspector. This is
+integration evidence, not production capability evidence.
 
 ## Repository map
 
 | Path | Purpose |
 |---|---|
-| `app/src/` | React UI, state, domain contracts, and frontend tests |
+| `app/src/app`, `entities`, `features`, `shared` | Product UI, state, strict IPC client, and tests |
+| `app/harness-contract/` | Versioned SHP schema and generated Rust/TypeScript contracts |
+| `app/harness-sidecar/` | Studio-owned adapter process and deterministic fake daemon |
 | `app/src-tauri/src/` | Rust backend, authority gate, local storage, and native tests |
-| `app/e2e/` | Mocked browser-shell tests; no native or provider integration |
+| `app/e2e/` | Browser-shell behavior, accessibility, responsive, and projection tests |
 | `docs/security/` | Detailed threat models and security invariants |
-| `PROTOCOL.md` | Protocol research and contracts, not proof of live connectivity |
+| `PROTOCOL.md` | SHP boundary, compatibility policy, and update-resilience contract |
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the runtime boundaries and
 [PRIVACY.md](PRIVACY.md) for local data handling.
@@ -76,6 +93,8 @@ cd app
 npm test
 npm run check
 npm run build
+npm run check:harness-contract
+npm run check:harness-boundaries
 cargo test --manifest-path .\src-tauri\Cargo.toml --locked --all-targets --features test-support-bin
 ```
 

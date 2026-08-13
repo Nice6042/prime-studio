@@ -229,6 +229,7 @@ pub enum CommandAuthority {
     AccountManagement,
     LocalBookkeeping,
     SafetyControl,
+    VerifiedBroker,
     DynamicRawRpc,
     Effects(&'static [EffectClass]),
 }
@@ -267,8 +268,36 @@ pub enum TauriCommand {
     SetPrimeCli,
     CheckPrimeCli,
     GetAppSettings,
+    ProjectCatalogLoad,
+    ProjectCatalogApply,
+    ChatDisplayLoad,
+    ChatDisplayApply,
+    AttentionLoad,
+    AttentionActivityEvidence,
+    AttentionMarkSeen,
     SchedulerProjection,
+    HarnessBootstrap,
+    HarnessProjection,
+    HarnessAttachSession,
+    HarnessRetryWorker,
+    HarnessSessionCommand,
+    HarnessInspector,
+    HarnessChildDataPage,
+    HarnessComposerProjection,
+    HarnessArtifactOpen,
+    HarnessRefreshSession,
+    HarnessConversationHistoryPage,
+    HarnessStudioOperation,
+    HarnessCreateResidentChat,
+    HarnessBranchResidentChat,
+    GetLayoutPreferences,
+    SetLayoutPreferences,
     SetAppSetting,
+    ExportAccountUsageCsv,
+    EditorArtifactOpen,
+    EditorArtifactReload,
+    EditorArtifactSave,
+    EditorArtifactSaveCopy,
     KernelStatus,
     FilesTouched,
     PickDirectory,
@@ -278,7 +307,7 @@ pub enum TauriCommand {
     ComputerUseReadiness,
 }
 
-pub const ALL_TAURI_COMMANDS: [TauriCommand; 41] = [
+pub const ALL_TAURI_COMMANDS: [TauriCommand; 69] = [
     TauriCommand::StartSession,
     TauriCommand::AttachSession,
     TauriCommand::DetachSession,
@@ -311,8 +340,36 @@ pub const ALL_TAURI_COMMANDS: [TauriCommand; 41] = [
     TauriCommand::SetPrimeCli,
     TauriCommand::CheckPrimeCli,
     TauriCommand::GetAppSettings,
+    TauriCommand::ProjectCatalogLoad,
+    TauriCommand::ProjectCatalogApply,
+    TauriCommand::ChatDisplayLoad,
+    TauriCommand::ChatDisplayApply,
+    TauriCommand::AttentionLoad,
+    TauriCommand::AttentionActivityEvidence,
+    TauriCommand::AttentionMarkSeen,
     TauriCommand::SchedulerProjection,
+    TauriCommand::HarnessBootstrap,
+    TauriCommand::HarnessProjection,
+    TauriCommand::HarnessAttachSession,
+    TauriCommand::HarnessRetryWorker,
+    TauriCommand::HarnessSessionCommand,
+    TauriCommand::HarnessInspector,
+    TauriCommand::HarnessChildDataPage,
+    TauriCommand::HarnessComposerProjection,
+    TauriCommand::HarnessArtifactOpen,
+    TauriCommand::HarnessRefreshSession,
+    TauriCommand::HarnessConversationHistoryPage,
+    TauriCommand::HarnessStudioOperation,
+    TauriCommand::HarnessCreateResidentChat,
+    TauriCommand::HarnessBranchResidentChat,
+    TauriCommand::GetLayoutPreferences,
+    TauriCommand::SetLayoutPreferences,
     TauriCommand::SetAppSetting,
+    TauriCommand::ExportAccountUsageCsv,
+    TauriCommand::EditorArtifactOpen,
+    TauriCommand::EditorArtifactReload,
+    TauriCommand::EditorArtifactSave,
+    TauriCommand::EditorArtifactSaveCopy,
     TauriCommand::KernelStatus,
     TauriCommand::FilesTouched,
     TauriCommand::PickDirectory,
@@ -364,8 +421,36 @@ impl TauriCommand {
             Self::SetPrimeCli => "set_prime_cli",
             Self::CheckPrimeCli => "check_prime_cli",
             Self::GetAppSettings => "get_app_settings",
+            Self::ProjectCatalogLoad => "project_catalog_load",
+            Self::ProjectCatalogApply => "project_catalog_apply",
+            Self::ChatDisplayLoad => "chat_display_load",
+            Self::ChatDisplayApply => "chat_display_apply",
+            Self::AttentionLoad => "attention_load",
+            Self::AttentionActivityEvidence => "attention_activity_evidence",
+            Self::AttentionMarkSeen => "attention_mark_seen",
             Self::SchedulerProjection => "scheduler_projection",
+            Self::HarnessBootstrap => "harness_bootstrap",
+            Self::HarnessProjection => "harness_projection",
+            Self::HarnessAttachSession => "harness_attach_session",
+            Self::HarnessRetryWorker => "harness_retry_worker",
+            Self::HarnessSessionCommand => "harness_session_command",
+            Self::HarnessInspector => "harness_inspector",
+            Self::HarnessChildDataPage => "harness_child_data_page",
+            Self::HarnessComposerProjection => "harness_composer_projection",
+            Self::HarnessArtifactOpen => "harness_artifact_open",
+            Self::HarnessRefreshSession => "harness_refresh_session",
+            Self::HarnessConversationHistoryPage => "harness_conversation_history_page",
+            Self::HarnessStudioOperation => "harness_studio_operation",
+            Self::HarnessCreateResidentChat => "harness_create_resident_chat",
+            Self::HarnessBranchResidentChat => "harness_branch_resident_chat",
+            Self::GetLayoutPreferences => "get_layout_preferences",
+            Self::SetLayoutPreferences => "set_layout_preferences",
             Self::SetAppSetting => "set_app_setting",
+            Self::ExportAccountUsageCsv => "export_account_usage_csv",
+            Self::EditorArtifactOpen => "editor_artifact_open",
+            Self::EditorArtifactReload => "editor_artifact_reload",
+            Self::EditorArtifactSave => "editor_artifact_save",
+            Self::EditorArtifactSaveCopy => "editor_artifact_save_copy",
             Self::KernelStatus => "kernel_status",
             Self::FilesTouched => "files_touched",
             Self::PickDirectory => "pick_directory",
@@ -396,7 +481,9 @@ impl TauriCommand {
             }
             Self::KernelStatus => CommandAuthority::Effects(&[OpaqueInterpreter]),
             Self::FilesTouched => CommandAuthority::Effects(&[LocalGitProcess]),
-            Self::SetAppSetting => CommandAuthority::Effects(&[LocalConfigurationWrite]),
+            Self::SetAppSetting | Self::SetLayoutPreferences => {
+                CommandAuthority::Effects(&[LocalConfigurationWrite])
+            }
             Self::PickDirectory
             | Self::ReadWorkspaceFile
             | Self::ListWorkspaceFiles
@@ -409,7 +496,28 @@ impl TauriCommand {
             Self::BeginAccountLogin => CommandAuthority::Effects(&[AccountAuthentication]),
             Self::OpenExternal => CommandAuthority::Effects(&[ExternalNavigation]),
             Self::DetachSession | Self::StopSession => CommandAuthority::SafetyControl,
-            Self::NoteAgent => CommandAuthority::LocalBookkeeping,
+            Self::HarnessAttachSession
+            | Self::HarnessRetryWorker
+            | Self::HarnessSessionCommand
+            | Self::HarnessInspector
+            | Self::HarnessChildDataPage
+            | Self::AttentionActivityEvidence
+            | Self::HarnessComposerProjection
+            | Self::HarnessArtifactOpen
+            | Self::HarnessRefreshSession
+            | Self::HarnessConversationHistoryPage
+            | Self::HarnessStudioOperation
+            | Self::HarnessCreateResidentChat => CommandAuthority::VerifiedBroker,
+            Self::HarnessBranchResidentChat => CommandAuthority::VerifiedBroker,
+            Self::ExportAccountUsageCsv => CommandAuthority::SafetyControl,
+            Self::EditorArtifactOpen
+            | Self::EditorArtifactReload
+            | Self::EditorArtifactSave
+            | Self::EditorArtifactSaveCopy => CommandAuthority::VerifiedBroker,
+            Self::NoteAgent
+            | Self::ProjectCatalogApply
+            | Self::ChatDisplayApply
+            | Self::AttentionMarkSeen => CommandAuthority::LocalBookkeeping,
             Self::SendRpc => CommandAuthority::DynamicRawRpc,
             Self::GetProviderProductSnapshot
             | Self::ListAccounts
@@ -423,7 +531,13 @@ impl TauriCommand {
             | Self::BrowserSecurityStatus
             | Self::BrowserCheckIntentAdmission
             | Self::GetAppSettings
+            | Self::ProjectCatalogLoad
+            | Self::ChatDisplayLoad
+            | Self::AttentionLoad
             | Self::SchedulerProjection
+            | Self::HarnessBootstrap
+            | Self::HarnessProjection
+            | Self::GetLayoutPreferences
             | Self::ComputerUseReadiness => CommandAuthority::OfflineRead,
         }
     }
@@ -449,7 +563,9 @@ pub fn authorize_tauri_invoke(
                 .ok_or(AuthorityError::MalformedTauriPayload)?;
             authorize_raw_rpc(gate, raw_command)
         }
-        TauriCommand::BrowserSecurityStatus => {
+        TauriCommand::BrowserSecurityStatus
+        | TauriCommand::HarnessBootstrap
+        | TauriCommand::HarnessProjection => {
             let object = payload
                 .as_object()
                 .ok_or(AuthorityError::MalformedTauriPayload)?;
@@ -505,7 +621,8 @@ pub fn authorize_tauri_command(
         CommandAuthority::OfflineRead
         | CommandAuthority::AccountManagement
         | CommandAuthority::LocalBookkeeping
-        | CommandAuthority::SafetyControl => Ok(()),
+        | CommandAuthority::SafetyControl
+        | CommandAuthority::VerifiedBroker => Ok(()),
     }
 }
 

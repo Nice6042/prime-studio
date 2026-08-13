@@ -8,10 +8,17 @@
 //!                                         even on success — NOT an error signal.
 
 pub mod accounts;
+pub mod app_state;
+pub mod attention_ledger;
 pub mod authority;
 mod bounded_io;
 pub mod browser;
+pub mod chat_display;
+pub mod commands;
 pub mod computer_use;
+mod durable_transaction;
+pub mod harness;
+mod process_env_policy;
 pub mod project_catalog;
 mod provider_product;
 pub mod runtime_manifest;
@@ -21,6 +28,7 @@ pub mod session_process;
 
 use accounts::delete::{AccountDeletion, DeletionError, DeletionErrorCode, RemovalPlan};
 use accounts::{Account, AccountRegistry, MAX_AUTH_FILE_BYTES};
+use attention_ledger::{AttentionChannel, AttentionEvidence, AttentionLedger, AttentionSnapshot};
 use authority::{
     authorize_known_session_rpc, authorize_tauri_invoke, run_guarded_tauri_command, AuthorityGate,
     EffectClass, TauriCommand,
@@ -32,7 +40,23 @@ use bounded_io::{
 use browser::{
     BrowserBroker, BrowserIntentAdmission, BrowserIntentAdmissionRequest, BrowserSecurityStatus,
 };
+use chat_display::{
+    ChatDisplayApplyRequest, ChatDisplayAuthority, ChatDisplayRecord, ChatDisplaySnapshot,
+};
+use commands::editor::{
+    editor_artifact_open, editor_artifact_reload, editor_artifact_save, editor_artifact_save_copy,
+    ArtifactAuthority,
+};
+use commands::harness::{
+    harness_artifact_open, harness_attach_session, harness_bootstrap, harness_branch_resident_chat,
+    harness_child_data_page, harness_composer_projection, harness_conversation_history_page,
+    harness_create_resident_chat, harness_inspector, harness_projection, harness_refresh_session,
+    harness_retry_worker, harness_session_command, harness_studio_operation,
+};
+use commands::settings::{get_layout_preferences, set_layout_preferences};
+use commands::usage::export_account_usage_csv;
 use computer_use::{ComputerUseBroker, ComputerUseReadinessProjection};
+use project_catalog::{CatalogSnapshot, ProjectCatalog};
 use provider_product::provider_product_snapshot_from_registry;
 use scheduler::{SchedulerProjection, SchedulerService};
 use session_process::{
@@ -409,6 +433,25 @@ struct Settings {
     default_cwd: Option<String>,
     /// The settings section to reopen on.
     last_section: Option<String>,
+    file_open_destination: Option<String>,
+    language: Option<String>,
+    bottom_panel: Option<String>,
+    density: Option<String>,
+    reduced_motion: Option<String>,
+    send_shortcut: Option<String>,
+    prompt_suggestions: Option<String>,
+    token_estimate: Option<String>,
+    drafts: Option<String>,
+    max_concurrent_agents: Option<String>,
+    autonomous_max_turns: Option<String>,
+    retry_silent_workers: Option<String>,
+    context_discovery: Option<String>,
+    tools_enabled: Option<String>,
+    git_auto_refresh: Option<String>,
+    environment_mode: Option<String>,
+    telemetry: Option<String>,
+    crash_reports: Option<String>,
+    local_only: Option<String>,
     /// `--daemon-socket` for every spawn/attach/list/stop. Unset = prime's
     /// default socket, so the app shares a fleet with the terminal CLI.
     daemon_socket: Option<String>,
@@ -416,7 +459,7 @@ struct Settings {
 
 /// Settable through `set_app_setting`. An allowlist, so a typo'd key is an error
 /// the UI can show rather than a value silently dropped on the next round-trip.
-const SETTING_KEYS: [&str; 8] = [
+const SETTING_KEYS: [&str; 27] = [
     "theme",
     "defaultAccount",
     "defaultProvider",
@@ -424,6 +467,25 @@ const SETTING_KEYS: [&str; 8] = [
     "defaultThinking",
     "defaultCwd",
     "lastSection",
+    "fileOpenDestination",
+    "language",
+    "bottomPanel",
+    "density",
+    "reducedMotion",
+    "sendShortcut",
+    "promptSuggestions",
+    "tokenEstimate",
+    "drafts",
+    "maxConcurrentAgents",
+    "autonomousMaxTurns",
+    "retrySilentWorkers",
+    "contextDiscovery",
+    "toolsEnabled",
+    "gitAutoRefresh",
+    "environmentMode",
+    "telemetry",
+    "crashReports",
+    "localOnly",
     "daemonSocket",
 ];
 
@@ -433,6 +495,18 @@ fn settings_path() -> PathBuf {
 
 fn scheduler_state_path() -> PathBuf {
     config_dir().join("scheduler-state.json")
+}
+
+fn project_catalog_path() -> PathBuf {
+    config_dir().join("projects-v2.json")
+}
+
+fn chat_display_path() -> PathBuf {
+    config_dir().join("chat-display-v1.json")
+}
+
+fn attention_ledger_path() -> PathBuf {
+    config_dir().join("attention-v2.json")
 }
 
 fn read_settings() -> Settings {
@@ -2571,6 +2645,12 @@ struct AppState {
     /// The sole native scheduler authority. The WebView receives projections,
     /// never the durable store or a mutation handle.
     scheduler: SchedulerService,
+    harness: app_state::HarnessState,
+    project_catalog: Arc<ProjectCatalog>,
+    durable_transaction: Arc<durable_transaction::DurableTransaction>,
+    chat_display: ChatDisplayAuthority,
+    attention_ledger: Arc<AttentionLedger>,
+    artifacts: ArtifactAuthority,
 }
 
 impl AppState {
@@ -2580,6 +2660,7 @@ impl AppState {
         let computer_use = verified
             .map(ComputerUseBroker::admit_verified_authority)
             .unwrap_or_else(ComputerUseBroker::phase_zero);
+        let project_catalog = Arc::new(ProjectCatalog::new(project_catalog_path()));
         Self {
             sessions: Mutex::new(HashMap::new()),
             roots: Mutex::new(HashSet::new()),
@@ -2588,6 +2669,14 @@ impl AppState {
             computer_use,
             browser: BrowserBroker::admission_only(),
             scheduler: SchedulerService::open(scheduler_state_path()),
+            harness: app_state::HarnessState::default(),
+            chat_display: ChatDisplayAuthority::new(chat_display_path(), project_catalog.clone()),
+            project_catalog,
+            durable_transaction: Arc::new(durable_transaction::DurableTransaction::new(
+                &config_dir(),
+            )),
+            attention_ledger: Arc::new(AttentionLedger::new(attention_ledger_path())),
+            artifacts: ArtifactAuthority::default(),
         }
     }
 }
@@ -2637,6 +2726,223 @@ fn browser_check_intent_admission(
 #[tauri::command]
 fn scheduler_projection(state: State<AppState>) -> SchedulerProjection {
     state.scheduler.projection()
+}
+
+#[tauri::command]
+fn project_catalog_load(state: State<AppState>) -> Result<CatalogSnapshot, String> {
+    state
+        .project_catalog
+        .load()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn project_catalog_apply(
+    state: State<AppState>,
+    expected_revision: u64,
+    command: project_catalog::ProjectChatCommand,
+) -> Result<CatalogSnapshot, String> {
+    // Fixed order for every catalog/display mutation: resident mutex, process lock, authority lock.
+    let coordinator = state.harness.resident_transaction();
+    let _transaction = coordinator
+        .lock()
+        .map_err(|_| "Catalog transaction is unavailable".to_owned())?;
+    state
+        .durable_transaction
+        .with_lock(|| {
+            if let project_catalog::ProjectChatCommand::DeleteChat(delete) = &command {
+                state
+                    .chat_display
+                    .remove_chat(expected_revision, &delete.project_id, &delete.chat_id)
+                    .map_err(|error| error.to_string())?;
+            }
+            state
+                .project_catalog
+                .apply(expected_revision, command)
+                .map_err(|error| error.to_string())
+        })
+        .map_err(|error| match error {
+            durable_transaction::DurableTransactionError::Unavailable => {
+                "durable transaction lock is unavailable".to_owned()
+            }
+            durable_transaction::DurableTransactionError::PersistenceOutcomeUnknown => {
+                "persistenceOutcomeUnknown".to_owned()
+            }
+        })?
+}
+
+#[tauri::command]
+fn chat_display_load(state: State<AppState>) -> Result<ChatDisplaySnapshot, String> {
+    state.chat_display.load().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn chat_display_apply(
+    state: State<AppState>,
+    request: ChatDisplayApplyRequest,
+) -> Result<ChatDisplayRecord, String> {
+    // Fixed order for every catalog/display mutation: resident mutex, process lock, authority lock.
+    let coordinator = state.harness.resident_transaction();
+    let _transaction = coordinator
+        .lock()
+        .map_err(|_| "Chat display transaction is unavailable".to_owned())?;
+    state
+        .durable_transaction
+        .with_lock(|| {
+            state
+                .chat_display
+                .apply(
+                    request.expected_revision,
+                    &request.chat_id,
+                    &request.message_id,
+                    &request.source_content,
+                    &request.content,
+                )
+                .map_err(|error| error.to_string())
+        })
+        .map_err(|error| match error {
+            durable_transaction::DurableTransactionError::Unavailable => {
+                "durable transaction lock is unavailable".to_owned()
+            }
+            durable_transaction::DurableTransactionError::PersistenceOutcomeUnknown => {
+                "persistenceOutcomeUnknown".to_owned()
+            }
+        })?
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct AttentionMarkSeenInput {
+    expected_revision: u64,
+    chat_id: String,
+    channel: AttentionChannel,
+    evidence: AttentionEvidence,
+}
+
+#[tauri::command]
+fn attention_load(state: State<AppState>) -> Result<AttentionSnapshot, String> {
+    state
+        .attention_ledger
+        .load()
+        .map_err(|error| error.to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct AttentionActivityEvidenceInput {
+    session_id: String,
+}
+
+#[tauri::command]
+fn attention_activity_evidence(
+    state: State<AppState>,
+    request: AttentionActivityEvidenceInput,
+) -> Result<Option<AttentionEvidence>, String> {
+    let broker = state
+        .harness
+        .broker()
+        .ok_or_else(|| "Attention Harness broker is unavailable".to_owned())?;
+    let evidence = broker
+        .lock()
+        .map_err(|_| "Attention Harness broker is unavailable".to_owned())?
+        .activity_attention_evidence(&request.session_id);
+    Ok(evidence)
+}
+
+fn chat_attention_evidence(
+    session: &harness::broker::RootSessionProjection,
+) -> Option<AttentionEvidence> {
+    session
+        .parent_messages
+        .iter()
+        .rev()
+        .find_map(|message| match message {
+            harness::generated::ParentMessage::Assistant {
+                id,
+                streaming: false,
+                emitted_at_ms,
+                ..
+            } => Some(AttentionEvidence {
+                runtime_generation: session.cursor.runtime_generation.clone(),
+                marker: id.clone(),
+                occurred_at_ms: *emitted_at_ms,
+            }),
+            _ => None,
+        })
+}
+
+fn mark_attention_seen_authoritatively(
+    catalog: &CatalogSnapshot,
+    broker: &harness::broker::HarnessBroker,
+    ledger: &AttentionLedger,
+    request: AttentionMarkSeenInput,
+) -> Result<AttentionSnapshot, String> {
+    let matches: Vec<_> = catalog
+        .state
+        .projects
+        .iter()
+        .flat_map(|project| project.chats.iter())
+        .filter(|chat| chat.id == request.chat_id && !chat.archived)
+        .collect();
+    let chat = match matches.as_slice() {
+        [chat] => *chat,
+        _ => return Err("Attention chat identity is unavailable".to_owned()),
+    };
+    let binding = chat
+        .binding
+        .as_ref()
+        .ok_or_else(|| "Attention chat has no authoritative Harness binding".to_owned())?;
+    let session = broker
+        .project(&binding.session_id)
+        .ok_or_else(|| "Attention Harness session identity is unavailable".to_owned())?;
+    if binding.account_id != session.account_id
+        || binding
+            .agent_id
+            .as_ref()
+            .is_some_and(|agent_id| agent_id != &session.chat_id)
+    {
+        return Err("Attention evidence identity is not authoritative".to_owned());
+    }
+    let authoritative = match request.channel {
+        AttentionChannel::Chat => chat_attention_evidence(&session),
+        AttentionChannel::Activity => broker.activity_attention_evidence(&session.session_id),
+    };
+    if authoritative.as_ref() != Some(&request.evidence) {
+        return Err(
+            "Attention evidence is not the current authoritative channel content".to_owned(),
+        );
+    }
+    ledger
+        .mark_seen(
+            request.expected_revision,
+            &request.chat_id,
+            request.channel,
+            request.evidence,
+        )
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn attention_mark_seen(
+    state: State<AppState>,
+    request: AttentionMarkSeenInput,
+) -> Result<AttentionSnapshot, String> {
+    let coordinator = state.harness.resident_transaction();
+    let _transaction = coordinator
+        .lock()
+        .map_err(|_| "Attention transaction is unavailable".to_owned())?;
+    let catalog = state
+        .project_catalog
+        .load()
+        .map_err(|error| error.to_string())?;
+    let broker = state
+        .harness
+        .broker()
+        .ok_or_else(|| "Attention Harness broker is unavailable".to_owned())?;
+    let broker = broker
+        .lock()
+        .map_err(|_| "Attention Harness broker is unavailable".to_owned())?;
+    mark_attention_seen_authoritatively(&catalog, &broker, &state.attention_ledger, request)
 }
 
 /// Put the real Tauri-generated dispatcher behind the single Phase 0 choke
@@ -3586,6 +3892,17 @@ fn list_workspace_files(app: AppHandle, dir: String) -> Result<Vec<FileEntry>, S
 #[tauri::command]
 fn open_external(app: AppHandle, url: String) -> Result<(), String> {
     require_tauri_authority(&app.state::<AppState>(), TauriCommand::OpenExternal)?;
+    if url == "prime-studio:packaged-license-notices" {
+        let root = app
+            .path()
+            .resource_dir()
+            .map_err(|_| "application resource directory is unavailable".to_owned())?;
+        let notices = packaged_license_notices(&root)?;
+        return app
+            .opener()
+            .open_path(notices.to_string_lossy().into_owned(), None::<&str>)
+            .map_err(|error| error.to_string());
+    }
     // Only web URLs — the opener would happily hand anything else to the shell.
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err(format!("refusing to open non-http url: {url}"));
@@ -3593,6 +3910,47 @@ fn open_external(app: AppHandle, url: String) -> Result<(), String> {
     app.opener()
         .open_url(url, None::<&str>)
         .map_err(|e| e.to_string())
+}
+
+fn packaged_license_notices(resource_root: &Path) -> Result<PathBuf, String> {
+    [
+        resource_root.join("public").join("THIRD_PARTY_NOTICES.md"),
+        resource_root
+            .join("_up_")
+            .join("public")
+            .join("THIRD_PARTY_NOTICES.md"),
+        resource_root.join("THIRD_PARTY_NOTICES.md"),
+    ]
+    .into_iter()
+    .find(|candidate| candidate.is_file())
+    .ok_or_else(|| "packaged third-party notices are unavailable".to_owned())
+}
+
+#[cfg(test)]
+mod packaged_license_tests {
+    use super::packaged_license_notices;
+
+    #[test]
+    fn resolves_only_the_notice_installed_under_the_application_resource_root() {
+        let root =
+            std::env::temp_dir().join(format!("prime-studio-license-{}", uuid::Uuid::new_v4()));
+        let packaged = root.join("public").join("THIRD_PARTY_NOTICES.md");
+        std::fs::create_dir_all(packaged.parent().unwrap()).unwrap();
+        std::fs::write(&packaged, "packaged notices").unwrap();
+
+        assert_eq!(packaged_license_notices(&root).unwrap(), packaged);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_when_the_packaged_notice_is_absent() {
+        let root =
+            std::env::temp_dir().join(format!("prime-studio-license-{}", uuid::Uuid::new_v4()));
+        assert_eq!(
+            packaged_license_notices(&root).unwrap_err(),
+            "packaged third-party notices are unavailable"
+        );
+    }
 }
 
 // ---------------------------------------------------------------- app
@@ -3618,8 +3976,196 @@ fn navigation_allowed(url: &tauri::Url, is_dev: bool) -> bool {
     }
 }
 
+#[cfg(debug_assertions)]
+fn install_explicit_debug_harness_fixture(app: &AppHandle) -> std::io::Result<()> {
+    use harness::broker::{HarnessBroker, SessionOwnership};
+    use harness::sidecar::{SidecarSupervisor, VerifiedSidecarSpec};
+    use sha2::{Digest, Sha256};
+
+    const RUNTIME_DIGEST: &str =
+        "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900";
+    const PROFILE: &str = "prime-agent-daemon-v7-schema13-816309b1cd50";
+    const RESOURCE_NAMES: [&str; 13] = [
+        "compatibility.js",
+        "fakeDaemonScenario.js",
+        "framing.js",
+        "index.js",
+        "redaction.js",
+        "runtimeDiscovery.js",
+        "runtimeClosure.js",
+        "reviewedPrimeAdapter.js",
+        "primeDaemonBridge.js",
+        "studioHarnessOperations.js",
+        "profiles/daemon-v7-schema13.js",
+        "vendor/package.json",
+        "vendor/prime-daemon-adapter-v0.7.1.mjs",
+    ];
+
+    let configured = [
+        std::env::var_os("PRIME_STUDIO_DEBUG_HARNESS_NODE"),
+        std::env::var_os("PRIME_STUDIO_DEBUG_HARNESS_ENTRY"),
+        std::env::var_os("PRIME_STUDIO_DEBUG_HARNESS_SCENARIO"),
+    ];
+    if configured.iter().all(Option::is_none) {
+        return Ok(());
+    }
+    if configured.iter().any(Option::is_none) {
+        return Err(std::io::Error::other(
+            "all explicit debug Harness fixture paths are required",
+        ));
+    }
+    let node = PathBuf::from(configured[0].as_ref().expect("checked"));
+    let entry = PathBuf::from(configured[1].as_ref().expect("checked"));
+    let scenario = PathBuf::from(configured[2].as_ref().expect("checked"));
+    if !node.is_absolute() || !entry.is_absolute() || !scenario.is_absolute() {
+        return Err(std::io::Error::other(
+            "debug Harness fixture paths must be absolute",
+        ));
+    }
+    let digest = |path: &Path| -> std::io::Result<String> {
+        Ok(format!("sha256:{:x}", Sha256::digest(std::fs::read(path)?)))
+    };
+    let root = entry
+        .parent()
+        .ok_or_else(|| std::io::Error::other("debug Harness entry has no parent"))?;
+    let mut resources = RESOURCE_NAMES
+        .into_iter()
+        .map(|relative| root.join(relative))
+        .collect::<Vec<_>>();
+    resources.push(scenario.clone());
+    let resources = resources
+        .into_iter()
+        .map(|path| digest(&path).map(|hash| (path, hash)))
+        .collect::<std::io::Result<Vec<_>>>()?;
+    let spec = VerifiedSidecarSpec::verify(
+        node.clone(),
+        digest(&node)?,
+        vec![
+            entry.display().to_string(),
+            "--fixture-scenario".to_owned(),
+            scenario.display().to_string(),
+        ],
+        resources,
+    )
+    .map_err(|error| {
+        std::io::Error::other(format!("Harness fixture verification failed: {error}"))
+    })?;
+    let sidecar = SidecarSupervisor::start(spec).map_err(|error| {
+        std::io::Error::other(format!("Harness fixture failed to start: {error}"))
+    })?;
+    let mut broker = HarnessBroker::new(
+        sidecar,
+        RUNTIME_DIGEST.to_owned(),
+        PROFILE.to_owned(),
+        vec![(
+            "session-e2e".to_owned(),
+            SessionOwnership {
+                account_id: Some("account-e2e".to_owned()),
+                project_id: "project:personal".to_owned(),
+                chat_id: "chat-e2e".to_owned(),
+            },
+        )],
+        None,
+    )
+    .map_err(|error| std::io::Error::other(format!("Harness fixture broker failed: {error}")))?;
+    tauri::async_runtime::block_on(broker.bootstrap()).map_err(|error| {
+        std::io::Error::other(format!("Harness fixture bootstrap failed: {error}"))
+    })?;
+    app.state::<AppState>()
+        .harness
+        .install(broker)
+        .map_err(std::io::Error::other)
+}
+
+fn production_resource_root(app: &AppHandle) -> Result<PathBuf, String> {
+    let root = app
+        .path()
+        .resource_dir()
+        .map_err(|_| "Harness resource directory is unavailable".to_owned())?;
+    let candidates = [
+        root.join("harness-sidecar").join("dist").join("src"),
+        root.join("_up_")
+            .join("harness-sidecar")
+            .join("dist")
+            .join("src"),
+    ];
+    candidates
+        .into_iter()
+        .find(|path| path.join("index.js").is_file())
+        .ok_or_else(|| "Harness resources are not installed".to_owned())
+}
+
+fn production_node() -> Result<PathBuf, String> {
+    #[cfg(windows)]
+    {
+        let program_files = std::env::var_os("ProgramFiles")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(r"C:\Program Files"));
+        let node = program_files.join("nodejs").join("node.exe");
+        if node.is_file() {
+            return Ok(node);
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        for node in [
+            PathBuf::from("/usr/local/bin/node"),
+            PathBuf::from("/usr/bin/node"),
+        ] {
+            if node.is_file() {
+                return Ok(node);
+            }
+        }
+    }
+    Err("Pinned Node runtime is unavailable".to_owned())
+}
+
+fn start_production_harness_activation(app: &AppHandle) {
+    use harness::activation::{activate_production, ActivationError, ProductionActivationInput};
+
+    let harness = app.state::<AppState>().harness.clone();
+    let input: Result<ProductionActivationInput, ActivationError> = (|| {
+        let daemon_cli = prime_cli().map_err(|_| ActivationError::NotInstalled)?.cli;
+        let node = production_node().map_err(|_| ActivationError::EnvironmentUnavailable)?;
+        let resource_root = production_resource_root(app)
+            .map_err(|_| ActivationError::ResourceVerificationFailed)?;
+        let catalog = app
+            .state::<AppState>()
+            .project_catalog
+            .load()
+            .map_err(|_| ActivationError::CatalogBindingInvalid)?;
+        Ok(ProductionActivationInput {
+            daemon_cli,
+            node,
+            resource_root,
+            catalog,
+            personal_workspace: config_dir().join("personal-workspace"),
+        })
+    })();
+    match input {
+        Err(error) => {
+            let _ = harness.mark_unavailable(error.unavailable_reason());
+        }
+        Ok(input) => {
+            tauri::async_runtime::spawn(async move {
+                match activate_production(input).await {
+                    Ok(broker) => {
+                        let _ = harness.install(broker);
+                    }
+                    Err(error) => {
+                        let _ = harness.mark_unavailable(error.unavailable_reason());
+                    }
+                }
+            });
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    std::fs::create_dir_all(config_dir()).unwrap_or_else(|error| {
+        panic!("Prime Studio configuration directory must be available: {error}")
+    });
     account_deletion()
         .recover_pending_transactions()
         .unwrap_or_else(|error| {
@@ -3630,6 +4176,13 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
         .setup(|app| {
+            #[cfg(debug_assertions)]
+            if tauri::is_dev() {
+                install_explicit_debug_harness_fixture(app.handle())?;
+            }
+            if app.state::<AppState>().harness.broker().is_none() {
+                start_production_harness_activation(app.handle());
+            }
             let config = app
                 .config()
                 .app
@@ -3681,8 +4234,36 @@ pub fn run() {
             set_prime_cli,
             check_prime_cli,
             get_app_settings,
+            project_catalog_load,
+            project_catalog_apply,
+            chat_display_load,
+            chat_display_apply,
+            attention_load,
+            attention_activity_evidence,
+            attention_mark_seen,
             scheduler_projection,
+            harness_bootstrap,
+            harness_projection,
+            harness_attach_session,
+            harness_retry_worker,
+            harness_session_command,
+            harness_inspector,
+            harness_child_data_page,
+            harness_composer_projection,
+            harness_artifact_open,
+            harness_refresh_session,
+            harness_conversation_history_page,
+            harness_studio_operation,
+            harness_create_resident_chat,
+            harness_branch_resident_chat,
+            get_layout_preferences,
+            set_layout_preferences,
             set_app_setting,
+            export_account_usage_csv,
+            editor_artifact_open,
+            editor_artifact_reload,
+            editor_artifact_save,
+            editor_artifact_save_copy,
             kernel_status,
             files_touched,
             pick_directory,
@@ -3715,7 +4296,257 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::harness::broker::{HarnessBroker, SessionOwnership};
+    use crate::harness::generated::{
+        CurrentChatUsage, HarnessCursor, MessageBlock, ParentChannel, ParentMessage,
+        RootSessionSnapshot, RootSessionState, TurnPerformanceProjection,
+        TurnPerformanceUnavailableReason, WorkerRecoveryProjection, WorkerRecoveryStatus,
+    };
+    use crate::project_catalog::{
+        PrimeChatBinding, PrimeChatBindingKind, Project, ProjectChat, ProjectKind, ProjectRoot,
+        ProjectRootKind,
+    };
     use std::io::{BufRead as _, BufReader};
+
+    fn attention_snapshot(
+        session_id: &str,
+        project_id: &str,
+        daemon_chat_id: &str,
+        message_id: &str,
+        emitted_at_ms: u64,
+    ) -> RootSessionSnapshot {
+        RootSessionSnapshot {
+            session_id: session_id.to_owned(),
+            account_id: None,
+            provider: Some("openai-codex".to_owned()),
+            project_id: project_id.to_owned(),
+            chat_id: daemon_chat_id.to_owned(),
+            cursor: HarnessCursor {
+                runtime_generation: "generation-a".to_owned(),
+                sequence: 99,
+            },
+            state: RootSessionState::Idle,
+            parent_messages: vec![ParentMessage::Assistant {
+                channel: ParentChannel::Parent,
+                id: message_id.to_owned(),
+                blocks: vec![MessageBlock::Text {
+                    text: "done".to_owned(),
+                }],
+                streaming: false,
+                emitted_at_ms,
+            }],
+            children: vec![],
+            queue: vec![],
+            tools: vec![],
+            resources: vec![],
+            usage: CurrentChatUsage {
+                input: 0,
+                output: 0,
+                cache_read: 0,
+                cache_write: 0,
+                total_tokens: 0,
+                cost: None,
+            },
+            worker_recovery: WorkerRecoveryProjection {
+                status: WorkerRecoveryStatus::Ready,
+                closure_reason: None,
+                observation_id: None,
+                automatic_retry_count: 0,
+                detail: None,
+            },
+            performance: TurnPerformanceProjection::Unavailable {
+                session_id: session_id.to_owned(),
+                cursor: HarnessCursor {
+                    runtime_generation: "generation-a".to_owned(),
+                    sequence: 99,
+                },
+                reason: TurnPerformanceUnavailableReason::EventChronologyUnavailable,
+            },
+        }
+    }
+
+    fn bound_attention_chat(
+        chat_id: &str,
+        project_id: &str,
+        session_id: &str,
+        daemon_chat_id: &str,
+    ) -> ProjectChat {
+        ProjectChat {
+            id: chat_id.to_owned(),
+            project_id: project_id.to_owned(),
+            title: chat_id.to_owned(),
+            pinned: false,
+            archived: false,
+            binding: Some(PrimeChatBinding {
+                kind: PrimeChatBindingKind::PrimeSession,
+                account_id: None,
+                session_id: session_id.to_owned(),
+                session_file: format!("{session_id}.json"),
+                agent_id: Some(daemon_chat_id.to_owned()),
+            }),
+        }
+    }
+
+    #[test]
+    fn attention_mark_seen_composes_identity_evidence_and_revision_cas() {
+        let ownership = vec![
+            (
+                "session-a".to_owned(),
+                SessionOwnership {
+                    account_id: None,
+                    project_id: "project-a".to_owned(),
+                    chat_id: "daemon-chat-a".to_owned(),
+                },
+            ),
+            (
+                "session-b".to_owned(),
+                SessionOwnership {
+                    account_id: None,
+                    project_id: "project-b".to_owned(),
+                    chat_id: "daemon-chat-b".to_owned(),
+                },
+            ),
+        ];
+        let mut broker = HarnessBroker::for_tests(ownership, None).unwrap();
+        broker.begin_snapshot(2).unwrap();
+        for snapshot in [
+            attention_snapshot("session-a", "project-a", "daemon-chat-a", "message-a", 10),
+            attention_snapshot("session-b", "project-b", "daemon-chat-b", "message-b", 20),
+        ] {
+            let admission = broker.admit_snapshot(snapshot).unwrap();
+            broker.apply_snapshot(admission).unwrap();
+        }
+        broker.finish_snapshot().unwrap();
+
+        let catalog = CatalogSnapshot {
+            revision: 0,
+            state: project_catalog::ProjectChatState {
+                schema_version: 1,
+                selected_project_id: "project-a".to_owned(),
+                projects: vec![
+                    Project {
+                        id: "project-a".to_owned(),
+                        kind: ProjectKind::Personal,
+                        name: "A".to_owned(),
+                        root: ProjectRoot {
+                            kind: ProjectRootKind::StudioManagedEmpty,
+                            path: None,
+                        },
+                        pinned: false,
+                        archived: false,
+                        selected_chat_id: Some("chat-a".to_owned()),
+                        chats: vec![bound_attention_chat(
+                            "chat-a",
+                            "project-a",
+                            "session-a",
+                            "daemon-chat-a",
+                        )],
+                    },
+                    Project {
+                        id: "project-b".to_owned(),
+                        kind: ProjectKind::Personal,
+                        name: "B".to_owned(),
+                        root: ProjectRoot {
+                            kind: ProjectRootKind::StudioManagedEmpty,
+                            path: None,
+                        },
+                        pinned: false,
+                        archived: false,
+                        selected_chat_id: Some("chat-b".to_owned()),
+                        chats: vec![bound_attention_chat(
+                            "chat-b",
+                            "project-b",
+                            "session-b",
+                            "daemon-chat-b",
+                        )],
+                    },
+                ],
+            },
+        };
+        let ledger_path = std::env::temp_dir().join(format!(
+            "prime-studio-attention-boundary-{}-{}.json",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let ledger = AttentionLedger::new(ledger_path.clone());
+        let evidence_a = AttentionEvidence {
+            runtime_generation: "generation-a".to_owned(),
+            marker: "message-a".to_owned(),
+            occurred_at_ms: 10,
+        };
+
+        let accepted = mark_attention_seen_authoritatively(
+            &catalog,
+            &broker,
+            &ledger,
+            AttentionMarkSeenInput {
+                expected_revision: 0,
+                chat_id: "chat-a".to_owned(),
+                channel: AttentionChannel::Chat,
+                evidence: evidence_a.clone(),
+            },
+        )
+        .expect("exact authoritative evidence must be accepted");
+        assert_eq!(accepted.revision, 1);
+
+        let cross_chat = mark_attention_seen_authoritatively(
+            &catalog,
+            &broker,
+            &ledger,
+            AttentionMarkSeenInput {
+                expected_revision: 1,
+                chat_id: "chat-b".to_owned(),
+                channel: AttentionChannel::Chat,
+                evidence: evidence_a.clone(),
+            },
+        )
+        .expect_err("cross-chat evidence must fail closed");
+        assert!(cross_chat.contains("current authoritative channel content"));
+
+        let stale = mark_attention_seen_authoritatively(
+            &catalog,
+            &broker,
+            &ledger,
+            AttentionMarkSeenInput {
+                expected_revision: 1,
+                chat_id: "chat-a".to_owned(),
+                channel: AttentionChannel::Chat,
+                evidence: AttentionEvidence {
+                    runtime_generation: "generation-a".to_owned(),
+                    marker: "message-old".to_owned(),
+                    occurred_at_ms: 9,
+                },
+            },
+        )
+        .expect_err("stale evidence must fail closed");
+        assert!(stale.contains("current authoritative channel content"));
+
+        let conflict = mark_attention_seen_authoritatively(
+            &catalog,
+            &broker,
+            &ledger,
+            AttentionMarkSeenInput {
+                expected_revision: 0,
+                chat_id: "chat-a".to_owned(),
+                channel: AttentionChannel::Chat,
+                evidence: evidence_a,
+            },
+        )
+        .expect_err("durable revision CAS must reject a stale writer");
+        assert!(conflict.contains("revisionConflict"));
+
+        let _ = std::fs::remove_file(ledger_path);
+    }
+
+    #[test]
+    fn app_state_uses_the_catalog_services_exact_confined_leaf_name() {
+        assert_eq!(
+            project_catalog_path()
+                .file_name()
+                .and_then(|name| name.to_str()),
+            Some("projects-v2.json")
+        );
+    }
 
     #[test]
     fn app_state_projects_unavailable_and_verified_admission_only_through_the_same_path() {
@@ -4647,11 +5478,15 @@ mod tests {
         );
         set_app_setting_impl("theme".into(), Some("light".into())).unwrap();
         set_app_setting_impl("defaultThinking".into(), Some("medium".into())).unwrap();
+        set_app_setting_impl("sendShortcut".into(), Some("ctrl-enter".into())).unwrap();
+        set_app_setting_impl("promptSuggestions".into(), Some("disabled".into())).unwrap();
         // set_prime_cli must not clobber the rest of the file.
         set_prime_cli_impl(Some("  C:\\nope\\dist  ".into())).unwrap();
         let s = get_app_settings();
         assert_eq!(s.theme.as_deref(), Some("light"));
         assert_eq!(s.default_thinking.as_deref(), Some("medium"));
+        assert_eq!(s.send_shortcut.as_deref(), Some("ctrl-enter"));
+        assert_eq!(s.prompt_suggestions.as_deref(), Some("disabled"));
         assert_eq!(
             s.cli_path.as_deref(),
             Some("C:\\nope\\dist"),

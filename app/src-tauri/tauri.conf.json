@@ -27,6 +27,7 @@
   "bundle": {
     "active": true,
     "targets": ["msi", "nsis"],
+    "resources": ["../harness-sidecar/dist/src", "../public/THIRD_PARTY_NOTICES.md"],
     "createUpdaterArtifacts": false,
     "publisher": "Prime Studio Contributors",
     "copyright": "Copyright (c) 2026 Prime Studio Contributors",

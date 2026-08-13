@@ -398,6 +398,12 @@ pub enum ProjectChatCommand {
     ChatRestore(ChatIdCommand),
     #[serde(rename = "chat.set-pinned")]
     SetChatPinned(SetChatPinnedCommand),
+    #[serde(rename = "chat.duplicate")]
+    DuplicateChat(DuplicateChatCommand),
+    #[serde(rename = "chat.move")]
+    MoveChat(MoveChatCommand),
+    #[serde(rename = "chat.delete")]
+    DeleteChat(ChatIdCommand),
     #[serde(rename = "selection.select-project")]
     SelectProject(SelectProjectCommand),
     #[serde(rename = "selection.select-chat")]
@@ -469,6 +475,23 @@ pub struct SetChatPinnedCommand {
     pub project_id: String,
     pub chat_id: String,
     pub pinned: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DuplicateChatCommand {
+    pub project_id: String,
+    pub chat_id: String,
+    pub new_chat_id: String,
+    pub title: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MoveChatCommand {
+    pub project_id: String,
+    pub chat_id: String,
+    pub target_project_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2229,6 +2252,17 @@ fn apply_command(
             validate_binding(&command.binding).map_err(|_| CatalogError::invalid_command())?;
             let (project_index, chat_index) =
                 find_chat(state, &command.project_id, &command.chat_id)?;
+            if state.projects.iter().any(|project| {
+                project.chats.iter().any(|chat| {
+                    chat.id != command.chat_id
+                        && chat
+                            .binding
+                            .as_ref()
+                            .is_some_and(|binding| binding.session_id == command.binding.session_id)
+                })
+            }) {
+                return Err(CatalogError::invalid_command());
+            }
             let chat = &mut state.projects[project_index].chats[chat_index];
             match &chat.binding {
                 Some(binding) if binding == &command.binding => Ok(false),
@@ -2306,6 +2340,98 @@ fn apply_command(
             chat.pinned = command.pinned;
             Ok(true)
         }
+        ProjectChatCommand::DuplicateChat(command) => {
+            if !valid_id(&command.new_chat_id)
+                || !valid_label(&command.title)
+                || state
+                    .projects
+                    .iter()
+                    .flat_map(|project| &project.chats)
+                    .any(|chat| chat.id == command.new_chat_id)
+            {
+                return Err(CatalogError::invalid_command());
+            }
+            let (project_index, chat_index) =
+                find_chat(state, &command.project_id, &command.chat_id)?;
+            if state.projects[project_index].archived
+                || state.projects[project_index].chats[chat_index].archived
+            {
+                return Err(CatalogError::invalid_command());
+            }
+            let project = &mut state.projects[project_index];
+            project.selected_chat_id = Some(command.new_chat_id.clone());
+            project.chats.push(ProjectChat {
+                id: command.new_chat_id,
+                project_id: project.id.clone(),
+                title: command.title,
+                pinned: false,
+                archived: false,
+                binding: None,
+            });
+            state.selected_project_id.clone_from(&project.id);
+            Ok(true)
+        }
+        ProjectChatCommand::MoveChat(command) => {
+            let (source_index, chat_index) =
+                find_chat(state, &command.project_id, &command.chat_id)?;
+            let target_index = state
+                .projects
+                .iter()
+                .position(|project| project.id == command.target_project_id)
+                .filter(|index| !state.projects[*index].archived)
+                .ok_or_else(CatalogError::invalid_command)?;
+            if source_index == target_index {
+                return Ok(false);
+            }
+            if state.projects[source_index].archived
+                || state.projects[source_index].chats[chat_index].archived
+            {
+                return Err(CatalogError::invalid_command());
+            }
+            if state.projects[source_index].selected_chat_id.as_deref()
+                == Some(command.chat_id.as_str())
+            {
+                state.projects[source_index].selected_chat_id = state.projects[source_index]
+                    .chats
+                    .iter()
+                    .skip(chat_index + 1)
+                    .find(|chat| !chat.archived)
+                    .or_else(|| {
+                        state.projects[source_index].chats[..chat_index]
+                            .iter()
+                            .rev()
+                            .find(|chat| !chat.archived)
+                    })
+                    .map(|chat| chat.id.clone());
+            }
+            let mut moved = state.projects[source_index].chats.remove(chat_index);
+            moved.project_id.clone_from(&command.target_project_id);
+            state.projects[target_index].selected_chat_id = Some(moved.id.clone());
+            state.projects[target_index].chats.push(moved);
+            state.selected_project_id = command.target_project_id;
+            Ok(true)
+        }
+        ProjectChatCommand::DeleteChat(command) => {
+            let (project_index, chat_index) =
+                find_chat(state, &command.project_id, &command.chat_id)?;
+            let project = &mut state.projects[project_index];
+            if project.selected_chat_id.as_deref() == Some(command.chat_id.as_str()) {
+                project.selected_chat_id = project
+                    .chats
+                    .iter()
+                    .skip(chat_index + 1)
+                    .find(|chat| !chat.archived)
+                    .or_else(|| {
+                        project.chats[..chat_index]
+                            .iter()
+                            .rev()
+                            .find(|chat| !chat.archived)
+                    })
+                    .map(|chat| chat.id.clone());
+            }
+            project.chats.remove(chat_index);
+            Ok(true)
+        }
         ProjectChatCommand::SelectProject(command) => {
             let project = state
                 .projects
@@ -2362,6 +2488,7 @@ fn validate_state(state: &ProjectChatState) -> Result<(), ()> {
     }
     let mut project_ids = HashSet::new();
     let mut chat_ids = HashSet::new();
+    let mut resident_session_ids = HashSet::new();
     let mut personal_count = 0;
     for project in &state.projects {
         if !valid_id(&project.id)
@@ -2404,6 +2531,9 @@ fn validate_state(state: &ProjectChatState) -> Result<(), ()> {
             }
             if let Some(binding) = &chat.binding {
                 validate_binding(binding)?;
+                if !resident_session_ids.insert(binding.session_id.as_str()) {
+                    return Err(());
+                }
             }
         }
         if let Some(selected_chat_id) = &project.selected_chat_id {
@@ -2561,6 +2691,51 @@ fn validate_catalog_value_bounds(value: &Value) -> Result<(), ()> {
 #[cfg(test)]
 mod persistence_tests {
     use super::*;
+
+    #[test]
+    fn daemon_resident_identity_cannot_bind_multiple_studio_chats() {
+        let mut state = initial_snapshot().state;
+        for chat_id in ["studio-chat-1", "studio-chat-2"] {
+            apply_command(
+                &mut state,
+                ProjectChatCommand::ChatCreate(ChatCreateCommand {
+                    project_id: PERSONAL_PROJECT_ID.to_owned(),
+                    chat_id: chat_id.to_owned(),
+                    title: chat_id.to_owned(),
+                }),
+            )
+            .expect("create Studio chat");
+        }
+        let binding = PrimeChatBinding {
+            kind: PrimeChatBindingKind::PrimeSession,
+            account_id: None,
+            session_id: "daemon-active-1".to_owned(),
+            session_file: "daemon-chat-1.jsonl".to_owned(),
+            agent_id: Some("daemon-chat-1".to_owned()),
+        };
+        apply_command(
+            &mut state,
+            ProjectChatCommand::BindPrimeSession(BindPrimeSessionCommand {
+                project_id: PERSONAL_PROJECT_ID.to_owned(),
+                chat_id: "studio-chat-1".to_owned(),
+                binding: binding.clone(),
+            }),
+        )
+        .expect("first binding is admitted");
+        assert_eq!(
+            apply_command(
+                &mut state,
+                ProjectChatCommand::BindPrimeSession(BindPrimeSessionCommand {
+                    project_id: PERSONAL_PROJECT_ID.to_owned(),
+                    chat_id: "studio-chat-2".to_owned(),
+                    binding,
+                }),
+            )
+            .expect_err("duplicate daemon identity must fail")
+            .code(),
+            "invalidCommand"
+        );
+    }
 
     #[test]
     fn post_replace_sync_error_reconciles_from_observed_bytes() {

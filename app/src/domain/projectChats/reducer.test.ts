@@ -116,6 +116,24 @@ function commandFixtures(): Array<[string, Record<string, unknown>]> {
       chatId: "chat:inbox",
       pinned: true,
     }],
+    ["chat.duplicate", {
+      type: "chat.duplicate",
+      projectId: PERSONAL_PROJECT_ID,
+      chatId: "chat:inbox",
+      newChatId: "chat:copy",
+      title: "Inbox copy",
+    }],
+    ["chat.move", {
+      type: "chat.move",
+      projectId: PERSONAL_PROJECT_ID,
+      chatId: "chat:inbox",
+      targetProjectId: "project:alpha",
+    }],
+    ["chat.delete", {
+      type: "chat.delete",
+      projectId: PERSONAL_PROJECT_ID,
+      chatId: "chat:inbox",
+    }],
     ["selection.select-project", {
       type: "selection.select-project",
       projectId: PERSONAL_PROJECT_ID,
@@ -149,6 +167,23 @@ function addNonEnumerableProperty(
 }
 
 describe("project chat domain", () => {
+  it("duplicates without copying runtime authority, moves across projects, and deletes deterministically", () => {
+    let state = createInitialProjectChatState();
+    state = apply(state, { type: "project.create", projectId: "project:target", name: "Target", folderPath: "D:\\work\\target" });
+    state = apply(state, { type: "chat.create", projectId: PERSONAL_PROJECT_ID, chatId: "chat:source", title: "Source" });
+    state = apply(state, { type: "chat.bind-prime-session", projectId: PERSONAL_PROJECT_ID, chatId: "chat:source", binding: { kind: "prime-session", accountId: "account-1", sessionId: "session-1", sessionFile: "session-1.jsonl", agentId: null } });
+    state = apply(state, { type: "chat.duplicate", projectId: PERSONAL_PROJECT_ID, chatId: "chat:source", newChatId: "chat:copy", title: "Source copy" });
+    expect(chat(state, PERSONAL_PROJECT_ID, "chat:copy").binding).toBeNull();
+
+    state = apply(state, { type: "chat.move", projectId: PERSONAL_PROJECT_ID, chatId: "chat:copy", targetProjectId: "project:target" });
+    expect(project(state, PERSONAL_PROJECT_ID).chats.map((item) => item.id)).toEqual(["chat:source"]);
+    expect(chat(state, "project:target", "chat:copy").projectId).toBe("project:target");
+    expect(resolveProjectChatSelection(state)).toEqual({ status: "resolved", projectId: "project:target", chatId: "chat:copy" });
+
+    state = apply(state, { type: "chat.delete", projectId: "project:target", chatId: "chat:copy" });
+    expect(project(state, "project:target").chats).toEqual([]);
+    expect(resolveProjectChatSelection(state)).toEqual({ status: "resolved", projectId: "project:target", chatId: null });
+  });
   it("binds a chat to one immutable Prime session identity", () => {
     let state = createInitialProjectChatState();
     state = apply(state, {
@@ -185,6 +220,16 @@ describe("project chat domain", () => {
     } as unknown as ProjectChatCommand)).toMatchObject({
       status: "rejected",
       reason: "chat-already-bound",
+    });
+  });
+
+  it("rejects binding one daemon resident session to multiple Studio chats", () => {
+    let state = apply(createInitialProjectChatState(), { type: "chat.create", projectId: PERSONAL_PROJECT_ID, chatId: "chat:first", title: "First" });
+    state = apply(state, { type: "chat.create", projectId: PERSONAL_PROJECT_ID, chatId: "chat:second", title: "Second" });
+    const binding = { kind: "prime-session" as const, accountId: null, sessionId: "daemon-active-1", sessionFile: "daemon-chat-1.jsonl", agentId: "daemon-chat-1" };
+    state = apply(state, { type: "chat.bind-prime-session", projectId: PERSONAL_PROJECT_ID, chatId: "chat:first", binding });
+    expect(transitionProjectChatState(state, { type: "chat.bind-prime-session", projectId: PERSONAL_PROJECT_ID, chatId: "chat:second", binding })).toMatchObject({
+      status: "rejected", reason: "session-already-bound",
     });
   });
 

@@ -16,15 +16,15 @@ use serde_json::Value;
 use uuid::Uuid;
 
 #[cfg(windows)]
-struct ProcessContainment {
+pub(crate) struct ProcessContainment {
     _job: std::os::windows::io::OwnedHandle,
 }
 
 #[cfg(windows)]
-fn prepare_process_containment(_command: &mut Command) {}
+pub(crate) fn prepare_process_containment(_command: &mut Command) {}
 
 #[cfg(windows)]
-fn contain_child(child: &Child) -> io::Result<ProcessContainment> {
+pub(crate) fn contain_child(child: &Child) -> io::Result<ProcessContainment> {
     use std::ffi::c_void;
     use std::mem::size_of;
     use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
@@ -157,7 +157,7 @@ fn contain_child(child: &Child) -> io::Result<ProcessContainment> {
 }
 
 #[cfg(unix)]
-struct ProcessContainment(i32);
+pub(crate) struct ProcessContainment(i32);
 
 #[cfg(unix)]
 impl Drop for ProcessContainment {
@@ -172,13 +172,13 @@ impl Drop for ProcessContainment {
 }
 
 #[cfg(unix)]
-fn prepare_process_containment(command: &mut Command) {
+pub(crate) fn prepare_process_containment(command: &mut Command) {
     use std::os::unix::process::CommandExt;
     command.process_group(0);
 }
 
 #[cfg(unix)]
-fn contain_child(child: &Child) -> io::Result<ProcessContainment> {
+pub(crate) fn contain_child(child: &Child) -> io::Result<ProcessContainment> {
     let group = i32::try_from(child.id()).map_err(|_| io::Error::other("child id exceeds i32"))?;
     Ok(ProcessContainment(group))
 }
@@ -1190,7 +1190,7 @@ pub fn spawn(spec: ProcessSpec, sink: Arc<dyn EventSink>) -> io::Result<ProcessH
 }
 
 #[cfg(windows)]
-fn suppress_console_window(command: &mut Command) {
+pub(crate) fn suppress_console_window(command: &mut Command) {
     use std::os::windows::process::CommandExt;
     const CREATE_SUSPENDED: u32 = 0x0000_0004;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -1198,7 +1198,7 @@ fn suppress_console_window(command: &mut Command) {
 }
 
 #[cfg(not(windows))]
-fn suppress_console_window(_command: &mut Command) {}
+pub(crate) fn suppress_console_window(_command: &mut Command) {}
 
 #[cfg(test)]
 mod tests {

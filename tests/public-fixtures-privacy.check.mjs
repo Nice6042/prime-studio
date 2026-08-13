@@ -46,6 +46,13 @@ const TEXT_EXTENSIONS = new Set([
   ".yml",
 ]);
 
+// This generated, application-owned upstream bundle is validated separately by
+// exact resource pins and legal/dependency checks. Its public API routes and
+// example home-directory strings are upstream code, not project data.
+const TEXT_SCAN_EXCLUDED_FILES = new Set([
+  "app/harness-sidecar/vendor/prime-daemon-adapter-v0.7.1.mjs",
+]);
+
 const captureResidue = new RegExp(
   [
     ["captured", "prime(?:-agent)?", "stream"].join("\\s+"),
@@ -71,7 +78,7 @@ const forbiddenTextPatterns = [
   {
     name: "a personal developer path",
     pattern:
-      /(?:\b[A-Z]:[\\/]{1,2}dev[\\/]{1,2}studio(?:[\\/]{1,2}[^\s"'`<>]*)?|\b[A-Z]:[\\/]{1,2}Users[\\/]{1,2}(?!(?:operator|synthetic|[a-z])(?:[\\/]|$))[^\\/\s"'`<>]+(?:[\\/]{1,2}[^\s"'`<>]*)?|\/(?:Users|home)\/(?!(?:operator|synthetic|[a-z])(?:\/|$))[^/\s"'`<>]+(?:\/[^\s"'`<>]*)?)/iu,
+      /(?:\b[A-Z]:[\\/]{1,2}dev[\\/]{1,2}studio(?:[\\/]{1,2}[^\s"'`<>]*)?|\b[A-Z]:[\\/]{1,2}Users[\\/]{1,2}(?!(?:operator|synthetic|[a-z])(?:[\\/]|$))[^\\/\s"'`<>]+(?:[\\/]{1,2}[^\s"'`<>]*)?|\/(?:Users|home)\/(?!\$\{)(?!(?:operator|synthetic|[a-z])(?:\/|$))[^/\s"'`<>]+(?:\/[^\s"'`<>]*)?)/iu,
   },
   {
     name: "a private Codex task/thread ID",
@@ -88,7 +95,7 @@ const forbiddenTextPatterns = [
   },
   {
     name: "an internal branch, worktree, or agent route",
-    pattern: /(?:(?<!\.)\bcodex\/[a-z0-9._/-]+|(?:^|[\s`])\/root\/[a-z0-9._/-]+|(?:^|[\s`])\.worktrees[\\/][^\s`]+)/imu,
+    pattern: /(?:(?<!openai-)(?<!\.)\bcodex\/(?!responses\b)[a-z0-9._/-]+|(?:^|[\s`])\/root\/[a-z0-9._/-]+|(?:^|[\s`])\.worktrees[\\/][^\s`]+)/imu,
   },
   {
     name: "a local audit snapshot identifier",
@@ -438,7 +445,8 @@ test("privacy patterns catch reviewed account telemetry without flagging neutral
 test("publishable tracked text excludes personal, account, quota, and capture residue", () => {
   const files = trackedFiles().filter((relativePath) => {
     const basename = path.basename(relativePath);
-    return basename.startsWith(".") || TEXT_EXTENSIONS.has(path.extname(relativePath).toLowerCase());
+    return !TEXT_SCAN_EXCLUDED_FILES.has(relativePath)
+      && (basename.startsWith(".") || TEXT_EXTENSIONS.has(path.extname(relativePath).toLowerCase()));
   });
 
   assert.deepEqual(findTextViolations(files), []);

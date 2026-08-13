@@ -284,6 +284,37 @@ export interface AppSettings {
   defaultThinking?: string | null;
   defaultCwd?: string | null;
   lastSection?: string | null;
+  fileOpenDestination?: string | null;
+  language?: string | null;
+  bottomPanel?: string | null;
+  density?: string | null;
+  reducedMotion?: string | null;
+  sendShortcut?: string | null;
+  promptSuggestions?: string | null;
+  tokenEstimate?: string | null;
+  drafts?: string | null;
+  maxConcurrentAgents?: string | null;
+  autonomousMaxTurns?: string | null;
+  retrySilentWorkers?: string | null;
+  contextDiscovery?: string | null;
+  toolsEnabled?: string | null;
+  gitAutoRefresh?: string | null;
+  environmentMode?: string | null;
+  telemetry?: string | null;
+  crashReports?: string | null;
+  localOnly?: string | null;
+}
+
+export interface LayoutPreferencesV1 {
+  readonly schemaVersion: 1;
+  readonly sidebarOpen: boolean;
+  readonly sidebarWidth: number;
+  readonly inspectorOpen: boolean;
+  readonly inspectorWidth: number;
+  readonly editorOpen: boolean;
+  readonly editorWidth: number;
+  /** Durable disclosure state, bounded and owned by the local Studio shell. */
+  readonly expandedProjectIds: readonly string[];
 }
 
 /** Read-only scheduler availability projected by the native authority. */

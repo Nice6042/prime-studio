@@ -4,14 +4,24 @@ import * as rpcSurface from "./rpc";
 
 import {
   AccountDeletionError,
+  accountUsageSeriesStrict,
+  codexSubscriptionUsageStrict,
   accountStatuses,
   commitRemoveAccount,
   getComputerUseReadiness,
+  getLayoutPreferences,
   getProviderProductSnapshot,
   listAccountsStrict,
   prepareRemoveAccount,
   schedulerProjection,
   setAppSetting,
+  setLayoutPreferences,
+  exportAccountUsageCsv,
+  openEditorArtifact,
+  reloadEditorArtifact,
+  openHarnessArtifactCandidate,
+  saveEditorArtifact,
+  saveEditorArtifactCopy,
 } from "./rpc";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -19,6 +29,115 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 const invokeMock = vi.mocked(invoke);
+
+describe("account usage RPC", () => {
+  beforeEach(() => invokeMock.mockReset());
+
+  it("returns a detached bounded snapshot and keeps bridge failure as failure", async () => {
+    const row = { ts: 1, provider: "openai-codex", cost: 0.5, input: 10, output: 2, cacheRead: 3, cacheWrite: 0 };
+    invokeMock.mockResolvedValueOnce([row]);
+    const result = await accountUsageSeriesStrict("work", 30);
+    expect(result).toEqual([row]);
+    expect(result).not.toBe(row);
+    expect(Object.isFrozen(result)).toBe(true);
+    expect(Object.isFrozen(result[0])).toBe(true);
+
+    const bridge = new Error("bridge unavailable");
+    invokeMock.mockRejectedValueOnce(bridge);
+    await expect(accountUsageSeriesStrict("work", 30)).rejects.toBe(bridge);
+  });
+
+  it.each([
+    [{ ts: 1, provider: "openai-codex", cost: -1, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }],
+    [{ ts: 1, provider: "openai-codex", cost: 1, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, secret: "x" }],
+    [{ ts: Number.MAX_SAFE_INTEGER + 1, provider: "openai-codex", cost: 1, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }],
+  ])("rejects malformed rows instead of projecting zero usage", async (rows) => {
+    invokeMock.mockResolvedValueOnce(rows);
+    await expect(accountUsageSeriesStrict("work", 7)).rejects.toThrow(/usage snapshot/i);
+  });
+
+  it("keeps Codex no-log separate from bridge failure and rejects malformed quota snapshots", async () => {
+    invokeMock.mockResolvedValueOnce(null);
+    await expect(codexSubscriptionUsageStrict()).resolves.toBeNull();
+
+    const bridge = new Error("bridge unavailable");
+    invokeMock.mockRejectedValueOnce(bridge);
+    await expect(codexSubscriptionUsageStrict()).rejects.toBe(bridge);
+
+    invokeMock.mockResolvedValueOnce({ usedPercent: 0, windowMinutes: 300, resetsAt: 1, staleAsOf: 1, secret: "x" });
+    await expect(codexSubscriptionUsageStrict()).rejects.toThrow(/quota snapshot/i);
+  });
+
+  it("exports only bounded CSV and range data through a user-selected native save", async () => {
+    invokeMock.mockResolvedValueOnce({ status: "cancelled" });
+    const csv = "timestamp,provider,cost,input,output,cache_read,cache_write\r\n";
+
+    await expect(exportAccountUsageCsv(csv, 30)).resolves.toEqual({ status: "cancelled" });
+    expect(invokeMock).toHaveBeenCalledWith("export_account_usage_csv", {
+      request: { csv, rangeDays: 30 },
+    });
+    expect(invokeMock.mock.calls[0]?.[1]).not.toHaveProperty("destination");
+  });
+});
+
+describe("identity-bound editor RPC", () => {
+  beforeEach(() => invokeMock.mockReset());
+
+  const artifactRef = {
+    brokerId: "broker-1",
+    rootSessionId: "session-1",
+    artifactId: "artifact-1",
+    revision: 1,
+  } as const;
+
+  it("opens by native artifact identity without renderer path authority", async () => {
+    invokeMock.mockResolvedValueOnce({ kind: "unsupported", reason: "No native reference." });
+    await expect(openEditorArtifact(artifactRef)).resolves.toEqual({ kind: "unsupported", reason: "No native reference." });
+    expect(invokeMock).toHaveBeenCalledWith("editor_artifact_open", {
+      request: { artifactRef },
+    });
+    expect(invokeMock.mock.calls[0]?.[1]).not.toHaveProperty("path");
+  });
+
+  it("resolves a Harness artifact by opaque candidate identity without accepting a path", async () => {
+    invokeMock.mockResolvedValueOnce({ kind: "unsupported", reason: "stale candidate" });
+    await expect(openHarnessArtifactCandidate("session-1", "candidate-1")).resolves.toEqual({ kind: "unsupported", reason: "stale candidate" });
+    expect(invokeMock).toHaveBeenCalledWith("harness_artifact_open", {
+      request: { sessionId: "session-1", candidateId: "candidate-1" },
+    });
+    expect(invokeMock.mock.calls[0]?.[1]).not.toHaveProperty("path");
+    await expect(openHarnessArtifactCandidate("session-1", "..\\secret.txt")).rejects.toThrow("candidate is invalid");
+  });
+
+  it("saves with exact identity and revision and preserves conflict outcomes", async () => {
+    invokeMock.mockResolvedValueOnce({ kind: "conflict", message: "changed on disk" });
+    await expect(saveEditorArtifact({
+      ref: artifactRef,
+      expectedIdentity: `sha256:${"a".repeat(64)}`,
+      expectedRevision: 1,
+      content: "edited",
+    })).resolves.toEqual({ kind: "conflict", message: "changed on disk" });
+    expect(invokeMock).toHaveBeenCalledWith("editor_artifact_save", {
+      request: {
+        ref: artifactRef,
+        expectedIdentity: `sha256:${"a".repeat(64)}`,
+        expectedRevision: 1,
+        content: "edited",
+      },
+    });
+  });
+
+  it("reloads and saves a copy through identity-only native commands", async () => {
+    invokeMock.mockResolvedValueOnce({ kind: "unsupported", reason: "reload denied" });
+    await expect(reloadEditorArtifact(artifactRef)).resolves.toEqual({ kind: "unsupported", reason: "reload denied" });
+    expect(invokeMock).toHaveBeenNthCalledWith(1, "editor_artifact_reload", { request: { artifactRef } });
+
+    invokeMock.mockResolvedValueOnce({ kind: "cancelled" });
+    await expect(saveEditorArtifactCopy({ ref: artifactRef, content: "unsaved" })).resolves.toEqual({ kind: "cancelled" });
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "editor_artifact_save_copy", { request: { ref: artifactRef, content: "unsaved" } });
+    expect(invokeMock.mock.calls[1]?.[1]).not.toHaveProperty("path");
+  });
+});
 
 const plan = {
   planId: "plan-7",
@@ -351,6 +470,42 @@ describe("settings RPC", () => {
       key: "theme",
       value: "light",
     });
+  });
+
+  it("strictly reads and writes versioned layout preferences", async () => {
+    const layout = {
+      schemaVersion: 1 as const,
+      sidebarOpen: true,
+      sidebarWidth: 264,
+      inspectorOpen: true,
+      inspectorWidth: 384,
+      editorOpen: false,
+      editorWidth: 400,
+      expandedProjectIds: ["project-a", "project-b"],
+    };
+    invokeMock.mockResolvedValueOnce(layout).mockResolvedValueOnce(layout);
+
+    await expect(getLayoutPreferences()).resolves.toEqual(layout);
+    await expect(setLayoutPreferences(layout)).resolves.toEqual(layout);
+    expect(invokeMock).toHaveBeenNthCalledWith(1, "get_layout_preferences", {});
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "set_layout_preferences", { preferences: layout });
+  });
+
+  it("fails closed on malformed persisted layout without promoting defaults to durable truth", async () => {
+    invokeMock.mockResolvedValueOnce({ schemaVersion: 1, sidebarOpen: true, extra: true });
+    await expect(getLayoutPreferences()).rejects.toThrow(/layout preferences/i);
+
+    invokeMock.mockResolvedValueOnce({ schemaVersion: 1, sidebarOpen: true, extra: true });
+    await expect(setLayoutPreferences({
+      schemaVersion: 1,
+      sidebarOpen: true,
+      sidebarWidth: 264,
+      inspectorOpen: true,
+      inspectorWidth: 384,
+      editorOpen: false,
+      editorWidth: 400,
+      expandedProjectIds: [],
+    })).rejects.toThrow(/layout preferences/i);
   });
 });
 

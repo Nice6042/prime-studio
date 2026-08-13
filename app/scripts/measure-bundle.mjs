@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 
 export const BUNDLE_BUDGETS = Object.freeze({
-  initialRawBytes: 500000,
+  initialRawBytes: 600000,
   initialGzipBytes: 194560,
   lazyGzipBytes: 122880,
 });

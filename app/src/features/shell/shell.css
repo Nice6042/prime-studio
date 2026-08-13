@@ -1,0 +1,102 @@
+.studio-application {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+.studio-shell {
+  position: relative;
+  display: grid;
+  inline-size: 100%;
+  block-size: 100%;
+  min-inline-size: 0;
+  overflow: hidden;
+  background: var(--bg, #171717);
+  color: var(--fg, #f2f2f2);
+}
+
+.studio-sidebar,
+.studio-inspector,
+.studio-editor,
+.studio-conversation {
+  min-inline-size: 0;
+  min-block-size: 0;
+  overflow: auto;
+}
+
+.studio-sidebar { overflow: visible; background: var(--sidebar, #202020); border-inline-end: 1px solid var(--line, #323232); }
+.studio-conversation { background: var(--bg, #171717); }
+.studio-inspector,
+.studio-editor { background: var(--panel, #1b1b1b); border-inline-start: 1px solid var(--line, #323232); }
+
+.studio-pane-separator {
+  inline-size: 8px;
+  cursor: col-resize;
+  touch-action: none;
+  background: transparent;
+}
+.studio-pane-divider { inline-size: 8px; background: var(--line, #323232); }
+.studio-pane-separator:focus-visible { outline: 2px solid var(--focus, #a78bfa); outline-offset: -2px; }
+
+.studio-sheet { position: absolute; inset-block: 0; z-index: 20; overflow: auto; background: var(--panel, #1b1b1b); box-shadow: 0 12px 36px rgb(0 0 0 / 0.35); }
+.studio-sheet-left { inset-inline-start: 0; }
+.studio-sheet-right { inset-inline-end: 0; }
+.studio-sidebar-sheet { inline-size: min(calc(100% - 52px), 380px); inset-inline-start: 52px; }
+.studio-harness-sheet { inline-size: min(100%, 600px); }
+
+.studio-titlebar,
+.studio-statusbar { display: flex; align-items: center; min-block-size: 36px; padding-inline: 12px; border-block-end: 1px solid var(--line, #323232); }
+.studio-titlebar { position: relative; z-index: 90; min-block-size: 40px; gap: 8px; color: #9a9aa6; background: #0d0d10; font-size: 12.5px; }
+.studio-titlebar > strong { color: #e9e9ee; font-size: 13px; font-weight: 600; }
+.studio-title-mark { position: relative; inline-size: 17px; block-size: 17px; color: #8e85f0; rotate: 45deg; border: 1.5px solid currentColor; }
+.studio-title-mark i { position: absolute; inset: 4px; border: 1.4px solid currentColor; }
+.studio-title-menus { display: flex; align-items: center; margin-inline-start: 8px; }
+.studio-title-menu-root { position: relative; }
+.studio-title-menu-root > button { min-block-size: 28px; padding: 4px 8px; border: 0; border-radius: 6px; color: #9a9aa6; background: transparent; font: inherit; }
+.studio-title-menu-root > button:hover, .studio-title-menu-root > button[aria-expanded="true"] { color: #e9e9ee; background: #1d1d22; }
+.studio-title-menu { position: absolute; z-index: 100; inset-block-start: calc(100% + 2px); inset-inline-start: 0; display: grid; min-inline-size: 210px; padding: 5px; border: 1px solid rgb(255 255 255 / 9%); border-radius: 9px; background: #17171c; box-shadow: 0 14px 40px rgb(0 0 0 / 55%); }
+.studio-title-menu button { display: flex; align-items: center; gap: 12px; min-block-size: 31px; padding: 6px 10px; border: 0; border-radius: 6px; color: #c9c9d1; background: transparent; text-align: start; }
+.studio-title-menu button:hover:not(:disabled) { background: #22222a; }
+.studio-title-menu button:disabled { opacity: .46; }
+.studio-title-menu button span { flex: 1; }
+.studio-title-menu kbd { color: #6d6d78; background: transparent; font: 11px "Segoe UI", sans-serif; }
+.studio-title-current { position: absolute; inset-inline-start: 50%; max-inline-size: 28vw; overflow: hidden; color: #9a9aa6; font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; translate: -50% 0; }
+.studio-titlebar-actions { margin-inline-start: auto; }
+.studio-window-controls { align-self: stretch; display: flex; margin-inline-end: -12px; }
+.studio-window-controls > button { min-inline-size: 46px; border: 0; border-radius: 0; color: #a7a7b0; background: transparent; }
+.studio-window-controls > button svg { inline-size: 16px; block-size: 16px; }
+.studio-window-controls > button:hover { color: #f3f3f5; background: #27272c; }
+.studio-window-controls > button:last-child:hover { background: #c42b1c; }
+.studio-command-trigger { inline-size:30px; block-size:28px; margin-inline-start:3px; border:0; border-radius:7px; background:transparent; color:inherit; }.studio-command-trigger:hover { background:rgb(255 255 255 / .06); }
+.studio-statusbar { gap: 12px; block-size: 24px; min-block-size: 24px; max-block-size: 24px; min-inline-size: 0; padding-inline: 10px; overflow: hidden; border-block-start: 1px solid rgb(255 255 255 / 6%); border-block-end: 0; color: #7a7a84; background: #0d0d10; font-size: 11px; line-height: 1; white-space: nowrap; }
+.studio-statusbar > span { flex: 0 1 auto; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
+.studio-statusbar-spacer { flex: 1; }
+.studio-context-meter { display: inline-block; inline-size: 56px; block-size: 4px; margin-inline-start: 5px; overflow: hidden; border-radius: 3px; background: #24242a; vertical-align: middle; }
+.studio-context-meter b { display: block; block-size: 100%; background: #8e85f0; }
+.studio-statusbar .is-streaming { color: #7ee2b8; }
+.studio-status-error { color: #e2b34e; }
+
+@media (max-width: 640px) {
+  .studio-titlebar { gap: 6px; padding-inline: 8px; overflow: hidden; }
+  .studio-titlebar > strong { flex: none; max-inline-size: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .studio-title-menus, .studio-title-current { display: none; }
+  .studio-titlebar-actions { display: flex; min-inline-size: 0; overflow: hidden; }
+  .studio-command-trigger { flex: none; min-inline-size: 30px; }
+  .studio-window-controls { flex: none; margin-inline-start: auto; margin-inline-end: -8px; }
+  .studio-window-controls > button { min-inline-size: 36px; }
+  .studio-statusbar { gap: 8px; padding-inline: 8px; }
+  .studio-statusbar > * { flex: 0 1 auto; min-inline-size: 0; }
+  .studio-statusbar-spacer { display: none; }
+  .studio-statusbar-identity { max-inline-size: 30%; }
+  .studio-statusbar-context { margin-inline-start: auto; }
+}
+
+@media (max-width: 400px) {
+  .studio-titlebar > strong { display: none; }
+  .studio-statusbar-identity, .studio-statusbar-latency, .studio-context-meter { display: none; }
+  .studio-statusbar-context { margin-inline-start: 0; }
+  .studio-statusbar-runtime { margin-inline-start: auto; }
+  .studio-statusbar-context, .studio-statusbar-throughput, .studio-statusbar-runtime, .studio-statusbar-overload { font-size: 0; }
+  .studio-statusbar-context::after, .studio-statusbar-throughput::after, .studio-statusbar-runtime::after, .studio-statusbar-overload::after { content: attr(data-compact); font-size: 11px; }
+}

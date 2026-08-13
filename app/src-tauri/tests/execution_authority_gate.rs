@@ -9,7 +9,7 @@ use prime_studio_lib::authority::{
 };
 use serde_json::{json, Value};
 
-const EXPECTED_TAURI_COMMANDS: [&str; 41] = [
+const EXPECTED_TAURI_COMMANDS: [&str; 69] = [
     "start_session",
     "attach_session",
     "detach_session",
@@ -42,8 +42,36 @@ const EXPECTED_TAURI_COMMANDS: [&str; 41] = [
     "set_prime_cli",
     "check_prime_cli",
     "get_app_settings",
+    "project_catalog_load",
+    "project_catalog_apply",
+    "chat_display_load",
+    "chat_display_apply",
+    "attention_load",
+    "attention_activity_evidence",
+    "attention_mark_seen",
     "scheduler_projection",
+    "harness_bootstrap",
+    "harness_projection",
+    "harness_attach_session",
+    "harness_retry_worker",
+    "harness_session_command",
+    "harness_inspector",
+    "harness_child_data_page",
+    "harness_composer_projection",
+    "harness_artifact_open",
+    "harness_refresh_session",
+    "harness_conversation_history_page",
+    "harness_studio_operation",
+    "harness_create_resident_chat",
+    "harness_branch_resident_chat",
+    "get_layout_preferences",
+    "set_layout_preferences",
     "set_app_setting",
+    "export_account_usage_csv",
+    "editor_artifact_open",
+    "editor_artifact_reload",
+    "editor_artifact_save",
+    "editor_artifact_save_copy",
     "kernel_status",
     "files_touched",
     "pick_directory",
@@ -133,7 +161,10 @@ fn tauri_command_inventory_is_complete_unique_and_stable() {
     assert_eq!(registered, EXPECTED_TAURI_COMMANDS);
     assert_eq!(actual, EXPECTED_TAURI_COMMANDS);
     assert_eq!(actual, registered);
-    assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 41);
+    assert_eq!(
+        actual.iter().copied().collect::<HashSet<_>>().len(),
+        EXPECTED_TAURI_COMMANDS.len()
+    );
     assert_eq!(
         source.matches(".invoke_handler(").count(),
         1,
@@ -182,6 +213,7 @@ fn native_scheduler_surface_registers_projection_only() {
 fn tauri_policy_keeps_only_offline_account_configuration_reads_and_owned_stop_paths_open() {
     use CommandAuthority::{
         AccountManagement, DynamicRawRpc, LocalBookkeeping, OfflineRead, SafetyControl,
+        VerifiedBroker,
     };
 
     let cases = [
@@ -201,7 +233,34 @@ fn tauri_policy_keeps_only_offline_account_configuration_reads_and_owned_stop_pa
         (TauriCommand::RenameAccount, AccountManagement),
         (TauriCommand::AccountStatuses, AccountManagement),
         (TauriCommand::GetAppSettings, OfflineRead),
+        (TauriCommand::ProjectCatalogLoad, OfflineRead),
+        (TauriCommand::ProjectCatalogApply, LocalBookkeeping),
+        (TauriCommand::ChatDisplayLoad, OfflineRead),
+        (TauriCommand::ChatDisplayApply, LocalBookkeeping),
+        (TauriCommand::AttentionLoad, OfflineRead),
+        (TauriCommand::AttentionActivityEvidence, VerifiedBroker),
+        (TauriCommand::AttentionMarkSeen, LocalBookkeeping),
         (TauriCommand::SchedulerProjection, OfflineRead),
+        (TauriCommand::HarnessBootstrap, OfflineRead),
+        (TauriCommand::HarnessProjection, OfflineRead),
+        (TauriCommand::HarnessAttachSession, VerifiedBroker),
+        (TauriCommand::HarnessRetryWorker, VerifiedBroker),
+        (TauriCommand::HarnessSessionCommand, VerifiedBroker),
+        (TauriCommand::HarnessInspector, VerifiedBroker),
+        (TauriCommand::HarnessChildDataPage, VerifiedBroker),
+        (TauriCommand::HarnessComposerProjection, VerifiedBroker),
+        (TauriCommand::HarnessArtifactOpen, VerifiedBroker),
+        (TauriCommand::HarnessRefreshSession, VerifiedBroker),
+        (TauriCommand::HarnessConversationHistoryPage, VerifiedBroker),
+        (TauriCommand::HarnessStudioOperation, VerifiedBroker),
+        (TauriCommand::HarnessCreateResidentChat, VerifiedBroker),
+        (TauriCommand::HarnessBranchResidentChat, VerifiedBroker),
+        (TauriCommand::GetLayoutPreferences, OfflineRead),
+        (TauriCommand::ExportAccountUsageCsv, SafetyControl),
+        (TauriCommand::EditorArtifactOpen, VerifiedBroker),
+        (TauriCommand::EditorArtifactReload, VerifiedBroker),
+        (TauriCommand::EditorArtifactSave, VerifiedBroker),
+        (TauriCommand::EditorArtifactSaveCopy, VerifiedBroker),
         (TauriCommand::ComputerUseReadiness, OfflineRead),
     ];
 
@@ -247,12 +306,21 @@ fn persisted_local_configuration_waits_for_write_enforcement() {
         CommandAuthority::Effects(&[LocalConfigurationWrite])
     );
     assert_eq!(
-        authorize_tauri_command(&AuthorityGate::phase_zero(), TauriCommand::SetAppSetting),
-        Err(AuthorityError::ReadinessNotEnforced {
-            effect: LocalConfigurationWrite,
-            readiness: SecurityReadiness::Unavailable,
-        })
+        TauriCommand::SetLayoutPreferences.authority(),
+        CommandAuthority::Effects(&[LocalConfigurationWrite])
     );
+    for command in [
+        TauriCommand::SetAppSetting,
+        TauriCommand::SetLayoutPreferences,
+    ] {
+        assert_eq!(
+            authorize_tauri_command(&AuthorityGate::phase_zero(), command),
+            Err(AuthorityError::ReadinessNotEnforced {
+                effect: LocalConfigurationWrite,
+                readiness: SecurityReadiness::Unavailable,
+            })
+        );
+    }
 }
 
 #[test]

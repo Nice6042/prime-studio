@@ -1,4 +1,15 @@
-import { useEffect, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
+
+const STUDIO_SURFACE_SELECTOR = ".modal-backdrop, [data-studio-overlay]";
+
+export function hasOpenStudioOverlay(): boolean {
+  return document.querySelector(STUDIO_SURFACE_SELECTOR) !== null;
+}
+
+function isTopmostSurface(surface: HTMLElement): boolean {
+  const surfaces = document.querySelectorAll<HTMLElement>(STUDIO_SURFACE_SELECTOR);
+  return surfaces.item(surfaces.length - 1) === surface;
+}
 
 /** Give Escape to exactly one modal surface: the last rendered backdrop. */
 export function useTopmostSurfaceEscape(
@@ -12,8 +23,7 @@ export function useTopmostSurfaceEscape(
       if (event.key !== "Escape") return;
       const backdrop = backdropRef.current;
       if (!backdrop || backdrop.querySelector("dialog[open]")) return;
-      const backdrops = document.querySelectorAll(".modal-backdrop");
-      if (backdrops.item(backdrops.length - 1) !== backdrop) return;
+      if (!isTopmostSurface(backdrop)) return;
       event.stopPropagation();
       event.preventDefault();
       onClose();
@@ -21,4 +31,30 @@ export function useTopmostSurfaceEscape(
     window.addEventListener("keydown", closeOnEscape, true);
     return () => window.removeEventListener("keydown", closeOnEscape, true);
   }, [backdropRef, enabled, onClose]);
+}
+
+/** Escape ownership and trigger restoration for non-modal menus and popovers. Returns a one-close restoration suppressor for native Tab progression. */
+export function usePopoverSurface(
+  surfaceRef: RefObject<HTMLElement | null>,
+  onClose: () => void,
+  enabled = true,
+) {
+  const openerRef = useRef<HTMLElement | null>(null);
+  const restoreFocusRef = useRef(true);
+
+  useLayoutEffect(() => {
+    if (!enabled || !surfaceRef.current) return;
+    restoreFocusRef.current = true;
+    openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    return () => {
+      if (!restoreFocusRef.current) return;
+      const opener = openerRef.current;
+      queueMicrotask(() => {
+        if (opener?.isConnected && !opener.matches(":disabled") && !opener.closest("[inert]")) opener.focus();
+      });
+    };
+  }, [enabled, surfaceRef]);
+
+  useTopmostSurfaceEscape(surfaceRef, onClose, enabled);
+  return () => { restoreFocusRef.current = false; };
 }

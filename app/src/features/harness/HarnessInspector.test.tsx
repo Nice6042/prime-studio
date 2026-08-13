@@ -1,0 +1,893 @@
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import type { RootSessionProjection } from "../../entities/harness/types";
+import type { StudioOperation } from "../../contracts/studioOperations";
+import { reconcileAttentionSnapshot } from "../../attention/attentionLedger";
+import {
+  type HarnessChildDetails,
+  type HarnessInspectorAdapter,
+  type HarnessPanelDetails,
+} from "./adapter";
+import { HarnessInspector } from "./HarnessInspector";
+import { ChildDetail } from "./ChildDetail";
+import { createInspectorState, reduceInspector } from "./inspectorStore";
+
+const session: RootSessionProjection = {
+  sessionId: "root-a", accountId: "account-a", provider: "openai-codex", projectId: "project-a", chatId: "chat-a",
+  cursor: { runtimeGeneration: "g1", sequence: 10 }, state: "working", freshness: "live",
+  parentMessages: [{
+    channel: "parent", kind: "assistant", id: "a1", streaming: true, emittedAtMs: 1_725_700_500_000,
+    blocks: [
+      { kind: "thinking", text: "Checking the adapter boundary.", redacted: false },
+      { kind: "tool_call", toolCallId: "call-1", toolId: "workspace.inspect", status: "running" },
+    ],
+  }],
+  children: [
+    { id: "child-1", status: "running", task: "Review protocol", provider: "OpenAI", model: "gpt-test", progress: 0.42 },
+    { id: "child-2", status: "done", task: "Map files", provider: null, model: null, progress: 1 },
+    { id: "child-3", status: "error", task: "Verify release", provider: "OpenAI", model: "gpt-test", progress: 0.61 },
+  ],
+  queue: [{ id: "q1", label: "Follow up", state: "queued" }],
+  tools: [{ id: "workspace.inspect", label: "Workspace inspect", enabled: true, configurable: true }],
+  resources: [{ id: "r1", label: "AGENTS.md", kind: "context file", availability: "available" }],
+  usage: { input: 100, output: 40, cacheRead: 20, cacheWrite: 5, totalTokens: 165, cost: null },
+  workerRecovery: { status: "ready", closureReason: null, observationId: null, automaticRetryCount: 0, detail: null },
+  performance: { status: "unavailable", sessionId: "root-a", cursor: { runtimeGeneration: "g1", sequence: 10 }, reason: "event_chronology_unavailable" },
+};
+
+const details: HarnessPanelDetails = {
+  binding: { parentSessionId: "root-a", cursor: { runtimeGeneration: "g1", sequence: 10 } },
+  observedAtMs: 1_725_700_800_000,
+  startedAtMs: 1_725_700_000_000,
+  extensionUi: { status: "available", requests: [] },
+  context: { usedTokens: 15_200, capacityTokens: 40_000, turns: 12, samples: [0.18, 0.24, 0.31, 0.38] },
+  contributions: [
+    { id: "parent", label: "Main chat", tokens: 115 },
+    { id: "children", label: "Subagents", tokens: 40 },
+    { id: "tools", label: "Tools", tokens: 10 },
+  ],
+  notices: [{ id: "overload", kind: "warning", title: "Auto-compaction failed", detail: "server_is_overloaded", retryable: true, dismissible: true }],
+  activity: [
+    { id: "act-agent", occurredAtMs: 1_725_700_100_000, group: "Today", kind: "agent", title: "Review protocol spawned", detail: "rlm() child", childId: "child-1" },
+    { id: "act-tool", occurredAtMs: 1_725_700_200_000, group: "Today", kind: "tool", title: "Workspace inspection", detail: "Completed", tool: { command: "rg --files", redacted: false, status: "succeeded", durationMs: 820, files: [{ candidateId: "candidate-tool-file", label: "src/protocol.ts" }] } },
+    { id: "act-system", occurredAtMs: 1_725_700_250_000, group: "Today", kind: "system", title: "Snapshot synchronized", detail: "Harness projection refreshed" },
+    { id: "act-file", occurredAtMs: 1_725_700_300_000, group: "Yesterday", kind: "file", title: "Protocol updated", detail: "src/protocol.ts", artifactCandidateId: "candidate-activity-file" },
+  ],
+  outputs: [{ id: "out-1", label: "Protocol report", candidateId: "candidate-output", kind: "file" }],
+  sources: [{ id: "source-1", label: "Harness contract", detail: "Generated protocol schema", candidateId: "candidate-source", kind: "document" }],
+  children: {
+    "child-1": {
+      binding: { parentSessionId: "root-a", childId: "child-1", cursor: { runtimeGeneration: "g1", sequence: 10 } },
+      status: "running", elapsedMs: 760_000, provider: "OpenAI", model: "gpt-test", task: "Review protocol",
+      summary: "Review the runtime protocol and report compatibility gaps.",
+      context: { usedTokens: 6_400, capacityTokens: 40_000 },
+      tokenUsage: null,
+      transcript: [
+        { id: "child-msg-1", actor: "Harness", occurredAtMs: 1_725_700_050_000, text: "Task accepted." },
+        { id: "child-msg-2", actor: "Agent", occurredAtMs: 1_725_700_060_000, text: "Reading the protocol schema." },
+      ],
+      activity: [{ id: "child-act-1", occurredAtMs: 1_725_700_070_000, label: "Opened protocol schema" }],
+      files: [{ id: "child-file-1", label: "src/protocol.ts", candidateId: "candidate-child-file", change: "modified" }],
+      error: null,
+    },
+    "child-3": {
+      binding: { parentSessionId: "root-a", childId: "child-3", cursor: { runtimeGeneration: "g1", sequence: 10 } },
+      status: "error", elapsedMs: 760_000, provider: "OpenAI", model: "gpt-test", task: "Verify release",
+      summary: "Verify the release candidate.", tokenUsage: null,
+      context: null, transcript: [], activity: [], files: [],
+      error: { code: "worker_exited", message: "Worker exited without a final report.", retryable: true },
+    },
+  },
+};
+
+function adapter(commands: StudioOperation[] = []): HarnessInspectorAdapter {
+  return {
+    availability: { status: "available" },
+    load: vi.fn(async () => details),
+    loadChildPage: vi.fn(async (_sessionId, childId, tab) => {
+      const child = details.children[childId];
+      if (!child) return { status: "unavailable" as const, tab, reason: "Child evidence unavailable." };
+      if (tab === "chat") return { status: "available" as const, tab, items: child.transcript, previousCursor: null, omittedItems: 0 };
+      if (tab === "activity") return { status: "available" as const, tab, items: child.activity, previousCursor: null, omittedItems: 0 };
+      return { status: "available" as const, tab, items: child.files, previousCursor: null, omittedItems: 0 };
+    }),
+    execute: vi.fn(async (command) => {
+      commands.push(command);
+      return { status: "accepted" as const, commandId: `command-${commands.length}` };
+    }),
+  };
+}
+
+const compatibility = {
+  status: "ready" as const,
+  profile: "fixture",
+  capabilities: ["queue_management", "resource_snapshot"] as const,
+};
+
+afterEach(() => {
+  localStorage.clear();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
+describe("HarnessInspector", () => {
+  it("publishes status evidence only after the exact inspector request is admitted", async () => {
+    const onRuntimeStatus = vi.fn();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={adapter()} onRuntimeStatus={onRuntimeStatus} />);
+    await waitFor(() => expect(onRuntimeStatus).toHaveBeenCalledWith({ status: "available", sessionId: session.sessionId, cursor: session.cursor, context: details.context, overload: "server_is_overloaded" }));
+  });
+
+  it("does not publish stale inspector evidence after the displayed request identity changes", async () => {
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    const source = adapter();
+    source.load = vi.fn(async (sessionId) => {
+      if (sessionId === session.sessionId) await pending;
+      return { ...details, context: { usedTokens: sessionId === session.sessionId ? 1 : 2, capacityTokens: 40_000 } };
+    });
+    const onRuntimeStatus = vi.fn();
+    const replacement = { ...session, sessionId: "root-b", chatId: "chat-b", cursor: { runtimeGeneration: "g2", sequence: 1 } };
+    const view = render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={source} onRuntimeStatus={onRuntimeStatus} />);
+    view.rerender(<HarnessInspector chatId="chat-b" session={replacement} compatibility={compatibility} adapter={source} onRuntimeStatus={onRuntimeStatus} />);
+    await waitFor(() => expect(onRuntimeStatus).toHaveBeenCalledWith(expect.objectContaining({ status: "available", sessionId: "root-b", cursor: replacement.cursor })));
+    release();
+    await act(async () => { await pending; });
+    expect(onRuntimeStatus).not.toHaveBeenCalledWith(expect.objectContaining({ status: "available", sessionId: session.sessionId }));
+  });
+
+  it("publishes explicit unavailable status when inspector authority is unavailable", async () => {
+    const onRuntimeStatus = vi.fn();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={{ ...adapter(), availability: { status: "unavailable", reason: "Broker not live." } }} onRuntimeStatus={onRuntimeStatus} />);
+    await waitFor(() => expect(onRuntimeStatus).toHaveBeenCalledWith({ status: "unavailable", sessionId: session.sessionId, cursor: session.cursor, reason: "Broker not live." }));
+  });
+
+  it("invalidates published runtime status when the inspector surface unmounts", async () => {
+    const onRuntimeStatus = vi.fn();
+    const view = render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={adapter()} onRuntimeStatus={onRuntimeStatus} />);
+    await waitFor(() => expect(onRuntimeStatus).toHaveBeenCalledWith(expect.objectContaining({ status: "available", sessionId: session.sessionId })));
+    view.unmount();
+    expect(onRuntimeStatus).toHaveBeenLastCalledWith({
+      status: "unavailable", sessionId: session.sessionId, cursor: session.cursor,
+      reason: "Harness inspector evidence is unavailable while its surface is not mounted.",
+    });
+  });
+
+  it("renders typed runtime extension prompts and submits or cancels each request exactly once", async () => {
+    const promptDetails: HarnessPanelDetails = {
+      ...details,
+      extensionUi: { status: "available", requests: [
+        { id: "confirm-1", method: "confirm", title: "Continue?", message: "Proceed with the extension action?", cursor: session.cursor },
+        { id: "select-1", method: "select", title: "Choose branch", options: ["main", "release"], cursor: session.cursor },
+        { id: "input-1", method: "input", title: "Release name", placeholder: "v1.0", cursor: session.cursor },
+        { id: "editor-1", method: "editor", title: "Instructions", prefill: "Review this change.", cursor: session.cursor },
+      ] },
+    };
+    const source = adapter();
+    source.load = vi.fn(async () => promptDetails);
+    const execute = vi.fn(async () => ({ status: "updated" as const, revision: 11 }));
+    const user = userEvent.setup();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={source} onExecute={execute} />);
+
+    expect(await screen.findByRole("heading", { name: "Continue?" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Confirm Continue?" })).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "Confirm Continue?" }));
+    await waitFor(() => expect(execute).toHaveBeenCalledWith({ action: "harness.extension.respond", payload: { sessionId: "root-a", requestId: "confirm-1", response: { confirmed: true } } }));
+    expect(screen.queryByRole("heading", { name: "Continue?" })).not.toBeInTheDocument();
+
+    const select = screen.getByRole("combobox", { name: "Choose branch" });
+    await waitFor(() => expect(select).not.toBeDisabled());
+    await waitFor(() => expect(select).toHaveFocus());
+    await user.selectOptions(select, "release");
+    await user.click(screen.getByRole("button", { name: "Submit Choose branch" }));
+    await waitFor(() => expect(execute).toHaveBeenCalledWith({ action: "harness.extension.respond", payload: { sessionId: "root-a", requestId: "select-1", response: { value: "release" } } }));
+
+    const input = screen.getByRole("textbox", { name: "Release name" });
+    await waitFor(() => expect(input).not.toBeDisabled());
+    input.focus();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(execute).toHaveBeenCalledWith({ action: "harness.extension.respond", payload: { sessionId: "root-a", requestId: "input-1", response: { cancelled: true } } }));
+
+    const editor = screen.getByRole("textbox", { name: "Instructions" });
+    await waitFor(() => expect(editor).not.toBeDisabled());
+    await user.clear(editor);
+    await user.type(editor, "Ship after review.");
+    await user.keyboard("{Control>}{Enter}{/Control}");
+    await waitFor(() => expect(execute).toHaveBeenCalledWith({ action: "harness.extension.respond", payload: { sessionId: "root-a", requestId: "editor-1", response: { value: "Ship after review." } } }));
+    expect(execute).toHaveBeenCalledTimes(4);
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Harness" })).toHaveFocus());
+  });
+
+  it("returns focus to child detail after its last extension prompt is cancelled", async () => {
+    const promptDetails: HarnessPanelDetails = {
+      ...details,
+      extensionUi: { status: "available", requests: [
+        { id: "child-editor", method: "editor", title: "Child instructions", prefill: "Private child direction.", cursor: session.cursor },
+      ] },
+    };
+    const source = adapter();
+    source.load = vi.fn(async () => promptDetails);
+    const execute = vi.fn(async () => ({ status: "updated" as const, revision: 11 }));
+    const user = userEvent.setup();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={source} onExecute={execute} />);
+
+    await screen.findByRole("textbox", { name: "Child instructions" });
+    await user.click(screen.getByRole("button", { name: /Review protocol/ }));
+    expect(screen.getByRole("heading", { name: "Review protocol" })).toBeVisible();
+
+    const editor = screen.getByRole("textbox", { name: "Child instructions" });
+    editor.focus();
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Child instructions" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Back to Harness" })).toHaveFocus());
+  });
+
+  it("never renders extension prompts bound to another session cursor", async () => {
+    const source = adapter();
+    source.load = vi.fn(async (): Promise<HarnessPanelDetails> => ({ ...details, extensionUi: { status: "available", requests: [
+      { id: "stale-1", method: "confirm", title: "Stale request", message: "Must stay hidden", cursor: { ...session.cursor, sequence: 9 } },
+    ] } }));
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={source} />);
+    await screen.findByText("This chat");
+    expect(screen.queryByText("Stale request")).not.toBeInTheDocument();
+  });
+
+  it("uses the product dispatcher seam for actions while retaining the adapter for projections", async () => {
+    const source = adapter();
+    const onExecute = vi.fn(async () => ({ status: "updated" as const, revision: 2 }));
+    const user = userEvent.setup();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={source} onExecute={onExecute} />);
+    await screen.findByText("This chat");
+
+    await user.click(screen.getByRole("button", { name: "Compact context" }));
+
+    expect(onExecute).toHaveBeenCalledWith({ action: "harness.session.compact", payload: { sessionId: "root-a" } });
+    expect(source.execute).not.toHaveBeenCalled();
+  });
+
+  it("recreates the complete overview hierarchy from current-session projections", async () => {
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={adapter()} />);
+    const inspector = screen.getByRole("region", { name: "Harness inspector content" });
+
+    expect(await within(inspector).findByText("This chat")).toBeVisible();
+    expect(within(inspector).getByText("38%")).toBeVisible();
+    expect(within(inspector).getByText("15.2k")).toBeVisible();
+    expect(within(inspector).getByText("Active · 1")).toBeVisible();
+    expect(within(inspector).getByText("Done · 2")).toBeVisible();
+    expect(within(inspector).getByRole("button", { name: /Review protocol/ })).toBeVisible();
+    expect(within(inspector).getByText("Queue")).toBeVisible();
+    expect(within(inspector).getByText("Tools")).toBeVisible();
+    expect(within(inspector).getAllByText("Context")).toHaveLength(2);
+    expect(within(inspector).getByText("Outputs")).toBeVisible();
+    expect(within(inspector).getByText("Sources")).toBeVisible();
+  });
+
+  it.each([1, 9_000_000_000_000])("anchors elapsed presentation to daemon observation despite renderer clock %d", async (rendererNow) => {
+    vi.spyOn(Date, "now").mockReturnValue(rendererNow);
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={adapter()} />);
+
+    expect(await screen.findByText("13:20")).toBeVisible();
+  });
+
+  it("resets elapsed authority when the daemon session and generation change", async () => {
+    const highDetails = { ...details, observedAtMs: 20_000, startedAtMs: 10_000 };
+    const lowDetails = { ...details, observedAtMs: 5_000, startedAtMs: 4_000 };
+    const source: HarnessInspectorAdapter = {
+      availability: { status: "available" },
+      load: vi.fn(async (sessionId) => sessionId === "root-a" ? highDetails : lowDetails),
+      execute: vi.fn(),
+    };
+    const view = render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={source} />);
+    expect(await screen.findByText("0:10")).toBeVisible();
+
+    view.rerender(<HarnessInspector chatId="chat-b" session={{ ...session, chatId: "chat-b", sessionId: "root-b", cursor: { runtimeGeneration: "g2", sequence: 1 } }} compatibility={compatibility} adapter={source} />);
+
+    expect(await screen.findByText("0:01")).toBeVisible();
+    expect(screen.queryByText("0:16")).not.toBeInTheDocument();
+  });
+
+  it("ticks parent elapsed while preserving authoritative child duration and never fabricates null progress", async () => {
+    let monotonicNow = 500;
+    const presentationTicks: TimerHandler[] = [];
+    vi.spyOn(performance, "now").mockImplementation(() => monotonicNow);
+    const setInterval = vi.spyOn(window, "setInterval").mockImplementation((handler, delay) => {
+      if (delay === 1_000) presentationTicks.push(handler);
+      return 1;
+    });
+    const unknownProgressChild = {
+      id: "child-unknown-progress",
+      status: "running" as const,
+      task: "Await authoritative progress",
+      provider: "OpenAI",
+      model: "gpt-test",
+      progress: null,
+    };
+    render(<HarnessInspector
+      chatId="chat-a"
+      session={{ ...session, children: [...session.children, unknownProgressChild] }}
+      compatibility={compatibility}
+      adapter={adapter()}
+    />);
+
+    const numericProgress = await screen.findByRole("button", { name: /Review protocol, running/ });
+    const mainAgent = screen.getByRole("region", { name: "Main agent" });
+    expect(within(mainAgent).getByText("13:20")).toBeVisible();
+    expect(within(numericProgress).getByText("12:40")).toBeVisible();
+    expect(within(numericProgress).getByLabelText("42% complete")).toBeVisible();
+    const indeterminateProgress = screen.getByRole("button", { name: /Await authoritative progress, running/ });
+    expect(within(indeterminateProgress).queryByLabelText(/% complete/)).not.toBeInTheDocument();
+    expect(setInterval.mock.calls.filter(([, delay]) => delay === 1_000)).toHaveLength(1);
+
+    monotonicNow += 1_000;
+    act(() => {
+      for (const tick of presentationTicks) if (typeof tick === "function") tick();
+    });
+
+    expect(within(mainAgent).getByText("13:21")).toBeVisible();
+    expect(within(numericProgress).getByText("12:40")).toBeVisible();
+  });
+
+  it("routes every overview action through the typed adapter and reports success", async () => {
+    const commands: StudioOperation[] = [];
+    const user = userEvent.setup();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={adapter(commands)} />);
+    await screen.findByText("This chat");
+
+    await user.click(screen.getByRole("button", { name: "Compact context" }));
+    await user.click(screen.getByText("Queue"));
+    await user.click(screen.getByRole("button", { name: "Run Follow up now" }));
+    await user.click(screen.getByText("Tools"));
+    await user.click(screen.getByRole("switch", { name: "Workspace inspect" }));
+
+    expect(commands).toEqual(expect.arrayContaining([
+      { action: "harness.session.compact", payload: { sessionId: "root-a" } },
+      { action: "harness.queue.run-now", payload: { sessionId: "root-a", queueItemId: "q1" } },
+      { action: "harness.tool.set-enabled", payload: { sessionId: "root-a", toolId: "workspace.inspect", enabled: false } },
+    ]));
+    expect(screen.getByText("Harness accepted the action.")).toBeVisible();
+  });
+
+  it("drills into private child chat, activity, and files and wires file open and stop", async () => {
+    const commands: StudioOperation[] = [];
+    const user = userEvent.setup();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={adapter(commands)} />);
+    await screen.findByText("This chat");
+
+    await user.click(screen.getByRole("button", { name: /Review protocol/ }));
+    expect(screen.getByRole("heading", { name: "Review protocol" })).toBeVisible();
+    expect(screen.getByText("Task accepted.")).toBeVisible();
+    expect(screen.getByText("Child tasks are managed by the harness")).toBeVisible();
+
+    await user.click(screen.getByRole("tab", { name: "Activity" }));
+    expect(screen.getByText("Opened protocol schema")).toBeVisible();
+    await user.click(screen.getByRole("tab", { name: "Files" }));
+    await user.click(screen.getByRole("button", { name: "Open src/protocol.ts" }));
+    await user.click(screen.getByRole("button", { name: "Stop task" }));
+
+    expect(commands).toEqual(expect.arrayContaining([
+      { action: "editor.artifact.open", payload: { sessionId: "root-a", artifactId: "candidate-child-file" } },
+      { action: "harness.child.stop", payload: { sessionId: "root-a", childId: "child-1" } },
+    ]));
+  });
+
+  it("admits one child cancellation per exact session-child scope and does not leak pending into a replacement session", async () => {
+    let releaseFirst!: (value: { status: "updated"; revision: number }) => void;
+    const first = new Promise<{ status: "updated"; revision: number }>((resolve) => { releaseFirst = resolve; });
+    let stopCalls = 0;
+    const execute = vi.fn(async (operation: StudioOperation) => {
+      if (operation.action !== "harness.child.stop") return { status: "updated" as const, revision: 10 };
+      stopCalls += 1;
+      return stopCalls === 1 ? first : { status: "updated" as const, revision: 12 };
+    });
+    const sibling = { ...session.children[0]!, id: "child-sibling", task: "Second running task" };
+    const scopedSession = { ...session, children: [...session.children, sibling] };
+    const view = render(<HarnessInspector chatId="chat-a" session={scopedSession} compatibility={compatibility} adapter={adapter()} onExecute={execute} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Review protocol/ }));
+
+    const stop = screen.getByRole("button", { name: "Stop task" });
+    fireEvent.click(stop);
+    fireEvent.click(stop);
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(stopCalls).toBe(1);
+    expect(await screen.findByRole("button", { name: "Stopping…" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to Harness" }));
+    fireEvent.click(screen.getByRole("button", { name: "Second running task, running" }));
+    const siblingStop = await screen.findByRole("button", { name: "Stop task" });
+    expect(siblingStop).toBeEnabled();
+    fireEvent.click(siblingStop);
+    expect(stopCalls).toBe(2);
+    expect(execute).toHaveBeenCalledWith({ action: "harness.child.stop", payload: { sessionId: "root-a", childId: "child-sibling" } });
+
+    const replacement = { ...scopedSession, sessionId: "root-b", cursor: { runtimeGeneration: "g2", sequence: 1 } };
+    view.rerender(<HarnessInspector chatId="chat-a" session={replacement} compatibility={compatibility} adapter={adapter()} onExecute={execute} />);
+    const replacementStop = await screen.findByRole("button", { name: "Stop task" });
+    expect(replacementStop).toBeEnabled();
+    fireEvent.click(replacementStop);
+    expect(stopCalls).toBe(3);
+    expect(execute).toHaveBeenLastCalledWith({ action: "harness.child.stop", payload: { sessionId: "root-b", childId: "child-sibling" } });
+
+    releaseFirst({ status: "updated", revision: 11 });
+    await act(async () => { await first; });
+    expect(screen.getByText("Child cancellation confirmed.")).toBeVisible();
+  }, 10_000);
+
+  it("returns safely to the Harness overview and stable focus when authoritative cancellation removes the selected child", async () => {
+    const execute = vi.fn(async () => ({ status: "updated" as const, revision: 11 }));
+    const user = userEvent.setup();
+    const view = render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={adapter()} onExecute={execute} />);
+    await user.click(await screen.findByRole("button", { name: /Review protocol/ }));
+    await user.click(screen.getByRole("button", { name: "Stop task" }));
+
+    view.rerender(<HarnessInspector
+      chatId="chat-a"
+      session={{ ...session, cursor: { ...session.cursor, sequence: 11 }, children: session.children.filter((child) => child.id !== "child-1") }}
+      compatibility={compatibility}
+      adapter={adapter()}
+      onExecute={execute}
+    />);
+
+    expect(await screen.findByText("The selected child is no longer available.")).toBeVisible();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Harness" })).toHaveFocus());
+    expect(screen.queryByText("Task accepted.")).not.toBeInTheDocument();
+  });
+
+  it("keeps the projected child composer visibly locked without a prompt path", async () => {
+    const commands: StudioOperation[] = [];
+    const user = userEvent.setup();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={adapter(commands)} />);
+    await user.click(await screen.findByRole("button", { name: /Review protocol/ }));
+    commands.length = 0;
+
+    const composer = screen.getByRole("textbox", { name: "Child message" });
+    expect(composer).toHaveAttribute("readonly");
+    expect(composer).toHaveValue("Child tasks are managed by the harness");
+    expect(composer).toHaveAccessibleDescription("Read-only in Prime Studio. The verified Harness owns child task input.");
+    expect(screen.queryByRole("button", { name: /send child/i })).not.toBeInTheDocument();
+
+    composer.focus();
+    await user.type(composer, "Do not send this{Enter}");
+    expect(composer).toHaveValue("Child tasks are managed by the harness");
+    expect(commands).toEqual([]);
+  });
+
+  it("loads every child tab independently and pages older authoritative rows", async () => {
+    const source = adapter();
+    source.loadChildPage = vi.fn(async (_sessionId, _childId, tab, _displayedCursor, pageCursor) => {
+      if (tab === "chat") return { status: "available" as const, tab, items: [{ id: pageCursor ? "older" : "newer", actor: "Agent", occurredAtMs: 2, text: pageCursor ? "Older private row" : "Newest private row" }], previousCursor: pageCursor ? null : "opaque-previous", omittedItems: pageCursor ? 0 : 1 };
+      if (tab === "activity") return { status: "available" as const, tab, items: [{ id: "activity-page", occurredAtMs: 3, label: "Paged activity" }], previousCursor: null, omittedItems: 0 };
+      return { status: "available" as const, tab, items: [{ id: "file-page", label: "paged.txt", candidateId: "candidate-paged", change: "read" as const }], previousCursor: null, omittedItems: 0 };
+    });
+    const user = userEvent.setup();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={source} />);
+    await user.click(await screen.findByRole("button", { name: /Review protocol/ }));
+    expect(await screen.findByText("Newest private row")).toBeVisible();
+    expect(screen.queryByText("Task accepted.")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Load older child chat" }));
+    expect(await screen.findByText("Older private row")).toBeVisible();
+    await user.click(screen.getByRole("tab", { name: "Activity" }));
+    expect(await screen.findByText("Paged activity")).toBeVisible();
+    await user.click(screen.getByRole("tab", { name: "Files" }));
+    expect(await screen.findByRole("button", { name: "Open paged.txt" })).toBeVisible();
+    expect(source.loadChildPage).toHaveBeenNthCalledWith(1, "root-a", "child-1", "chat", session.cursor, null);
+    expect(source.loadChildPage).toHaveBeenNthCalledWith(2, "root-a", "child-1", "chat", session.cursor, "opaque-previous");
+  });
+
+  it("renders explicit child evidence unavailable instead of an empty-data claim", async () => {
+    const source = adapter();
+    source.loadChildPage = vi.fn(async () => ({ status: "unavailable" as const, tab: "chat" as const, reason: "Installed Harness omits child paging." }));
+    const user = userEvent.setup();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={source} />);
+    await user.click(await screen.findByRole("button", { name: /Review protocol/ }));
+    expect(await screen.findByRole("status", { name: "Child chat unavailable" })).toHaveTextContent("Installed Harness omits child paging.");
+  });
+
+  it("admits only one older-page request while that opaque cursor is in flight", async () => {
+    let releaseOlder!: () => void;
+    const older = new Promise<void>((resolve) => { releaseOlder = resolve; });
+    const source = adapter();
+    source.loadChildPage = vi.fn(async (_sessionId, _childId, _tab, _displayedCursor, pageCursor) => {
+      if (pageCursor) { await older; return { status: "available" as const, tab: "chat" as const, items: [], previousCursor: null, omittedItems: 0 }; }
+      return { status: "available" as const, tab: "chat" as const, items: [], previousCursor: "opaque-previous", omittedItems: 1 };
+    });
+    const user = userEvent.setup();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={source} />);
+    await user.click(await screen.findByRole("button", { name: /Review protocol/ }));
+    const olderButton = await screen.findByRole("button", { name: "Load older child chat" });
+    await user.dblClick(olderButton);
+    expect(source.loadChildPage).toHaveBeenCalledTimes(2);
+    releaseOlder();
+  });
+
+  it("loads the newly selected tab while the prior tab request is still pending", async () => {
+    let releaseChat!: () => void;
+    const pendingChat = new Promise<void>((resolve) => { releaseChat = resolve; });
+    const source = adapter();
+    source.loadChildPage = vi.fn(async (_sessionId, _childId, tab) => {
+      if (tab === "chat") { await pendingChat; return { status: "available" as const, tab, items: [{ id: "private-chat", actor: "Agent", occurredAtMs: 2, text: "Stale chat" }], previousCursor: null, omittedItems: 0 }; }
+      if (tab === "activity") return { status: "available" as const, tab, items: [{ id: "fresh-activity", occurredAtMs: 3, label: "Fresh activity" }], previousCursor: null, omittedItems: 0 };
+      return { status: "available" as const, tab, items: [], previousCursor: null, omittedItems: 0 };
+    });
+    const user = userEvent.setup();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={source} />);
+    await user.click(await screen.findByRole("button", { name: /Review protocol/ }));
+    await user.click(screen.getByRole("tab", { name: "Activity" }));
+    expect(await screen.findByText("Fresh activity")).toBeVisible();
+    releaseChat();
+    await waitFor(() => expect(screen.queryByText("Stale chat")).not.toBeInTheDocument());
+  });
+
+  it("discards old rows and cursor when the displayed session cursor advances", async () => {
+    const source = adapter();
+    source.loadChildPage = vi.fn(async (_sessionId, _childId, _tab, cursor, pageCursor) => ({
+      status: "available" as const, tab: "chat" as const,
+      items: [{ id: `row-${cursor.sequence}`, actor: "Agent", occurredAtMs: cursor.sequence, text: `Cursor ${cursor.sequence}` }],
+      previousCursor: pageCursor === null && cursor.sequence === 10 ? "old-page-cursor" : null,
+      omittedItems: cursor.sequence === 10 ? 1 : 0,
+    }));
+    const view = render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={source} />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Review protocol/ }));
+    expect(await screen.findByText("Cursor 10")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Load older child chat" })).toBeVisible();
+
+    view.rerender(<HarnessInspector chatId="chat-a" session={{ ...session, cursor: { ...session.cursor, sequence: 11 } }} compatibility={compatibility} adapter={source} />);
+
+    expect(await screen.findByText("Cursor 11")).toBeVisible();
+    expect(screen.queryByText("Cursor 10")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Load older child chat" })).not.toBeInTheDocument();
+    expect(source.loadChildPage).toHaveBeenLastCalledWith("root-a", "child-1", "chat", { runtimeGeneration: "g1", sequence: 11 }, null);
+  });
+
+  it("keeps opaque scope tuples distinct when their colon concatenations collide", async () => {
+    let releaseFirst!: () => void;
+    const firstPending = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const loadPage = vi.fn(async (sessionId: string) => {
+      if (sessionId === "a:x") await firstPending;
+      return { status: "available" as const, tab: "chat" as const, items: [{ id: sessionId, actor: "Agent", occurredAtMs: 1, text: `Private ${sessionId}` }], previousCursor: null, omittedItems: 0 };
+    });
+    const child = { id: "x", status: "running" as const, task: "Private", provider: null, model: null, progress: null };
+    const common = { child, details: null, observedAtMs: 1, tab: "chat" as const, pendingKey: null, onBack: vi.fn(), onTab: vi.fn(), onAction: vi.fn(), onLoadPage: loadPage };
+    const view = render(<ChildDetail {...common} sessionId="a:x" displayedCursor={{ runtimeGeneration: "g", sequence: 1 }} />);
+    await waitFor(() => expect(loadPage).toHaveBeenCalledWith("a:x", "x", "chat", { runtimeGeneration: "g", sequence: 1 }, null));
+
+    view.rerender(<ChildDetail {...common} sessionId="a" displayedCursor={{ runtimeGeneration: "x:g", sequence: 1 }} />);
+
+    await waitFor(() => expect(loadPage).toHaveBeenCalledWith("a", "x", "chat", { runtimeGeneration: "x:g", sequence: 1 }, null));
+    expect(await screen.findByText("Private a")).toBeVisible();
+    expect(screen.queryByText("Private a:x")).not.toBeInTheDocument();
+    releaseFirst();
+  });
+
+  it("renders child facts only when they are bound to the exact parent, child, generation, and cursor", async () => {
+    const child = { id: "child-1", status: "running" as const, task: "Root snapshot task", provider: "stale-provider", model: "stale-model", progress: null };
+    const exact = {
+      binding: { parentSessionId: "root-a", childId: "child-1", cursor: { runtimeGeneration: "g1", sequence: 10 } },
+      status: "running", elapsedMs: 125_000, provider: "openai-codex", model: "gpt-5.6-sol",
+      task: "Inspect the child authority boundary", summary: "Reviewing exact child evidence.",
+      context: { usedTokens: 6_400, capacityTokens: 40_000 }, tokenUsage: null,
+      transcript: [], activity: [], files: [], error: null,
+    } as unknown as HarnessChildDetails;
+    const common = { sessionId: "root-a", displayedCursor: { runtimeGeneration: "g1", sequence: 10 }, child, observedAtMs: 999_999_999, tab: "chat" as const, pendingKey: null, onBack: vi.fn(), onTab: vi.fn(), onAction: vi.fn(), onLoadPage: vi.fn(async () => ({ status: "unavailable" as const, tab: "chat" as const, reason: "No child transcript evidence." })) };
+    const view = render(<ChildDetail {...common} details={exact} />);
+
+    expect(screen.getByRole("heading", { name: "Inspect the child authority boundary" })).toBeVisible();
+    expect(screen.getByText("running")).toBeVisible();
+    expect(screen.getByText("2:05")).toBeVisible();
+    expect(screen.getByText("openai-codex")).toBeVisible();
+    expect(screen.getByText("gpt-5.6-sol")).toBeVisible();
+    expect(screen.getByText("6.4k / 40k context tokens")).toBeVisible();
+    expect(screen.getByText("Usage tokens unavailable")).toBeVisible();
+    expect(screen.queryByText("stale-provider")).not.toBeInTheDocument();
+    expect(screen.queryByText("stale-model")).not.toBeInTheDocument();
+
+    view.rerender(<ChildDetail {...common} details={{ ...exact, elapsedMs: null }} />);
+    expect(screen.getByText("Elapsed").previousElementSibling).toHaveTextContent("Unavailable");
+    expect(screen.queryByText("2:05")).not.toBeInTheDocument();
+
+    const stale = { ...exact, binding: { ...exact.binding, cursor: { ...exact.binding.cursor, sequence: 9 } } } as unknown as HarnessChildDetails;
+    view.rerender(<ChildDetail {...common} details={stale} />);
+    expect(screen.getAllByText("Unavailable").length).toBeGreaterThanOrEqual(5);
+    expect(screen.getByText("Verified child facts are unavailable for this session revision.")).toBeVisible();
+    expect(screen.queryByText("openai-codex")).not.toBeInTheDocument();
+    expect(screen.queryByText("Inspect the child authority boundary")).not.toBeInTheDocument();
+  });
+
+  it("shows truthful child failure and exposes typed retry", async () => {
+    const commands: StudioOperation[] = [];
+    const user = userEvent.setup();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={adapter(commands)} />);
+    await screen.findByText("This chat");
+    await user.click(screen.getByRole("button", { name: /Verify release/ }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Worker exited without a final report.");
+    expect(screen.getByRole("button", { name: "Retry task" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Retry task" })).toHaveAttribute("title", "The runtime did not provide a retry admission handle.");
+    expect(commands).not.toContainEqual(expect.objectContaining({ action: "harness.overload.retry" }));
+  });
+
+  it("keeps Usage scoped to the current chat and separates account-wide usage", async () => {
+    const onOpenAccountUsage = vi.fn();
+    const user = userEvent.setup();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={adapter()} onOpenAccountUsage={onOpenAccountUsage} />);
+    await screen.findByText("This chat");
+    await user.click(screen.getByRole("tab", { name: "Usage" }));
+
+    expect(screen.getByText("Current chat")).toBeVisible();
+    expect(screen.getByText("165")).toBeVisible();
+    expect(screen.getByText("Cost unavailable")).toBeVisible();
+    expect(screen.getByText("Parent and child attribution is unavailable. Totals are not guessed.")).toBeVisible();
+    expect(screen.getByText(/Subagent usage is included only when it belongs to this chat/)).toBeVisible();
+    await user.click(screen.getByRole("button", { name: /Settings.*Usage/ }));
+    expect(onOpenAccountUsage).toHaveBeenCalledOnce();
+  });
+
+  it("filters activity, expands tool detail, copies commands, and opens affected files", async () => {
+    const commands: StudioOperation[] = [];
+    const user = userEvent.setup();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={adapter(commands)} />);
+    await screen.findByText("This chat");
+    await user.click(screen.getByRole("tab", { name: "Activity" }));
+    await user.click(screen.getByRole("button", { name: "Tools" }));
+    expect(screen.queryByText("Review protocol spawned")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Workspace inspection/ }));
+    expect(screen.getByText("rg --files")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Copy command" }));
+    await user.click(screen.getByRole("button", { name: "Open src/protocol.ts" }));
+    expect(commands).toEqual(expect.arrayContaining([
+      { action: "activity.command.copy", payload: { activityId: "act-tool", command: "rg --files" } },
+      { action: "activity.file.open", payload: { sessionId: "root-a", activityId: "act-tool", fileId: "candidate-tool-file" } },
+    ]));
+  });
+
+  it("marks Activity seen only when broker-minted content evidence changes", async () => {
+    const evidence = { runtimeGeneration: "g1", marker: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", occurredAtMs: 1_725_700_300_000 };
+    const source = { ...adapter(), loadActivityEvidence: vi.fn(async () => evidence) };
+    const attention = reconcileAttentionSnapshot({ revision: 7, records: [{ chatId: "chat-a", chatSeen: null, activitySeen: { ...evidence, marker: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" } }] });
+    const onExecute = vi.fn(async () => ({ status: "updated" as const, revision: 8 }));
+    const user = userEvent.setup();
+    const view = render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={source} onExecute={onExecute} attention={attention} />);
+    await screen.findByText("This chat");
+    expect(await screen.findByRole("tab", { name: "Activity, unseen" })).toBeVisible();
+    await user.click(screen.getByRole("tab", { name: "Activity, unseen" }));
+    await waitFor(() => expect(onExecute).toHaveBeenCalledWith({ action: "activity.seen.mark", payload: { chatId: "chat-a", evidence } }));
+
+    onExecute.mockClear();
+    const seenAttention = reconcileAttentionSnapshot({ revision: 8, records: [{ chatId: "chat-a", chatSeen: null, activitySeen: evidence }] });
+    view.rerender(<HarnessInspector chatId="chat-a" session={{ ...session, cursor: { ...session.cursor, sequence: 11 } }} compatibility={compatibility} adapter={source} onExecute={onExecute} attention={seenAttention} />);
+    await waitFor(() => expect(source.loadActivityEvidence).toHaveBeenCalled());
+    expect(screen.getByRole("tab", { name: "Activity" })).toBeVisible();
+    expect(screen.queryByRole("tab", { name: "Activity, unseen" })).not.toBeInTheDocument();
+    expect(onExecute).not.toHaveBeenCalledWith(expect.objectContaining({ action: "activity.seen.mark" }));
+
+    view.unmount();
+    onExecute.mockClear();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={adapter()} onExecute={onExecute} attention={{ status: "unavailable", reason: "Activity content evidence unavailable." }} />);
+    await user.click(await screen.findByRole("tab", { name: "Activity" }));
+    expect(await screen.findByText("Activity content evidence unavailable.")).toBeVisible();
+    expect(onExecute).not.toHaveBeenCalledWith(expect.objectContaining({ action: "activity.seen.mark" }));
+  });
+
+  it("routes system activity rows instead of leaving an interactive no-op", async () => {
+    const commands: StudioOperation[] = [];
+    const user = userEvent.setup();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={adapter(commands)} />);
+    await screen.findByText("This chat");
+    await user.click(screen.getByRole("tab", { name: "Activity" }));
+    await user.click(screen.getByRole("button", { name: /Snapshot synchronized/ }));
+
+    expect(commands).toContainEqual({ action: "activity.row.toggle", payload: { chatId: "chat-a", activityId: "act-system" } });
+  });
+
+  it("announces adapter errors and never presents an action as successful", async () => {
+    const failing: HarnessInspectorAdapter = {
+      availability: { status: "available" },
+      load: vi.fn(async () => details),
+      execute: vi.fn(async () => { throw new Error("Runtime disconnected"); }),
+    };
+    const user = userEvent.setup();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={failing} />);
+    await screen.findByText("This chat");
+    await user.click(screen.getByRole("button", { name: "Compact context" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Runtime disconnected");
+  });
+
+  it("renders explicit unavailable and loading states without invented zeroes", async () => {
+    render(<HarnessInspector chatId="chat-a" session={null} compatibility={{ status: "unavailable", reason: "not_installed" }} />);
+    expect(screen.getByText("No Harness session is attached to this chat.")).toBeVisible();
+    expect(screen.queryByText("0 tokens")).not.toBeInTheDocument();
+
+    const never = new Promise<HarnessPanelDetails>(() => undefined);
+    const loading: HarnessInspectorAdapter = { availability: { status: "available" }, load: vi.fn(() => never), execute: vi.fn() };
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={loading} />);
+    expect(screen.getByRole("status", { name: "Loading Harness details" })).toBeVisible();
+  });
+
+  it("refreshes an idle live inspector from the verified adapter without overlapping polls", async () => {
+    vi.useFakeTimers();
+    const source = adapter();
+    const idle = { ...session, state: "idle" as const };
+    render(<HarnessInspector chatId="chat-a" session={idle} compatibility={compatibility} adapter={source} />);
+    expect(source.load).toHaveBeenCalledTimes(1);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(source.load).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps ready content presented without a loading announcement during an idle refresh", async () => {
+    vi.useFakeTimers();
+    let resolveRefresh: ((value: HarnessPanelDetails) => void) | null = null;
+    const source: HarnessInspectorAdapter = {
+      availability: { status: "available" },
+      load: vi.fn()
+        .mockResolvedValueOnce(details)
+        .mockImplementationOnce(() => new Promise<HarnessPanelDetails>((resolve) => { resolveRefresh = resolve; })),
+      execute: vi.fn(),
+    };
+    const view = render(<HarnessInspector chatId="chat-a" session={{ ...session, state: "idle" }} compatibility={compatibility} adapter={source} />);
+    await act(async () => { await Promise.resolve(); });
+    expect(view.container.querySelector(".harness-inspector")).toHaveAttribute("data-load-phase", "ready");
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+
+    expect(source.load).toHaveBeenCalledTimes(2);
+    expect(view.container.querySelector(".harness-inspector")).toHaveAttribute("data-load-phase", "ready");
+    expect(screen.queryByRole("status", { name: "Loading Harness details" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Harness inspector content" })).toHaveTextContent("This chat");
+    await act(async () => { resolveRefresh?.(details); });
+  });
+
+  it.each(["stale", "unknown_outcome"] as const)("does not poll a %s inspector projection", async (freshness) => {
+    vi.useFakeTimers();
+    const source = adapter();
+    render(<HarnessInspector chatId="chat-a" session={{ ...session, state: "idle", freshness }} compatibility={compatibility} adapter={source} />);
+    expect(source.load).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(source.load).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits for an idle refresh to settle before starting another poll", async () => {
+    vi.useFakeTimers();
+    let settle: ((value: HarnessPanelDetails) => void) | null = null;
+    const source: HarnessInspectorAdapter = {
+      availability: { status: "available" },
+      load: vi.fn(() => new Promise<HarnessPanelDetails>((resolve) => { settle = resolve; })),
+      execute: vi.fn(),
+    };
+    render(<HarnessInspector chatId="chat-a" session={{ ...session, state: "idle" }} compatibility={compatibility} adapter={source} />);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(source.load).toHaveBeenCalledOnce();
+    await act(async () => { settle?.(details); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(source.load).toHaveBeenCalledTimes(2);
+  });
+
+  it("discards a stale session load and starts the replacement session without leaking private details", async () => {
+    let resolveA: ((value: HarnessPanelDetails) => void) | null = null;
+    let resolveB: ((value: HarnessPanelDetails) => void) | null = null;
+    const aDetails = { ...details, outputs: [{ id: "private-a", label: "A private output", candidateId: "candidate-a", kind: "file" }] };
+    const bDetails = { ...details, outputs: [{ id: "private-b", label: "B private output", candidateId: "candidate-b", kind: "file" }] };
+    const source: HarnessInspectorAdapter = {
+      availability: { status: "available" },
+      load: vi.fn((sessionId: string) => new Promise<HarnessPanelDetails>((resolve) => {
+        if (sessionId === "root-a") resolveA = resolve;
+        else resolveB = resolve;
+      })),
+      execute: vi.fn(),
+    };
+    const view = render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={source} />);
+    const replacement = { ...session, sessionId: "root-b", chatId: "chat-b", cursor: { runtimeGeneration: "g2", sequence: 1 } };
+    view.rerender(<HarnessInspector chatId="chat-b" session={replacement} compatibility={compatibility} adapter={source} />);
+
+    expect(source.load).toHaveBeenCalledWith("root-b", replacement.cursor);
+    await act(async () => { resolveA?.(aDetails); });
+    expect(screen.queryByText("A private output")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Outputs"));
+    await act(async () => { resolveB?.(bDetails); });
+    expect(await screen.findByText("B private output")).toBeVisible();
+  });
+
+  it("begins and stops idle polling as stable adapter availability changes", async () => {
+    vi.useFakeTimers();
+    let available = false;
+    const source: HarnessInspectorAdapter = {
+      get availability() { return available ? { status: "available" as const } : { status: "unavailable" as const, reason: "Runtime offline." }; },
+      load: vi.fn(async () => details),
+      execute: vi.fn(),
+    };
+    render(<HarnessInspector chatId="chat-a" session={{ ...session, state: "idle" }} compatibility={compatibility} adapter={source} />);
+    expect(source.load).not.toHaveBeenCalled();
+
+    available = true;
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(source.load).toHaveBeenCalledTimes(1);
+    available = false;
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(source.load).toHaveBeenCalledTimes(1);
+    available = true;
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(source.load).toHaveBeenCalledTimes(2);
+  });
+
+  it("announces loading while a recovered adapter obtains its first details", async () => {
+    vi.useFakeTimers();
+    let available = false;
+    let resolveRecovery: ((value: HarnessPanelDetails) => void) | null = null;
+    const source: HarnessInspectorAdapter = {
+      get availability() { return available ? { status: "available" as const } : { status: "unavailable" as const, reason: "Runtime offline." }; },
+      load: vi.fn(() => new Promise<HarnessPanelDetails>((resolve) => { resolveRecovery = resolve; })),
+      execute: vi.fn(),
+    };
+    const view = render(<HarnessInspector chatId="chat-a" session={{ ...session, state: "idle" }} compatibility={compatibility} adapter={source} />);
+    expect(view.container.querySelector(".harness-inspector")).toHaveAttribute("data-load-phase", "unavailable");
+
+    available = true;
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+
+    expect(source.load).toHaveBeenCalledOnce();
+    expect(view.container.querySelector(".harness-inspector")).toHaveAttribute("data-load-phase", "loading");
+    expect(screen.getByRole("status", { name: "Loading Harness details" })).toBeVisible();
+    await act(async () => { resolveRecovery?.(details); });
+    expect(view.container.querySelector(".harness-inspector")).toHaveAttribute("data-load-phase", "ready");
+  });
+
+  it("shows the production silent-worker recovery blocker instead of a working retry claim", async () => {
+    const source: HarnessInspectorAdapter = { ...adapter(), workerRecovery: {
+      status: "unavailable",
+      reason: "Prime Studio cannot safely retry a silent worker because the native Harness bridge does not expose a verified closure reason and retry identity.",
+    } };
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={source} />);
+
+    expect(await screen.findByRole("status", { name: "Silent worker recovery unavailable" }))
+      .toHaveTextContent("does not expose a verified closure reason and retry identity");
+    expect(screen.queryByRole("button", { name: /retry silent worker/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps recovered and terminal worker outcomes in the right inspector", async () => {
+    const observationId = "worker-recovery-0123456789abcdef012345";
+    const source: HarnessInspectorAdapter = { ...adapter(), workerRecovery: {
+      status: "available", maximumAutomaticRetries: 1,
+      retry: vi.fn(),
+    } };
+    const view = render(<HarnessInspector chatId="chat-a" session={{
+      ...session,
+      workerRecovery: { status: "recovered", closureReason: "supervisor_recovery_exhausted", observationId, automaticRetryCount: 1, detail: null },
+    }} compatibility={compatibility} adapter={source} />);
+    expect(await screen.findByText("Worker recovered.")).toBeVisible();
+
+    view.rerender(<HarnessInspector chatId="chat-a" session={{
+      ...session,
+      state: "failed",
+      workerRecovery: { status: "terminal_failure", closureReason: "supervisor_recovery_exhausted", observationId, automaticRetryCount: 1, detail: "The one automatic worker retry did not recover the session." },
+    }} compatibility={compatibility} adapter={source} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("one automatic worker retry did not recover");
+    expect(screen.queryByRole("button", { name: /retry silent worker/i })).not.toBeInTheDocument();
+  });
+
+  it("supports arrow-key tab navigation and restores the selected route per chat", async () => {
+    const user = userEvent.setup();
+    const view = render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={adapter()} />);
+    await screen.findByText("This chat");
+    const harnessTab = screen.getByRole("tab", { name: "Harness" });
+    harnessTab.focus();
+    fireEvent.keyDown(harnessTab, { key: "ArrowRight" });
+    expect(screen.getByRole("tab", { name: "Usage" })).toHaveFocus();
+    await user.click(screen.getByRole("tab", { name: "Activity" }));
+    view.unmount();
+
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={adapter()} />);
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Activity" })).toHaveAttribute("aria-selected", "true"));
+  });
+});
+
+describe("inspector route state", () => {
+  it("returns to overview if the selected child disappears", () => {
+    const selected = reduceInspector(createInspectorState(), { type: "child/open", childId: "child-1" });
+    const reconciled = reduceInspector(selected, { type: "children/reconciled", childIds: [] });
+    expect(reconciled.route).toEqual({ kind: "overview" });
+    expect(reconciled.notice).toBe("The selected child is no longer available.");
+  });
+});

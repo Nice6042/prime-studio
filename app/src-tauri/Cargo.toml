@@ -29,6 +29,13 @@ test = false
 bench = false
 required-features = ["test-support-bin"]
 
+[[bin]]
+name = "fake-harness-sidecar"
+path = "tests/support/fake_harness_sidecar.rs"
+test = false
+bench = false
+required-features = ["test-support-bin"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -50,4 +57,10 @@ windows-sys = { version = "0.61.2", features = [
   "Win32_Foundation",
   "Win32_Security",
   "Win32_Storage_FileSystem",
+  "Win32_System_IO",
+  "Wdk_Foundation",
+  "Wdk_Storage_FileSystem",
 ] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

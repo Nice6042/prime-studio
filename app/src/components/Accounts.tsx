@@ -10,13 +10,13 @@ import {
   money,
 } from "../accounts";
 import { visualizeUntrustedText } from "../accounts/delete";
-import { rateLimitsFor, toMillis } from "../rateLimits";
+import { rateLimitsSnapshot } from "../rateLimits";
+import { projectSubscriptionQuota, type SubscriptionQuotaProjection } from "../quotaProjection";
+import { QuotaFactView } from "./SubscriptionQuota";
 import { AccountRemovalDialog } from "./AccountRemovalDialog";
 import type {
   Account,
   AccountStatus,
-  CodexSubscription,
-  RateLimits,
   UsageReport,
 } from "../types";
 
@@ -28,101 +28,6 @@ function expiryText(status?: AccountStatus | null): string {
   return `${ms < Date.now() ? "expired" : "valid until"} ${dateFmt.format(new Date(ms))}`;
 }
 
-/** Clamped bar for a real percentage (0..100). Never rendered without a number. */
-function Bar({ percent }: { percent: number }) {
-  const p = Math.max(0, Math.min(100, percent));
-  return (
-    <div className="meter-bar">
-      <div className={`meter-fill ${p > 80 ? "hot" : ""}`} style={{ width: `${p}%` }} />
-    </div>
-  );
-}
-
-/** The representative window's reset, or any window that carries one. */
-function resetText(rl: RateLimits): string {
-  const windows = rl.windows ?? {};
-  const pick =
-    (rl.representativeWindow ? windows[rl.representativeWindow] : undefined) ??
-    Object.values(windows).find((w) => w?.resetsAt != null);
-  const ms = toMillis(pick?.resetsAt);
-  return ms ? ` · resets ${dateFmt.format(new Date(ms))}` : "";
-}
-
-/**
- * Subscription quota per account. Three providers, three completely different
- * truths — this component exists so none of them can be rendered as the others:
- *
- * - anthropic: real utilization exists ONLY from a patched prime's `rate_limits`
- *   event. No event this session means no data, and no data must read as "not
- *   reported", never as a zeroed bar.
- * - openai-codex: a snapshot out of the Codex CLI's own logs. Account-level for
- *   whichever ChatGPT login *that CLI* uses, so it is only attached to an account
- *   when there is exactly one candidate — see the group-level card otherwise.
- * - prime-inference: no rate-limit data is known to exist at all.
- */
-function Quota({ account, codex }: { account: Account; codex: CodexSubscription | null }) {
-  if (account.provider === "anthropic") {
-    const rl = rateLimitsFor(account.id);
-    if (!rl) {
-      return (
-        <div className="acct-quota muted small">
-          Subscription quota: <strong>not reported by this prime build.</strong> Stock prime-agent
-          discards Anthropic's rate-limit headers; a patched build emits a <code>rate_limits</code>{" "}
-          event and this fills in as soon as one arrives on a session for this account.
-        </div>
-      );
-    }
-    // 0..1 from prime, unlike Codex's 0..100 — a raw value here would render 0.84%.
-    const percent = (rl.utilization ?? 0) * 100;
-    return (
-      <div className="acct-quota">
-        <div className="sub-meter-head">
-          <span className="small">
-            Plan used{rl.representativeWindow ? ` · ${rl.representativeWindow}` : ""}
-          </span>
-          <strong>{percent.toFixed(1)}%</strong>
-        </div>
-        <Bar percent={percent} />
-        <div className="muted small">
-          Live from prime's <code>rate_limits</code> event{resetText(rl)}
-        </div>
-      </div>
-    );
-  }
-
-  if (account.provider === "openai-codex") {
-    if (!codex) {
-      return (
-        <div className="acct-quota muted small">
-          Subscription quota: no Codex CLI snapshot on this machine. It is read from{" "}
-          <code>~/.codex/sessions</code> — run the Codex CLI once and a figure appears here.
-        </div>
-      );
-    }
-    return (
-      <div className="acct-quota">
-        <div className="sub-meter-head">
-          <span className="small">
-            Codex CLI snapshot{codex.planType ? ` · ${codex.planType}` : ""}
-          </span>
-          <strong>{codex.usedPercent.toFixed(1)}%</strong>
-        </div>
-        <Bar percent={codex.usedPercent} />
-        <div className="muted small">
-          As of {dateFmt.format(new Date(codex.staleAsOf))} — a snapshot from the Codex CLI's
-          session log, not live. It only moves when that CLI runs.
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="acct-quota muted small">
-      Subscription quota: this provider reports no rate-limit data. Cost only.
-    </div>
-  );
-}
-
 /**
  * Accounts pane. Each account is a separate prime agent home
  * (`PRIME_AGENT_CODING_AGENT_DIR`), which is the whole reason two Claude and two
@@ -132,21 +37,24 @@ export function Accounts({
   accounts,
   onChanged,
   onUse,
+  newSessionDisabledReason,
   defaultAccount,
   onDefaultAccount,
+  quota = projectSubscriptionQuota(accounts, null, rateLimitsSnapshot()),
 }: {
   accounts: Account[];
   /** Registry changed. A strict refreshed list can be applied without another bridge read. */
   onChanged: (refreshed?: Account[]) => void;
   /** Open a new session on this account (a session's account is fixed at spawn). */
   onUse: (id: string) => void;
+  newSessionDisabledReason?: string;
   defaultAccount: string | null;
   onDefaultAccount: (id: string | null) => void;
+  quota?: SubscriptionQuotaProjection;
 }) {
   const [status, setStatus] = useState<Record<string, AccountStatus>>({});
   const [unavailableStatus, setUnavailableStatus] = useState<Set<string>>(() => new Set());
   const [usage, setUsage] = useState<Record<string, UsageReport>>({});
-  const [codex, setCodex] = useState<CodexSubscription | null>(null);
   const [newLabel, setNewLabel] = useState("");
   const [newProvider, setNewProvider] = useState(PROVIDERS[0]);
   const [editing, setEditing] = useState<string | null>(null);
@@ -251,7 +159,6 @@ export function Accounts({
       accounts.map(async (a) => [a.id, await rpc.accountUsage(a.id, since)] as const),
     );
     setUsage(Object.fromEntries(rows.filter(([, u]) => u)) as Record<string, UsageReport>);
-    setCodex(await rpc.codexSubscriptionUsage());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ids]);
 
@@ -265,9 +172,6 @@ export function Accounts({
     for (const a of accounts) by.set(a.provider, [...(by.get(a.provider) ?? []), a]);
     return [...by.entries()];
   }, [accounts]);
-
-  /** The Codex snapshot is account-level, so it may only be pinned to one account. */
-  const codexAccounts = accounts.filter((a) => a.provider === "openai-codex").length;
 
   const login = async (id: string) => {
     try {
@@ -369,25 +273,25 @@ export function Accounts({
                   {money(u?.all.cost ?? 0)} · {u?.all.sessions ?? 0} sessions
                 </div>
 
-                {/* One ChatGPT account: the Codex snapshot can only be that one.
-                    Two or more: it is unattributable, so it moves to the group card. */}
-                <Quota
-                  account={a}
-                  codex={a.provider === "openai-codex" && codexAccounts !== 1 ? null : codex}
-                />
+                {quota.accountFacts.find((fact) => fact.accountId === a.id) && <QuotaFactView
+                  fact={quota.accountFacts.find((fact) => fact.accountId === a.id)!}
+                  label={a.label}
+                />}
 
                 <div className="acct-actions">
                       <button
+                        data-control-id={`account-login-${a.id}`}
                         className={`btn ${state === "expired" || state === "signedOut" ? "btn-send" : ""}`}
                         onClick={() => void login(a.id)}
                         title="Opens a console window — run /login there and finish in the browser"
                       >
                         {!unavailable && state === "signedOut" ? "Log in" : "Re-login"}
                       </button>
-                      <button className="btn" onClick={() => onUse(a.id)} title="New session on this account">
-                        New session
+                      <button data-control-id={`account-use-${a.id}`} data-studio-action="account.use" className="btn" onClick={() => onUse(a.id)} disabled={Boolean(newSessionDisabledReason)} title={newSessionDisabledReason ?? "Use for new sessions"}>
+                        Use for new sessions
                       </button>
                       <button
+                        data-control-id={`account-rename-${a.id}`}
                         className="btn"
                         onClick={() => {
                           setEditing(a.id);
@@ -397,6 +301,8 @@ export function Accounts({
                         Rename
                       </button>
                       <button
+                        data-control-id={`account-default-${a.id}`}
+                        data-studio-action="account.set-default"
                         className="btn"
                         disabled={defaultAccount === a.id}
                         title="New tabs open on this account"
@@ -405,6 +311,8 @@ export function Accounts({
                         Set as default
                       </button>
                       <button
+                        data-control-id={`account-remove-${a.id}`}
+                        data-studio-action="account.remove"
                         className="btn"
                         onClick={(event) => setRemoving({ account: a, opener: event.currentTarget })}
                       >
@@ -421,31 +329,7 @@ export function Accounts({
             );
           })}
 
-          {provider === "openai-codex" && codexAccounts > 1 && (
-            <div className="sub-card">
-              <div className="sub-title">Codex CLI quota snapshot</div>
-              {codex ? (
-                <>
-                  <div className="sub-meter-head">
-                    <span className="small">{codex.planType ?? "plan"}</span>
-                    <strong>{codex.usedPercent.toFixed(1)}%</strong>
-                  </div>
-                  <Bar percent={codex.usedPercent} />
-                  <p className="muted small">
-                    As of {dateFmt.format(new Date(codex.staleAsOf))}. This is account-level for
-                    whichever ChatGPT login the Codex CLI itself uses, and you have more than one
-                    ChatGPT account here — Prime Studio cannot tell which one it belongs to, so it
-                    is not attached to a row. It is a snapshot, not live.
-                  </p>
-                </>
-              ) : (
-                <p className="muted small">
-                  No snapshot on this machine. It is read from <code>~/.codex/sessions</code> — run
-                  the Codex CLI once and a figure appears here.
-                </p>
-              )}
-            </div>
-          )}
+          {provider === "openai-codex" && quota.providerFacts.map((fact) => <QuotaFactView key={fact.provider} fact={fact} />)}
         </section>
       ))}
 
@@ -453,6 +337,8 @@ export function Accounts({
         <h3 ref={fallbackFocusRef} tabIndex={-1}>Add account</h3>
         <div className="acct-actions">
           <input
+            data-control-id="account-add-name"
+            data-studio-action="account.add"
             className="search acct-edit"
             aria-label="Account name"
             placeholder="Name it, e.g. Claude work"
@@ -461,6 +347,8 @@ export function Accounts({
             onKeyDown={(e) => e.key === "Enter" && void add()}
           />
           <select
+            data-control-id="account-add-provider"
+            data-studio-action="account.add"
             aria-label="Account provider"
             className="picker"
             value={newProvider}
@@ -472,7 +360,7 @@ export function Accounts({
               </option>
             ))}
           </select>
-          <button className="btn btn-send" onClick={() => void add()} disabled={!newLabel.trim()}>
+          <button data-control-id="account-add-submit" data-studio-action="account.add" className="btn btn-send" onClick={() => void add()} disabled={!newLabel.trim()}>
             Add &amp; log in
           </button>
         </div>

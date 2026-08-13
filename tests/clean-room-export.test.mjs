@@ -689,7 +689,7 @@ test(
 
     const result = await running.completed;
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /refs directory|reparse entry|identity changed/iu);
+    assert.match(result.stderr, /(?:refs|heads) directory|reparse entry|identity changed/iu);
     assert.equal(existsSync(destination), false);
     assert.equal(pathEntryExistsForTest(join(displacedRefs, "heads", "main")), true);
   },

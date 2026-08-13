@@ -1400,3 +1400,78 @@ fn separate_processes_cannot_both_commit_the_same_expected_revision() {
         WORKERS - 1
     );
 }
+
+#[test]
+fn duplicate_move_and_delete_preserve_catalog_authority_and_selection() {
+    let root = TestDirectory::new("duplicate-move-delete");
+    let folder = root.path().join("target");
+    fs::create_dir(&folder).expect("create target folder");
+    let catalog = ProjectCatalog::new(root.path().join("projects-v2.json"));
+    let mut snapshot = catalog.load().expect("initial catalog");
+    snapshot = catalog
+        .apply(
+            snapshot.revision,
+            create_project("project:target", "Target", &folder),
+        )
+        .expect("create target project");
+    snapshot = apply_json(
+        &catalog,
+        snapshot.revision,
+        json!({ "type": "chat.create", "projectId": "project:personal", "chatId": "chat:source", "title": "Source" }),
+    );
+    snapshot = apply_json(
+        &catalog,
+        snapshot.revision,
+        json!({
+            "type": "chat.bind-prime-session", "projectId": "project:personal", "chatId": "chat:source",
+            "binding": { "kind": "prime-session", "accountId": "account-1", "sessionId": "session-1", "sessionFile": "session-1.jsonl", "agentId": null }
+        }),
+    );
+    snapshot = apply_json(
+        &catalog,
+        snapshot.revision,
+        json!({ "type": "chat.duplicate", "projectId": "project:personal", "chatId": "chat:source", "newChatId": "chat:copy", "title": "Source copy" }),
+    );
+    let personal = snapshot
+        .state
+        .projects
+        .iter()
+        .find(|project| project.id == "project:personal")
+        .expect("personal");
+    assert!(personal
+        .chats
+        .iter()
+        .find(|chat| chat.id == "chat:copy")
+        .expect("copy")
+        .binding
+        .is_none());
+
+    snapshot = apply_json(
+        &catalog,
+        snapshot.revision,
+        json!({ "type": "chat.move", "projectId": "project:personal", "chatId": "chat:copy", "targetProjectId": "project:target" }),
+    );
+    assert_eq!(snapshot.state.selected_project_id, "project:target");
+    let target = snapshot
+        .state
+        .projects
+        .iter()
+        .find(|project| project.id == "project:target")
+        .expect("target");
+    assert_eq!(target.selected_chat_id.as_deref(), Some("chat:copy"));
+    assert_eq!(target.chats[0].project_id, "project:target");
+
+    snapshot = apply_json(
+        &catalog,
+        snapshot.revision,
+        json!({ "type": "chat.delete", "projectId": "project:target", "chatId": "chat:copy" }),
+    );
+    let target = snapshot
+        .state
+        .projects
+        .iter()
+        .find(|project| project.id == "project:target")
+        .expect("target");
+    assert!(target.chats.is_empty());
+    assert_eq!(target.selected_chat_id, None);
+}
