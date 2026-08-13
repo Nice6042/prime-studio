@@ -259,14 +259,30 @@ test("identity-bound Harness artifact opens Diff/Edit and reconciles save confli
   await activateWithKeyboard(harness.getByRole("button", { name: /Harness report/ }));
   const editor = shellPage.getByRole("region", { name: "Editor" });
   await expect(editor.getByRole("tab", { name: "Diff" })).toHaveAttribute("aria-selected", "true");
+  const openedLabel = await editor.getByRole("heading").textContent();
   await activateWithKeyboard(editor.getByRole("tab", { name: "Edit" }));
+  await expect(editor.getByRole("tab", { name: "Edit" })).toHaveAttribute("aria-selected", "true");
+  await expect(editor.getByRole("heading", { name: openedLabel ?? "harness-report.md" })).toBeVisible();
+  await expect(editor.getByText("Revision 1", { exact: true })).toBeVisible();
   const content = editor.getByRole("textbox", { name: "File content" });
   await content.fill("saved through authority");
   await activateWithKeyboard(editor.getByRole("button", { name: "Save" }));
   await expect(editor.getByText("Saved revision 2")).toBeVisible();
+  await expect(editor.getByRole("heading", { name: openedLabel ?? "harness-report.md" })).toBeVisible();
+  const savedRequest = await shellPage.evaluate(() => {
+    const requests = (window as typeof window & { __PRIME_STUDIO_BROWSER_REQUESTS__?: Array<{ command: string; args: Record<string, unknown> }> }).__PRIME_STUDIO_BROWSER_REQUESTS__ ?? [];
+    return requests.findLast((entry) => entry.command === "editor_artifact_save")?.args.request;
+  });
+  expect(savedRequest).toEqual({
+    ref: { brokerId: "browser-broker", rootSessionId: "session-e2e", artifactId: "candidate-browser-output", revision: 1 },
+    expectedRevision: 1,
+    expectedIdentity: `sha256:${"a".repeat(64)}`,
+    content: "saved through authority",
+  });
   await content.fill("external conflict");
   await activateWithKeyboard(editor.getByRole("button", { name: "Save" }));
   await expect(editor.getByRole("alert")).toContainText("changed on disk");
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-editor-identity-bound-mode");
 });
 
 test("every rendered product control has a stable identity and declared actions stay closed", async ({ shellPage }) => {

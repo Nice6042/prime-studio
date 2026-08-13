@@ -7,7 +7,8 @@ import { createStudioStore, initialStudioState, reduceStudio } from "../shared/s
 import { AppProviders } from "./AppProviders";
 import { StudioApp } from "./StudioApp";
 import type { RootSessionProjection } from "../entities/harness/types";
-import type { StudioOperation } from "../contracts/studioOperations";
+import type { StudioOperation, StudioOperationOutcome } from "../contracts/studioOperations";
+import * as operationDispatcher from "../contracts/dispatcher/studioOperationDispatcher";
 import type { HarnessInspectorAdapter } from "../features/harness/adapter";
 import * as rpc from "../rpc";
 import * as projectCatalogClient from "../features/navigation/projectCatalogClient";
@@ -656,6 +657,149 @@ describe("Studio application state", () => {
     await userEvent.click(await screen.findByRole("tab", { name: "Edit" }));
     expect(screen.getByRole("textbox", { name: "File content" })).toHaveValue("verified content");
   });
+
+  it("lets the renderer owner visibly select an identity-bound editor mode", async () => {
+    const document = {
+      label: "report.md",
+      ref: { brokerId: "broker-1", rootSessionId: rootSession.sessionId, artifactId: "candidate-1", revision: 7 },
+      identity: `sha256:${"a".repeat(64)}`,
+      content: "verified content",
+      writable: true,
+      diff: [],
+    } as const;
+    const adapter: HarnessInspectorAdapter = {
+      availability: { status: "available" },
+      load: async () => ({ observedAtMs: 1, startedAtMs: null, context: null, extensionUi: { status: "available", requests: [] }, contributions: [], notices: [], activity: [], outputs: [{ id: "output-1", label: "Report", candidateId: "candidate-1", kind: "file" }], sources: [], children: {} }),
+      execute: async () => ({ status: "rejected", reason: "wrong route", retryable: false }),
+      openArtifact: async () => ({ kind: "opened", document }),
+    };
+    const { createStudioOperationDispatcher: createDispatcher } = await vi.importActual<typeof operationDispatcher>("../contracts/dispatcher/studioOperationDispatcher");
+    let activeDispatch: ((operation: StudioOperation) => Promise<StudioOperationOutcome>) | null = null;
+    const dispatcherSpy = vi.spyOn(operationDispatcher, "createStudioOperationDispatcher").mockImplementation((routes) => {
+      const execute = createDispatcher(routes);
+      activeDispatch = execute;
+      return execute;
+    });
+    try {
+      const store = createStudioStore(initialStudioState({ projectCatalog: catalogBoundToRootSession(), sessions: [rootSession] }));
+      render(<AppProviders store={store}><StudioApp harnessAdapter={adapter} /></AppProviders>);
+      await userEvent.click(await screen.findByText("Outputs"));
+      await userEvent.click(await screen.findByRole("button", { name: /Report/ }));
+      expect(screen.getByRole("tab", { name: "Diff" })).toHaveAttribute("aria-selected", "true");
+
+      await act(async () => {
+        if (!activeDispatch) throw new Error("Studio dispatcher was not installed");
+        await activeDispatch({
+          action: "editor.mode.select",
+          payload: {
+            documentId: JSON.stringify(["broker-1", rootSession.sessionId, "candidate-1", 7, document.identity]),
+            mode: "edit",
+          },
+        });
+      });
+
+      expect(screen.getByRole("tab", { name: "Edit" })).toHaveAttribute("aria-selected", "true");
+      expect(screen.getByRole("textbox", { name: "File content" })).toHaveValue("verified content");
+    } finally {
+      dispatcherSpy.mockRestore();
+    }
+  }, 15_000);
+
+  it("dispatches exactly one editor mode operation for each tab transition", async () => {
+    const document = {
+      label: "report.md",
+      ref: { brokerId: "broker-1", rootSessionId: rootSession.sessionId, artifactId: "candidate-1", revision: 7 },
+      identity: `sha256:${"a".repeat(64)}`,
+      content: "verified content",
+      writable: true,
+      diff: [],
+    } as const;
+    const adapter: HarnessInspectorAdapter = {
+      availability: { status: "available" },
+      load: async () => ({ observedAtMs: 1, startedAtMs: null, context: null, extensionUi: { status: "available", requests: [] }, contributions: [], notices: [], activity: [], outputs: [{ id: "output-1", label: "Report", candidateId: "candidate-1", kind: "file" }], sources: [], children: {} }),
+      execute: async () => ({ status: "rejected", reason: "wrong route", retryable: false }),
+      openArtifact: async () => ({ kind: "opened", document }),
+    };
+    const operations: StudioOperation[] = [];
+    const { createStudioOperationDispatcher: createDispatcher } = await vi.importActual<typeof operationDispatcher>("../contracts/dispatcher/studioOperationDispatcher");
+    const dispatcherSpy = vi.spyOn(operationDispatcher, "createStudioOperationDispatcher").mockImplementation((routes) => {
+      const execute = createDispatcher(routes);
+      return async (operation) => {
+        operations.push(operation);
+        return execute(operation);
+      };
+    });
+    try {
+      const store = createStudioStore(initialStudioState({ projectCatalog: catalogBoundToRootSession(), sessions: [rootSession] }));
+      render(<AppProviders store={store}><StudioApp harnessAdapter={adapter} /></AppProviders>);
+      await userEvent.click(await screen.findByText("Outputs"));
+      await userEvent.click(await screen.findByRole("button", { name: /Report/ }));
+      operations.length = 0;
+
+      await userEvent.click(screen.getByRole("tab", { name: "Edit" }));
+
+      expect(operations.filter((operation) => operation.action === "editor.mode.select")).toEqual([{
+        action: "editor.mode.select",
+        payload: {
+          documentId: JSON.stringify(["broker-1", rootSession.sessionId, "candidate-1", 7, document.identity]),
+          mode: "edit",
+        },
+      }]);
+      expect(screen.getByRole("tab", { name: "Edit" })).toHaveAttribute("aria-selected", "true");
+    } finally {
+      dispatcherSpy.mockRestore();
+    }
+  }, 15_000);
+
+  it("never carries artifact A content or save identity into newly admitted artifact B", async () => {
+    const identityA = `sha256:${"a".repeat(64)}`;
+    const identityB = `sha256:${"b".repeat(64)}`;
+    const documents = {
+      "candidate-a": { label: "report.md", ref: { brokerId: "broker-1", rootSessionId: rootSession.sessionId, artifactId: "shared-artifact", revision: 3 }, identity: identityA, content: "artifact A", writable: true, diff: [] },
+      "candidate-b": { label: "report.md", ref: { brokerId: "broker-1", rootSessionId: rootSession.sessionId, artifactId: "shared-artifact", revision: 11 }, identity: identityB, content: "artifact B", writable: true, diff: [] },
+    } as const;
+    const adapter: HarnessInspectorAdapter = {
+      availability: { status: "available" },
+      load: async () => ({ observedAtMs: 1, startedAtMs: null, context: null, extensionUi: { status: "available", requests: [] }, contributions: [], notices: [], activity: [], outputs: [
+        { id: "output-a", label: "Artifact A", candidateId: "candidate-a", kind: "file" },
+        { id: "output-b", label: "Artifact B", candidateId: "candidate-b", kind: "file" },
+      ], sources: [], children: {} }),
+      execute: async () => ({ status: "rejected", reason: "wrong route", retryable: false }),
+      openArtifact: async (_sessionId, candidateId) => ({ kind: "opened", document: documents[candidateId as keyof typeof documents] }),
+    };
+    const save = vi.spyOn(rpc, "saveEditorArtifact").mockResolvedValue({ kind: "saved", revision: 12, identity: `sha256:${"c".repeat(64)}` });
+    const previousWidth = window.innerWidth;
+    try {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: 1600 });
+      const store = createStudioStore(initialStudioState({ projectCatalog: catalogBoundToRootSession(), sessions: [rootSession] }));
+      render(<AppProviders store={store}><StudioApp harnessAdapter={adapter} /></AppProviders>);
+      await userEvent.click(await screen.findByText("Outputs"));
+      await userEvent.click(await screen.findByRole("button", { name: /Artifact A/ }));
+      await userEvent.click(screen.getByRole("tab", { name: "Edit" }));
+      fireEvent.change(screen.getByRole("textbox", { name: "File content" }), { target: { value: "artifact A unsaved" } });
+
+      await userEvent.click(screen.getByRole("button", { name: /Artifact B/ }));
+      expect(screen.getByRole("heading", { name: "report.md" })).toBeVisible();
+      expect(screen.getByRole("tab", { name: "Diff" })).toHaveAttribute("aria-selected", "true");
+      await userEvent.click(screen.getByRole("tab", { name: "Edit" }));
+      const content = screen.getByRole("textbox", { name: "File content" });
+      expect(content).toHaveValue("artifact B");
+      expect(content).not.toHaveValue(expect.stringContaining("artifact A"));
+      fireEvent.change(content, { target: { value: "artifact B saved" } });
+      await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      expect(save).toHaveBeenCalledTimes(1);
+      expect(save).toHaveBeenCalledWith({
+        ref: documents["candidate-b"].ref,
+        expectedRevision: 11,
+        expectedIdentity: identityB,
+        content: "artifact B saved",
+      });
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: previousWidth });
+      save.mockRestore();
+    }
+  }, 30_000);
 
   it("wires editor conflict recovery to native reload and save-copy authority", async () => {
     const document = {

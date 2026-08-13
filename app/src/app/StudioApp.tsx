@@ -30,7 +30,7 @@ import { ArchivedCatalogSettings } from "../features/settings/ArchivedCatalogSet
 import { CommandPalette } from "../features/command-palette/CommandPalette";
 import type { PaletteChat, PaletteMessage } from "../features/command-palette/searchIndex";
 import { operationForStudioCommand, shortcutStudioCommand, studioCommands, type StudioCommandId } from "../entities/commands/commandRegistry";
-import { EditorPane } from "../features/editor/EditorPane";
+import { EditorPane, type EditorMode } from "../features/editor/EditorPane";
 import type { ArtifactDocument } from "../entities/editor/types";
 import type { StudioOperation, StudioOperationOutcome } from "../contracts/studioOperations";
 import { createStudioOperationDispatcher } from "../contracts/dispatcher/studioOperationDispatcher";
@@ -76,7 +76,27 @@ function operationAccepted(status: string): boolean {
 }
 
 function artifactDraftKey(document: ArtifactDocument): string {
-  return `${document.ref.brokerId}:${document.ref.rootSessionId}:${document.ref.artifactId}`;
+  return JSON.stringify([
+    document.ref.brokerId,
+    document.ref.rootSessionId,
+    document.ref.artifactId,
+    document.ref.revision,
+    document.identity,
+  ]);
+}
+
+function artifactModeDocumentId(document: ArtifactDocument): string {
+  return JSON.stringify([
+    document.ref.brokerId,
+    document.ref.rootSessionId,
+    document.ref.artifactId,
+    document.ref.revision,
+    document.identity,
+  ]);
+}
+
+function canvasModeDocumentId(document: Readonly<{ chatId: string; messageId: string; displayRevision: number }>): string {
+  return JSON.stringify(["canvas", document.chatId, document.messageId, document.displayRevision]);
 }
 
 export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter }: { readonly harnessAdapter?: HarnessInspectorAdapter } = {}) {
@@ -128,6 +148,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const previousSidebarHost = useRef<"pane" | "rail" | "sheet" | null>(null);
   const [canvas, setCanvas] = useState<Readonly<{ chatId: string; messageId: string; displayRevision: number; content: string }> | null>(null);
   const [editorArtifact, setEditorArtifact] = useState<ArtifactDocument | null>(null);
+  const [editorMode, setEditorMode] = useState<EditorMode>("edit");
   const [artifactDrafts, setArtifactDrafts] = useState<Readonly<Record<string, string>>>({});
   const [displayRevisions, setDisplayRevisions] = useState<Readonly<Record<string, Readonly<Record<string, Readonly<{ revision: number; content: string }>>>>>>({});
   const [inspectorRouteRequest, setInspectorRouteRequest] = useState<Readonly<{ id: number; route: "overview" | "usage" | "activity" }> | undefined>();
@@ -281,6 +302,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     setAdmissionPhase("idle");
     setAdmissionMessage("");
     setEditorArtifact(null);
+    setEditorMode("edit");
   }, [navigation.selectedChatId]);
 
   useEffect(() => {
@@ -584,7 +606,6 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       case "activity.filter.select":
       case "activity.row.toggle":
       case "activity.child.open":
-      case "editor.mode.select":
       case "editor.content.change":
       case "settings.search.change":
       case "settings.section.select":
@@ -593,6 +614,21 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       case "surface.accordion.toggle":
       case "overlay.topmost.close":
       case "toast.dismiss": break;
+      case "editor.mode.select": {
+        const visibleCanvas = canvas?.chatId === navigation.selectedChatId ? canvas : null;
+        const activeDocumentId = editorArtifact
+          ? artifactModeDocumentId(editorArtifact)
+          : visibleCanvas ? canvasModeDocumentId(visibleCanvas) : null;
+        if (activeDocumentId === null) return { status: "unavailable", reason: "No identity-bound editor document is selected." };
+        if (operation.payload.documentId !== activeDocumentId) {
+          return { status: "rejected", reason: "The editor document changed before its mode could be selected.", retryable: false };
+        }
+        if (operation.payload.mode === "diff" && !editorArtifact) {
+          return { status: "rejected", reason: "Diff mode requires an admitted artifact revision.", retryable: false };
+        }
+        setEditorMode(operation.payload.mode);
+        return { status: "updated", revision: activeDocumentId };
+      }
       case "conversation.suggestion.fill":
       case "composer.draft.change": store.dispatch({ type: "draft/change", chatId: operation.payload.chatId, draft: operation.payload.text }); break;
       case "composer.attachment.remove": store.dispatch({ type: "attachments/change", chatId: operation.payload.chatId, attachments: (attachments[operation.payload.chatId] ?? []).filter((attachment) => attachment.id !== operation.payload.attachmentId) }); break;
@@ -674,6 +710,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       const result = await harnessAdapter.openArtifact(sessionId, candidateId);
       if (result.kind === "unsupported") return { status: "unavailable", reason: result.reason };
       setEditorArtifact(result.document);
+      setEditorMode("diff");
       setCanvas(null);
       await changeLayout({ editorOpen: true });
       if (viewport <= 900) setActiveSheet("editor");
@@ -1056,6 +1093,8 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
           onLoadOlder={selectedSession ? () => { void loadOlderHistory(); } : undefined}
           onOpenCanvas={navigation.selectedChatId ? (messageId, content) => {
             const existing = displayRevisions[navigation.selectedChatId!]?.[messageId];
+            setEditorArtifact(null);
+            setEditorMode("edit");
             setCanvas({ chatId: navigation.selectedChatId!, messageId, displayRevision: existing?.revision ?? 1, content });
             if (!layout.editorOpen) void dispatchOperation({ action: "layout.editor.toggle", payload: {} });
             setActiveSheet("editor");
@@ -1123,6 +1162,11 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       />}
       editorContent={<EditorPane
         onClose={() => { void dispatchOperation({ action: "layout.editor.close", payload: {} }); }}
+        documentId={editorArtifact
+          ? artifactModeDocumentId(editorArtifact)
+          : canvas?.chatId === navigation.selectedChatId ? canvasModeDocumentId(canvas) : null}
+        mode={editorArtifact || canvas?.chatId === navigation.selectedChatId ? editorMode : "edit"}
+        onExecute={dispatchOperation}
         artifact={editorArtifact}
         draftContent={editorArtifact ? artifactDrafts[artifactDraftKey(editorArtifact)] : undefined}
         onDraftChange={editorArtifact ? (content) => {
@@ -1133,7 +1177,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         onArtifactReload={(document) => rpc.reloadEditorArtifact(document.ref)}
         onArtifactSaveCopy={rpc.saveEditorArtifactCopy}
         onArtifactReloaded={(document) => {
-          const key = artifactDraftKey(document);
+          const key = artifactDraftKey(editorArtifact ?? document);
           setEditorArtifact(document);
           setArtifactDrafts((current) => {
             const next = { ...current };
@@ -1142,7 +1186,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
           });
         }}
         onArtifactSaved={(document) => {
-          const key = artifactDraftKey(document);
+          const key = artifactDraftKey(editorArtifact ?? document);
           setEditorArtifact(document);
           setArtifactDrafts((current) => {
             const next = { ...current };

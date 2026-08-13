@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ButtonHTMLAttributes } from "react";
 
-import { createControlBinding } from "../../contracts/studioOperations";
+import { createControlBinding, type StudioOperation, type StudioOperationOutcome } from "../../contracts/studioOperations";
 import type {
   ArtifactDocument,
   ArtifactOpenResult,
@@ -17,6 +17,8 @@ export interface CanvasDocument {
   readonly displayRevision: number;
   readonly content: string;
 }
+
+export type EditorMode = "diff" | "edit";
 
 export type { ArtifactDocument, ArtifactSaveRequest, ArtifactSaveResult } from "../../entities/editor/types";
 
@@ -36,6 +38,9 @@ function ControlButton({ binding, ...props }: ButtonHTMLAttributes<HTMLButtonEle
 
 export function EditorPane({
   onClose,
+  documentId,
+  mode,
+  onExecute,
   artifact,
   onArtifactSave,
   onArtifactReload,
@@ -49,6 +54,9 @@ export function EditorPane({
   unsupportedReason,
 }: {
   readonly onClose: () => void;
+  readonly documentId: string | null;
+  readonly mode: EditorMode;
+  readonly onExecute: (operation: StudioOperation) => Promise<StudioOperationOutcome>;
   readonly artifact?: ArtifactDocument | null;
   readonly onArtifactSave?: (request: ArtifactSaveRequest) => Promise<ArtifactSaveResult>;
   readonly onArtifactReload?: (document: ArtifactDocument) => Promise<ArtifactOpenResult>;
@@ -63,7 +71,6 @@ export function EditorPane({
 }) {
   const [displayArtifact, setDisplayArtifact] = useState<ArtifactDocument | null>(artifact ?? null);
   const document = displayArtifact ?? canvas ?? null;
-  const [mode, setMode] = useState<"diff" | "edit">(artifact ? "diff" : "edit");
   const [content, setContent] = useState(artifact ? (draftContent ?? artifact.content) : (canvas?.content ?? ""));
   const [saving, setSaving] = useState(false);
   const [recovering, setRecovering] = useState(false);
@@ -82,7 +89,6 @@ export function EditorPane({
       && artifact.identity === displayArtifact.identity);
     if (parentEchoesLocalArtifact) return;
     setDisplayArtifact(artifact ?? null);
-    setMode(artifact ? "diff" : "edit");
     setContent(artifact ? (draftContent ?? artifact.content) : (canvas?.content ?? ""));
     setSaving(false);
     setRecovering(false);
@@ -91,7 +97,7 @@ export function EditorPane({
     setSavedRevision(artifact?.ref.revision ?? 0);
     setSavedIdentity(artifact?.identity ?? "");
     setBaseline(artifact?.content ?? canvas?.content ?? "");
-  }, [artifact?.ref.brokerId, artifact?.ref.rootSessionId, artifact?.ref.artifactId, artifact?.ref.revision, canvas?.chatId, canvas?.messageId, canvas?.displayRevision]);
+  }, [artifact?.ref.brokerId, artifact?.ref.rootSessionId, artifact?.ref.artifactId, artifact?.ref.revision, artifact?.identity, canvas?.chatId, canvas?.messageId, canvas?.displayRevision]);
 
   const dirty = Boolean(document && content !== baseline);
   const counts = useMemo(() => displayArtifact?.diff.reduce(
@@ -182,8 +188,12 @@ export function EditorPane({
       <ControlButton binding={controls.close} type="button" aria-label="Close editor" onClick={onClose}><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" /></svg></ControlButton>
     </header>
     <div className="studio-editor-tabs" role="tablist" aria-label="Editor views">
-      {displayArtifact && <ControlButton binding={controls.diff} type="button" role="tab" aria-selected={mode === "diff"} onClick={() => setMode("diff")}>Diff</ControlButton>}
-      <ControlButton binding={controls.edit} type="button" role="tab" aria-selected={mode === "edit"} onClick={() => setMode("edit")}>{canvas ? "Canvas" : "Edit"}</ControlButton>
+      {displayArtifact && <ControlButton binding={controls.diff} type="button" role="tab" aria-selected={mode === "diff"} disabled={!documentId} onClick={() => {
+        if (documentId) void onExecute({ action: "editor.mode.select", payload: { documentId, mode: "diff" } });
+      }}>Diff</ControlButton>}
+      <ControlButton binding={controls.edit} type="button" role="tab" aria-selected={mode === "edit"} disabled={!documentId} onClick={() => {
+        if (documentId) void onExecute({ action: "editor.mode.select", payload: { documentId, mode: "edit" } });
+      }}>{canvas ? "Canvas" : "Edit"}</ControlButton>
     </div>
     {!document ? <div className="studio-editor-empty"><svg aria-hidden="true" width="32" height="32" viewBox="0 0 24 24"><path d="M4 4h16v16H4zM8 8h8M8 12h6M8 16h4" /></svg><strong>No verified file or Canvas revision</strong><p>{unsupportedReason ?? "Open an identity-bound file from Harness activity, or create a display-only Canvas revision from a parent response."}</p></div>
       : displayArtifact && mode === "diff" ? <div className="studio-diff" role="table" aria-label={`Diff for ${displayArtifact.label}`}>
