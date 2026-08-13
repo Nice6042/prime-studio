@@ -195,7 +195,10 @@ fn main() {
                 }
             }));
         }
-        "broker-bootstrap" | "broker-wrong-profile" | "broker-generation-transition" => {
+        "broker-bootstrap"
+        | "broker-wrong-profile"
+        | "broker-generation-transition"
+        | "broker-runtime-loss" => {
             let profile = if mode != "broker-wrong-profile" {
                 "prime-agent-daemon-v7-schema13-816309b1cd50"
             } else {
@@ -228,7 +231,7 @@ fn main() {
                     }]
                 }
             }));
-            if mode == "broker-generation-transition" {
+            if mode == "broker-generation-transition" || mode == "broker-runtime-loss" {
                 let refresh = read_frame();
                 write_frame(&json!({
                     "studioProtocol": 1,
@@ -236,6 +239,18 @@ fn main() {
                     "payload": {"type":"error","code":"generation_changed","message":"rebootstrap required"}
                 }));
                 let rediscovery = read_frame();
+                if mode == "broker-runtime-loss" {
+                    write_frame(&json!({
+                        "studioProtocol": 1,
+                        "requestId": rediscovery["requestId"],
+                        "payload": {
+                            "type":"discover_runtime_result",
+                            "runtime":null,
+                            "compatibility":{"status":"unavailable","reason":"not_installed"}
+                        }
+                    }));
+                    return;
+                }
                 write_frame(&json!({
                     "studioProtocol": 1,
                     "requestId": rediscovery["requestId"],

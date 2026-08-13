@@ -370,6 +370,7 @@ impl HarnessBroker {
             ) {
                 return Err(HarnessError::ProtocolViolation);
             }
+            self.runtime_identity = None;
             self.compatibility = Some(reported_compatibility.clone());
             self.begin_snapshot(0)?;
             self.finish_snapshot()?;
@@ -460,6 +461,7 @@ impl HarnessBroker {
             ) {
                 return Err(HarnessError::ProtocolViolation);
             }
+            self.runtime_identity = None;
             self.compatibility = Some(reported_compatibility.clone());
             self.begin_snapshot(0)?;
             self.finish_snapshot()?;

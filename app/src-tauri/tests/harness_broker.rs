@@ -380,6 +380,37 @@ fn refresh_generation_change_rebootstraps_and_retires_the_old_generation() {
     assert!(matches!(replay, Err(HarnessError::ChronologyViolation)));
 }
 
+#[test]
+fn generation_recovery_clears_a_previously_verified_runtime_when_rediscovery_is_unavailable() {
+    let mut broker = HarnessBroker::new(
+        sidecar("broker-runtime-loss"),
+        "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900".to_owned(),
+        "prime-agent-daemon-v7-schema13-816309b1cd50".to_owned(),
+        vec![ownership("root", "project", "chat")],
+        None,
+    )
+    .unwrap();
+    let initial = tauri::async_runtime::block_on(broker.bootstrap()).unwrap();
+    assert!(initial.runtime.is_some());
+    let cursor = initial.sessions[0].cursor.clone();
+
+    let refresh = tauri::async_runtime::block_on(broker.refresh_session(RefreshSessionRequest {
+        session_id: "root".to_owned(),
+        known_cursor: cursor,
+    }));
+    assert_eq!(refresh.unwrap_err(), HarnessError::OwnershipViolation);
+
+    let recovered = broker
+        .boot_projection()
+        .expect("unavailable recovery projection");
+    assert!(matches!(
+        recovered.compatibility,
+        prime_studio_lib::harness::generated::HarnessCompatibility::Unavailable { .. }
+    ));
+    assert!(recovered.runtime.is_none());
+    assert!(recovered.sessions.is_empty());
+}
+
 fn unknown_operation(session_id: &str, operation_id: &str) -> StudioOperationRequest {
     StudioOperationRequest {
         session_id: session_id.to_owned(),
