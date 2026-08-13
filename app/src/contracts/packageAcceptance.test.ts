@@ -44,8 +44,8 @@ describe("Prime Studio package acceptance catalog", () => {
   it("derives the current implementation summary from the audited feature rows", () => {
     expect(PACKAGE_IMPLEMENTATION_SUMMARY).toEqual(summarizePackageImplementation(FEATURE_ACCEPTANCE));
     expect(PACKAGE_IMPLEMENTATION_SUMMARY).toEqual({
-      complete: 57,
-      partial: 56,
+      complete: 60,
+      partial: 53,
       placeholder: 0,
       missing: 0,
       explicitly_unavailable: 2,
@@ -61,7 +61,7 @@ describe("Prime Studio package acceptance catalog", () => {
       .map(status)).toEqual(Array(4).fill("complete"));
     expect(["CV-05", "CP-03", "HR-07", "HR-16", "ED-01"]
       .map(status)).toEqual(Array(5).fill("partial"));
-    expect(status("CP-01")).toBe("partial");
+    expect(status("CP-01")).toBe("complete");
     expect(status("CV-15")).toBe("partial");
   });
 
@@ -113,6 +113,14 @@ describe("Prime Studio package acceptance catalog", () => {
     expect(status("HR-18")).toBe("complete");
     expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).not.toContain("NV-07");
     expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).not.toContain("HR-18");
+  });
+
+  it("records the reviewed composer growth, locked child composer, and collapsed rail as complete", () => {
+    const status = (id: string) => FEATURE_ACCEPTANCE.find((feature) => feature.id === id)?.current;
+
+    expect(status("CP-01")).toBe("complete");
+    expect(status("HR-15")).toBe("complete");
+    expect(status("NV-09")).toBe("complete");
   });
 
   it("records every package surface, state family, persisted setting, shortcut, responsive rule, and data authority", () => {

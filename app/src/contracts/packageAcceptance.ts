@@ -32,7 +32,7 @@ export const FEATURE_ACCEPTANCE: readonly PackageFeatureAcceptance[] = Object.fr
   row("NV-06", "inactive-chat completion sets unread and selection clears it", "complete", ["catalog.chat.unread-clear"]),
   row("NV-07", "chat rows show authoritative working, live, and error status", "complete"),
   row("NV-08", "footer reports configured workspace identity and opens its menu", "complete", ["surface.popover.toggle", "workspace.switch", "route.settings.open", "workspace.sign-out"]),
-  row("NV-09", "collapsed rail preserves expand, new, search, settings, avatar actions and tooltips", "partial", ["layout.sidebar.toggle", "catalog.chat.create", "palette.open", "route.settings.open"]),
+  row("NV-09", "collapsed rail preserves expand, new, search, settings, avatar actions and tooltips", "complete", ["layout.sidebar.toggle", "catalog.chat.create", "palette.open", "route.settings.open"]),
   row("NV-10", "rename, duplicate, move, archive, restore, and delete are durable catalog commands", "complete", ["catalog.chat.rename", "catalog.chat.duplicate", "catalog.chat.move", "catalog.chat.archive", "catalog.chat.restore", "catalog.chat.delete"]),
 
   row("CV-01", "header breadcrumb, chat switcher, pin, chat menu, and inspector reopen are functional", "complete", ["surface.popover.toggle", "catalog.chat.select", "catalog.chat.pin-toggle", "layout.inspector.toggle"]),
@@ -51,7 +51,7 @@ export const FEATURE_ACCEPTANCE: readonly PackageFeatureAcceptance[] = Object.fr
   row("CV-14", "history pages by cursor with truncation and omission metadata", "complete", ["conversation.history.page"]),
   row("CV-15", "archived transcripts are read-only and may fork to continue", "partial", ["conversation.archive-fork"]),
 
-  row("CP-01", "composer grows to a bounded height and scrolls beyond it", "partial"),
+  row("CP-01", "composer grows to a bounded height and scrolls beyond it", "complete"),
   row("CP-02", "add menu, picker, drag/drop, chips, removal, and bounded admission are wired", "partial", ["surface.popover.toggle", "composer.attachment.pick", "composer.attachment.drop", "composer.attachment.remove"]),
   row("CP-03", "quick model pills and catalog dropdown select a verified model", "partial", ["composer.model.select"]),
   row("CP-04", "thinking dropdown uses supported levels for the selected model", "partial", ["composer.thinking.select"]),
@@ -77,7 +77,7 @@ export const FEATURE_ACCEPTANCE: readonly PackageFeatureAcceptance[] = Object.fr
   row("HR-12", "child selection never inserts child transcript into the parent conversation", "complete", ["harness.child.open"]),
   row("HR-13", "child status, elapsed, provider, model, task, context, and token facts are projected", "partial"),
   row("HR-14", "child Chat, Activity, and Files tabs load their own paged data", "partial", ["harness.child.tab-select", "harness.child.transcript-page"]),
-  row("HR-15", "child composer is visibly locked with a Harness-owned explanation", "partial"),
+  row("HR-15", "child composer is visibly locked with a Harness-owned explanation", "complete"),
   row("HR-16", "Stop child invokes verified cancellation and reconciles its actual result", "partial", ["harness.child.stop"]),
   row("HR-17", "Back and close restore focus to the selected child row", "complete", ["harness.child.back"]),
   row("HR-18", "extension prompts exist only for verified runtime extension requests; no approvals dashboard", "complete", ["harness.extension.respond"]),
