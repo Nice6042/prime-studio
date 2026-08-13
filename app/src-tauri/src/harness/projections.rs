@@ -2,8 +2,8 @@ use serde::Serialize;
 
 use super::generated::{
     ChildAgentSummary, ContextSource, CurrentChatUsage, HarnessCompatibility, HarnessCursor,
-    ParentMessage, QueueItem, RootSessionSnapshot, RootSessionState, ToolDefinition,
-    WorkerRecoveryProjection,
+    ParentMessage, QueueItem, RootSessionSnapshot, RootSessionState, RuntimeIdentity,
+    ToolDefinition, WorkerRecoveryProjection,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -64,5 +64,6 @@ impl RootSessionProjection {
 #[serde(rename_all = "camelCase")]
 pub struct BootProjection {
     pub compatibility: HarnessCompatibility,
+    pub runtime: Option<RuntimeIdentity>,
     pub sessions: Vec<RootSessionProjection>,
 }

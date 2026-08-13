@@ -134,6 +134,13 @@ describe("production Harness inspector adapter", () => {
           capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"],
           unavailable: [{ capability: "extension_ui", reason: "missing_mandatory_capability" }],
         },
+        runtime: {
+          packageName: "prime-agent", packageVersion: "0.7.1",
+          packageDigest: `sha256:${"a".repeat(64)}`, entrypointDigest: `sha256:${"b".repeat(64)}`,
+          protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13,
+          schemaId: "protocol-7-schema-13-816309b1cd50",
+          capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"],
+        },
         sessions: [session],
       },
     });

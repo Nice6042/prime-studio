@@ -9,8 +9,8 @@ use super::compatibility::decide_compatibility;
 use super::generated::{
     ChildDataPageTab, CommandOutcome, HarnessCapability, HarnessCompatibility, HarnessCursor,
     HarnessEvent, HarnessStudioAction, ParentHistoryPage, ParentMessage, RootSessionSnapshot,
-    SessionCommandKind, StudioOperationStatus, StudioRequest, StudioResponse, WorkerRecoveryStatus,
-    WorkerRetryOutcome,
+    RuntimeIdentity, SessionCommandKind, StudioOperationStatus, StudioRequest, StudioResponse,
+    WorkerRecoveryStatus, WorkerRetryOutcome,
 };
 pub use super::projections::{BootProjection, ProjectionFreshness, RootSessionProjection};
 use super::recovery::{RecoveredSession, RecoveryRecord};
@@ -225,6 +225,7 @@ pub struct HarnessBroker {
     expected_snapshots: Option<usize>,
     recovery: Option<RecoveryRecord>,
     compatibility: Option<HarnessCompatibility>,
+    runtime_identity: Option<RuntimeIdentity>,
     unknown_outcomes: BTreeMap<String, BTreeSet<UnknownOperation>>,
     resident_creations: BTreeMap<String, ResidentCreation>,
     resident_branches: BTreeMap<String, ResidentBranch>,
@@ -298,6 +299,7 @@ impl HarnessBroker {
             expected_snapshots: None,
             recovery,
             compatibility: None,
+            runtime_identity: None,
             unknown_outcomes: BTreeMap::new(),
             resident_creations: BTreeMap::new(),
             resident_branches: BTreeMap::new(),
@@ -372,6 +374,7 @@ impl HarnessBroker {
             self.finish_snapshot()?;
             return Ok(BootProjection {
                 compatibility: reported_compatibility,
+                runtime: None,
                 sessions: Vec::new(),
             });
         };
@@ -380,15 +383,25 @@ impl HarnessBroker {
         {
             return Err(HarnessError::ProtocolViolation);
         }
-        if matches!(
-            compatibility,
-            HarnessCompatibility::ReadOnly { .. } | HarnessCompatibility::Unavailable { .. }
-        ) {
+        if matches!(compatibility, HarnessCompatibility::Unavailable { .. }) {
+            self.runtime_identity = None;
             self.compatibility = Some(compatibility.clone());
             self.begin_snapshot(0)?;
             self.finish_snapshot()?;
             return Ok(BootProjection {
                 compatibility,
+                runtime: None,
+                sessions: Vec::new(),
+            });
+        }
+        self.runtime_identity = Some(runtime.clone());
+        if matches!(compatibility, HarnessCompatibility::ReadOnly { .. }) {
+            self.compatibility = Some(compatibility.clone());
+            self.begin_snapshot(0)?;
+            self.finish_snapshot()?;
+            return Ok(BootProjection {
+                compatibility,
+                runtime: Some(runtime),
                 sessions: Vec::new(),
             });
         }
@@ -419,6 +432,7 @@ impl HarnessBroker {
         self.finish_snapshot()?;
         Ok(BootProjection {
             compatibility,
+            runtime: Some(runtime),
             sessions: self.projects(),
         })
     }
@@ -450,6 +464,7 @@ impl HarnessBroker {
             self.finish_snapshot()?;
             return Ok(BootProjection {
                 compatibility: reported_compatibility,
+                runtime: None,
                 sessions: Vec::new(),
             });
         };
@@ -460,15 +475,25 @@ impl HarnessBroker {
         if runtime.package_digest != self.runtime_digest {
             return Err(HarnessError::ProtocolViolation);
         }
-        if matches!(
-            compatibility,
-            HarnessCompatibility::ReadOnly { .. } | HarnessCompatibility::Unavailable { .. }
-        ) {
+        if matches!(compatibility, HarnessCompatibility::Unavailable { .. }) {
+            self.runtime_identity = None;
             self.compatibility = Some(compatibility.clone());
             self.begin_snapshot(0)?;
             self.finish_snapshot()?;
             return Ok(BootProjection {
                 compatibility,
+                runtime: None,
+                sessions: Vec::new(),
+            });
+        }
+        self.runtime_identity = Some(runtime.clone());
+        if matches!(compatibility, HarnessCompatibility::ReadOnly { .. }) {
+            self.compatibility = Some(compatibility.clone());
+            self.begin_snapshot(0)?;
+            self.finish_snapshot()?;
+            return Ok(BootProjection {
+                compatibility,
+                runtime: Some(runtime),
                 sessions: Vec::new(),
             });
         }
@@ -499,6 +524,7 @@ impl HarnessBroker {
         self.finish_snapshot()?;
         Ok(BootProjection {
             compatibility,
+            runtime: Some(runtime),
             sessions: self.projects(),
         })
     }
@@ -1422,6 +1448,7 @@ impl HarnessBroker {
     pub fn boot_projection(&self) -> Option<BootProjection> {
         Some(BootProjection {
             compatibility: self.compatibility.clone()?,
+            runtime: self.runtime_identity.clone(),
             sessions: self.projects(),
         })
     }

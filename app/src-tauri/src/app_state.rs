@@ -138,6 +138,7 @@ fn projection_from_slot(slot: &ActivationSlot) -> BootProjection {
 fn unavailable_projection(reason: HarnessUnavailableReason) -> BootProjection {
     BootProjection {
         compatibility: HarnessCompatibility::Unavailable { reason },
+        runtime: None,
         sessions: Vec::new(),
     }
 }

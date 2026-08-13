@@ -1,4 +1,4 @@
-import type { HarnessCompatibility, HarnessCursor, ParentHistoryPage, ParentMessage } from "../ipc/harness.generated";
+import type { HarnessCompatibility, HarnessCursor, ParentHistoryPage, ParentMessage, RuntimeIdentity } from "../ipc/harness.generated";
 import { reconcileAttentionSnapshot, type AttentionSnapshot, type AttentionState } from "../../attention/attentionLedger";
 import type { BootProjection, RootSessionProjection } from "../../entities/harness/types";
 import {
@@ -27,6 +27,7 @@ export interface AsyncState {
 
 export interface StudioAppState {
   readonly compatibility: HarnessCompatibility;
+  readonly runtime: RuntimeIdentity | null;
   readonly projectCatalog: ProjectChatState;
   readonly catalogRevision: number | null;
   readonly chats: ChatEntities;
@@ -122,10 +123,16 @@ export type StudioIntent =
   | Readonly<{ type: "async/started"; key: string; generation: number }>
   | Readonly<{ type: "async/resolved"; key: string; generation: number; value: unknown }>;
 
+function freezeRuntimeIdentity(runtime: RuntimeIdentity | null): RuntimeIdentity | null {
+  if (runtime === null) return null;
+  return Object.freeze({ ...runtime, capabilities: Object.freeze([...runtime.capabilities]) });
+}
+
 export function initialStudioState(input: {
   chats?: readonly StudioChat[];
   sessions?: readonly RootSessionProjection[];
   compatibility?: HarnessCompatibility;
+  runtime?: RuntimeIdentity | null;
   projectCatalog?: ProjectChatState;
 } = {}): StudioAppState {
   const projectCatalog = input.projectCatalog ?? createInitialProjectChatState();
@@ -145,6 +152,7 @@ export function initialStudioState(input: {
   const conversationDisplay = reconcileSessionDisplays({}, projectCatalog, sessions);
   return {
     compatibility: input.compatibility ?? { status: "unavailable", reason: "security_verification_failed" },
+    runtime: freezeRuntimeIdentity(input.runtime ?? null),
     projectCatalog,
     catalogRevision: input.projectCatalog ? 0 : null,
     chats: normalizeChats(input.projectCatalog ? catalogChats : (input.chats ?? catalogChats)),
@@ -316,6 +324,7 @@ export function reduceStudio(state: StudioAppState, intent: StudioIntent): Studi
       return {
         ...state,
         compatibility: intent.projection.compatibility,
+        runtime: freezeRuntimeIdentity(intent.projection.runtime),
         sessions,
         conversationHistory: Object.freeze({}),
         conversationDisplay: reconcileSessionDisplays(state.conversationDisplay, state.projectCatalog, sessions),

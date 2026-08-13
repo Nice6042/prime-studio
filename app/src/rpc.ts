@@ -837,6 +837,12 @@ export const readWorkspaceFile = (path: string) =>
 /** http/https only — the backend refuses anything else. */
 export const openExternal = (url: string) => safeInvoke<null>("open_external", { url }, null);
 
+/** Operation-owned navigation must surface native denial instead of inventing success. */
+export const openExternalStrict = (url: string) => strictInvoke<void>("open_external", { url });
+
+/** Opens the exact third-party notices installed with this application. */
+export const openPackagedLicenseNotices = () => strictInvoke<void>("open_external", { url: "prime-studio:packaged-license-notices" });
+
 /** Files prime already changed in the session's folder. Empty outside a git repo. */
 export const filesTouched = (cwd: string) =>
   safeInvoke<TouchedFile[]>("files_touched", { cwd }, []);

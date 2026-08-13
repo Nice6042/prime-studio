@@ -137,6 +137,35 @@ fn production_bootstrap_attaches_only_catalog_owned_sessions() {
     assert_eq!(boot.sessions[0].session_id, "root");
     assert_eq!(boot.sessions[0].provider.as_deref(), Some("openai-codex"));
     assert_eq!(boot.sessions[0].account_id.as_deref(), Some("account"));
+    let runtime = boot
+        .runtime
+        .expect("verified bootstrap retains runtime identity");
+    assert_eq!(runtime.package_name, "prime-agent");
+    assert_eq!(runtime.package_version, "0.7.1");
+    assert_eq!(
+        runtime.package_digest,
+        "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900"
+    );
+    assert_eq!(runtime.protocol_name, "prime-agent.daemon");
+    assert_eq!(runtime.protocol_version, 7);
+    assert_eq!(runtime.schema_revision, 13);
+    assert_eq!(runtime.schema_id, "protocol-7-schema-13-816309b1cd50");
+}
+
+#[test]
+fn unavailable_bootstrap_does_not_project_an_unverified_runtime_identity() {
+    let mut broker = HarnessBroker::new(
+        sidecar("broker-runtime-mismatch"),
+        "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900".to_owned(),
+        "prime-agent-daemon-v7-schema13-816309b1cd50".to_owned(),
+        vec![ownership("root", "project", "chat")],
+        None,
+    )
+    .unwrap();
+
+    let boot = tauri::async_runtime::block_on(broker.bootstrap()).unwrap();
+    assert!(boot.runtime.is_none());
+    assert!(broker.boot_projection().unwrap().runtime.is_none());
 }
 
 #[test]

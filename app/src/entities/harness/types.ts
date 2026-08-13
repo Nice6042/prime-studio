@@ -1,6 +1,7 @@
 import type {
   HarnessCompatibility,
   RootSessionSnapshot,
+  RuntimeIdentity,
 } from "../../shared/ipc/harness.generated";
 
 export type ProjectionFreshness = "live" | "stale" | "disconnected" | "unknown_outcome";
@@ -11,6 +12,7 @@ export interface RootSessionProjection extends RootSessionSnapshot {
 
 export interface BootProjection {
   readonly compatibility: HarnessCompatibility;
+  readonly runtime: RuntimeIdentity | null;
   readonly sessions: readonly RootSessionProjection[];
 }
 

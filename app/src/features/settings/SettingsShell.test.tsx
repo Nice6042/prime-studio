@@ -1,14 +1,61 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { HarnessCompatibility } from "../../shared/ipc/harness.generated";
+import type { HarnessCompatibility, RuntimeIdentity } from "../../shared/ipc/harness.generated";
 import { SettingsShell } from "./SettingsShell";
 import { settingsSections } from "./settingsRegistry";
+
+const appApi = vi.hoisted(() => ({ getVersion: vi.fn() }));
+
+vi.mock("@tauri-apps/api/app", () => ({ getVersion: appApi.getVersion }));
 
 const unavailable: HarnessCompatibility = { status: "unavailable", reason: "security_verification_failed" };
 
 describe("SettingsShell", () => {
+  beforeEach(() => {
+    appApi.getVersion.mockReset();
+    appApi.getVersion.mockResolvedValue("0.1.0");
+  });
+
+  it("reports the installed Studio version and exact verified Harness runtime identity", async () => {
+    appApi.getVersion.mockResolvedValueOnce("9.8.7");
+    const runtime: RuntimeIdentity = {
+      packageName: "prime-agent",
+      packageVersion: "0.7.1",
+      packageDigest: `sha256:${"a".repeat(64)}`,
+      entrypointDigest: `sha256:${"b".repeat(64)}`,
+      protocolName: "prime-agent-daemon",
+      protocolVersion: 7,
+      schemaRevision: 13,
+      schemaId: "prime-agent.schema.json",
+      capabilities: ["attach_snapshot", "event_sequence"],
+    };
+    const onExecute = vi.fn(async () => ({ status: "updated" as const, revision: "licenses" }));
+
+    render(<SettingsShell
+      section="about"
+      onBack={() => undefined}
+      onSection={() => undefined}
+      compatibility={{ status: "ready", profile: "verified-runtime", capabilities: runtime.capabilities }}
+      runtime={runtime}
+      onExecute={onExecute}
+    />);
+
+    expect(await screen.findByText("9.8.7", { exact: true })).toBeVisible();
+    expect(screen.getByText("prime-agent 0.7.1", { exact: true })).toBeVisible();
+    expect(screen.getByText(runtime.packageDigest, { exact: true })).toBeVisible();
+    expect(screen.getByText(runtime.entrypointDigest, { exact: true })).toBeVisible();
+    expect(screen.getByText("prime-agent-daemon v7", { exact: true })).toBeVisible();
+    expect(screen.getByText("prime-agent.schema.json r13", { exact: true })).toBeVisible();
+    expect(screen.getByText("Unavailable \u00b7 no signed update channel configured", { exact: true })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Check for updates" })).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Open license notices" }));
+    expect(onExecute).toHaveBeenCalledOnce();
+    expect(onExecute).toHaveBeenCalledWith({ action: "route.external-docs.open", payload: { document: "licenses" } });
+  });
+
   it("renders a top-level searchable settings route and returns to chat", async () => {
     const onBack = vi.fn();
     const onSection = vi.fn();

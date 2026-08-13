@@ -1,9 +1,10 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 
 import { Accounts } from "../../components/Accounts";
-import { createControlBinding, type StudioActionId } from "../../contracts/studioOperations";
+import { createControlBinding, type StudioActionId, type StudioOperation, type StudioOperationOutcome } from "../../contracts/studioOperations";
 import { commandPlacements, studioCommand } from "../../entities/commands/commandRegistry";
-import type { HarnessCompatibility } from "../../shared/ipc/harness.generated";
+import type { HarnessCompatibility, RuntimeIdentity } from "../../shared/ipc/harness.generated";
 import type { Account, AppSettings } from "../../types";
 import type { SubscriptionQuotaProjection } from "../../quotaProjection";
 import type { HarnessComposerProjection } from "../harness/adapter";
@@ -136,8 +137,54 @@ export function ShortcutsSettings() {
   })}</div></SettingGroup><SettingGroup title="Composer"><div className="studio-shortcut-list">{composer.map((row) => <div key={row.label}><span>{row.label}</span><kbd>{row.keys}</kbd></div>)}</div></SettingGroup></>;
 }
 
-export function AboutSettings({ compatibility }: { readonly compatibility: HarnessCompatibility }) {
-  return <><SettingGroup title="Prime Studio"><Row label="Version" description="Installed application version."><span className="studio-setting-value">0.1.0</span></Row><Row label="Prime Harness" description="Connection status from the verified local adapter."><span className="studio-setting-value">{compatibility.status === "ready" || compatibility.status === "degraded" ? compatibility.profile : compatibility.status.replace(/_/gu, " ")}</span></Row><Row label="Updates" description="Automatic updates are disabled in this public source snapshot."><span className="studio-setting-value">Disabled</span></Row></SettingGroup><SettingGroup title="Open source"><Row label="License" description="Prime Studio source is available under the MIT License."><span className="studio-setting-value">MIT</span></Row><Row label="Third-party notices" description="Bundled dependency notices are included with the application." /></SettingGroup></>;
+export function AboutSettings({ compatibility, runtime, onExecute }: {
+  readonly compatibility: HarnessCompatibility;
+  readonly runtime: RuntimeIdentity | null;
+  readonly onExecute?: (operation: StudioOperation) => Promise<StudioOperationOutcome>;
+}) {
+  const [studioVersion, setStudioVersion] = useState("Loading\u2026");
+  const updateReason = "No signed update channel is configured.";
+  const updateBinding = createControlBinding("settings.about.updates", "settings.updates.check", updateReason);
+  const licensesBinding = createControlBinding("settings.about.licenses", "route.external-docs.open");
+  const harnessStatus = compatibility.status === "ready" || compatibility.status === "degraded"
+    ? `${compatibility.status.replace(/_/gu, " ")} \u00b7 ${compatibility.profile}`
+    : compatibility.status.replace(/_/gu, " ");
+
+  useEffect(() => {
+    let active = true;
+    void Promise.resolve().then(() => getVersion()).then((version) => {
+      const verified = typeof version === "string" && /^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$/u.test(version) ? version : null;
+      if (active) setStudioVersion(verified ?? "Unavailable");
+    }).catch(() => {
+      if (active) setStudioVersion("Unavailable");
+    });
+    return () => { active = false; };
+  }, []);
+
+  return <>
+    <SettingGroup title="Prime Studio">
+      <Row label="Version" description="Installed application version reported by the Tauri package."><span className="studio-setting-value">{studioVersion}</span></Row>
+      <Row label="Compatibility" description="Status of the exact verified local Harness adapter profile."><span className="studio-setting-value studio-setting-identity">{harnessStatus}</span></Row>
+      <Row label="Updates" description="Signed update availability requires a configured and verified release channel.">
+        <div><span className="studio-setting-value">{"Unavailable \u00b7 no signed update channel configured"}</span><button type="button" disabled title={updateReason} aria-label="Check for updates" data-control-id={updateBinding.controlId} data-action={updateBinding.action}>Check</button></div>
+      </Row>
+    </SettingGroup>
+    <SettingGroup title="Verified Harness runtime">
+      {runtime ? <>
+        <Row label="Package" description="Package identity observed and verified by the native runtime manifest."><span className="studio-setting-value studio-setting-identity">{runtime.packageName} {runtime.packageVersion}</span></Row>
+        <Row label="Package digest" description="SHA-256 digest verified before Harness activation."><code className="studio-setting-value studio-setting-code">{runtime.packageDigest}</code></Row>
+        <Row label="Entrypoint digest" description="SHA-256 digest of the admitted runtime entrypoint."><code className="studio-setting-value studio-setting-code">{runtime.entrypointDigest}</code></Row>
+        <Row label="Protocol" description="Closed protocol name and version admitted by the compatibility profile."><span className="studio-setting-value studio-setting-identity">{runtime.protocolName} v{runtime.protocolVersion}</span></Row>
+        <Row label="Schema" description="Closed schema identity and revision used by this connection."><span className="studio-setting-value studio-setting-identity">{runtime.schemaId} r{runtime.schemaRevision}</span></Row>
+      </> : <Unavailable>No verified Harness runtime identity is available.</Unavailable>}
+    </SettingGroup>
+    <SettingGroup title="Open source">
+      <Row label="License" description="Prime Studio is distributed under the MIT License."><span className="studio-setting-value">MIT</span></Row>
+      <Row label="Third-party notices" description="The dependency license notices packaged with this application are available through the native document owner.">
+        <button type="button" disabled={!onExecute} title={!onExecute ? "The native document owner is unavailable." : undefined} data-control-id={licensesBinding.controlId} data-action={licensesBinding.action} onClick={() => { void onExecute?.({ action: "route.external-docs.open", payload: { document: "licenses" } }); }}>Open license notices</button>
+      </Row>
+    </SettingGroup>
+  </>;
 }
 
 export { Row, SettingGroup };

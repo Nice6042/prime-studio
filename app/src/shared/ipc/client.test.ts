@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -18,9 +19,21 @@ const unavailable = {
     status: "unavailable",
     reason: "security_verification_failed",
   },
+  runtime: null,
   sessions: [],
 };
 const readyCapabilities = ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] as const;
+const verifiedRuntime = {
+  packageName: "prime-agent",
+  packageVersion: "0.7.1",
+  packageDigest: `sha256:${"a".repeat(64)}`,
+  entrypointDigest: `sha256:${"b".repeat(64)}`,
+  protocolName: "prime-agent-daemon",
+  protocolVersion: 7,
+  schemaRevision: 13,
+  schemaId: "prime-agent.schema.json",
+  capabilities: readyCapabilities,
+} as const;
 
 const session = {
   sessionId: "root",
@@ -129,6 +142,53 @@ describe("Harness IPC client", () => {
     expect(mocks.invoke).toHaveBeenCalledWith("harness_bootstrap");
   });
 
+  it("strictly decodes and freezes the verified runtime identity attached to bootstrap", () => {
+    const projection = decodeBootProjection({
+      compatibility: { status: "ready", profile: "verified", capabilities: readyCapabilities },
+      runtime: { ...verifiedRuntime, capabilities: [...readyCapabilities] },
+      sessions: [],
+    });
+
+    expect(projection.runtime).toEqual(verifiedRuntime);
+    expect(Object.isFrozen(projection.runtime)).toBe(true);
+    expect(Object.isFrozen(projection.runtime?.capabilities)).toBe(true);
+  });
+
+  it("binds compatibility to the verified capability set without requiring manifest ordering", () => {
+    const projection = decodeBootProjection({
+      compatibility: { status: "ready", profile: "verified", capabilities: [...readyCapabilities] },
+      runtime: { ...verifiedRuntime, capabilities: [...readyCapabilities].reverse() },
+      sessions: [],
+    });
+
+    expect(projection.runtime?.capabilities).toEqual([...readyCapabilities].reverse());
+  });
+
+  it("rejects an unavailable bootstrap that projects an unverified runtime identity", () => {
+    expect(() => decodeBootProjection({
+      compatibility: { status: "unavailable", reason: "runtime_identity_mismatch" },
+      runtime: { ...verifiedRuntime, entrypointDigest: `sha256:${"c".repeat(64)}` },
+      sessions: [],
+    })).toThrow("Harness projection unavailable");
+  });
+
+  it("accepts the complete browser fixture runtime and sessions as one atomic bootstrap", () => {
+    const scenario = JSON.parse(readFileSync("harness-sidecar/test/fixtures/fake-daemon/scenario-manifest.json", "utf8")) as { runtime: unknown; sessions: Record<string, unknown>[] };
+    const projected = scenario.sessions.map((candidate) => ({
+      ...candidate,
+      freshness: "live",
+      workerRecovery: { status: "ready", closureReason: null, observationId: null, automaticRetryCount: 0, detail: null },
+      performance: { status: "unavailable", sessionId: candidate.sessionId, cursor: { ...(candidate.cursor as Record<string, unknown>) }, reason: "event_chronology_unavailable" },
+    }));
+    const runtime = scenario.runtime as { capabilities: readonly string[] };
+
+    expect(decodeBootProjection({
+      compatibility: { status: "ready", profile: "prime-agent-daemon-v7-schema13-816309b1cd50", capabilities: [...runtime.capabilities] },
+      runtime: { ...(scenario.runtime as Record<string, unknown>), capabilities: [...runtime.capabilities] },
+      sessions: projected,
+    }).runtime).toEqual(scenario.runtime);
+  });
+
   it("rejects extras, impossible capabilities, huge strings, and accessors", () => {
     expect(() => decodeBootProjection({ ...unavailable, extra: true })).toThrow();
     expect(() =>
@@ -138,6 +198,7 @@ describe("Harness IPC client", () => {
           profile: "profile",
           capabilities: ["attach_snapshot", "attach_snapshot"],
         },
+        runtime: { ...verifiedRuntime, capabilities: ["attach_snapshot", "attach_snapshot"] },
         sessions: [],
       }),
     ).toThrow();
@@ -148,6 +209,7 @@ describe("Harness IPC client", () => {
           profile: "x".repeat(129),
           capabilities: [],
         },
+        runtime: { ...verifiedRuntime, capabilities: [] },
         sessions: [],
       }),
     ).toThrow();
@@ -155,6 +217,7 @@ describe("Harness IPC client", () => {
       enumerable: true,
       get: () => unavailable.compatibility,
     });
+    Object.defineProperty(hostile, "runtime", { enumerable: true, value: null });
     Object.defineProperty(hostile, "sessions", { enumerable: true, value: [] });
     expect(() => decodeBootProjection(hostile)).toThrow();
   });
@@ -179,6 +242,7 @@ describe("Harness IPC client", () => {
           profile: "profile",
           capabilities: readyCapabilities,
         },
+        runtime: { ...verifiedRuntime, capabilities: [...readyCapabilities] },
         sessions: [session],
       }).sessions,
     ).toHaveLength(1);
@@ -189,6 +253,7 @@ describe("Harness IPC client", () => {
           profile: "profile",
           capabilities: readyCapabilities,
         },
+        runtime: { ...verifiedRuntime, capabilities: [...readyCapabilities] },
         sessions: [
           {
             ...session,
@@ -207,6 +272,7 @@ describe("Harness IPC client", () => {
           profile: "profile",
           capabilities: readyCapabilities,
         },
+        runtime: { ...verifiedRuntime, capabilities: [...readyCapabilities] },
         sessions: [
           {
             ...session,
@@ -225,6 +291,7 @@ describe("Harness IPC client", () => {
     expect(() =>
       decodeBootProjection({
         compatibility: unavailable.compatibility,
+        runtime: null,
         sessions: [session],
       }),
     ).toThrow();
@@ -235,6 +302,7 @@ describe("Harness IPC client", () => {
           profile: "profile",
           capabilities: readyCapabilities,
         },
+        runtime: { ...verifiedRuntime, capabilities: [...readyCapabilities] },
         sessions: [
           {
             ...session,
@@ -346,7 +414,11 @@ describe("Harness IPC client", () => {
       state: "failed",
       workerRecovery: { status: "retryable_failure", closureReason: "supervisor_recovery_exhausted", observationId, automaticRetryCount: 0, detail: "Supervisor recovery exhausted" },
     };
-    mocks.invoke.mockResolvedValueOnce({ compatibility: { status: "ready", profile: "profile", capabilities: readyCapabilities }, sessions: [failed] });
+    mocks.invoke.mockResolvedValueOnce({
+      compatibility: { status: "ready", profile: "profile", capabilities: [...readyCapabilities] },
+      runtime: { ...verifiedRuntime, capabilities: [...readyCapabilities] },
+      sessions: [failed],
+    });
     await bootstrapHarness();
     const recovered = {
       ...session,
@@ -483,7 +555,8 @@ describe("Harness IPC client", () => {
   it("routes closed Harness actions and validates the operation outcome", async () => {
     const operationSession = sessionAt({ ...session.cursor, sequence: 2 });
     mocks.invoke.mockResolvedValueOnce({
-      compatibility: { status: "ready", profile: "profile", capabilities: readyCapabilities },
+      compatibility: { status: "ready", profile: "profile", capabilities: [...readyCapabilities] },
+      runtime: { ...verifiedRuntime, capabilities: [...readyCapabilities] },
       sessions: [session],
     });
     mocks.invoke.mockResolvedValueOnce({
@@ -579,8 +652,9 @@ describe("Harness IPC client", () => {
       compatibility: {
         status: "ready",
         profile: "profile",
-        capabilities: readyCapabilities,
+        capabilities: [...readyCapabilities],
       },
+      runtime: { ...verifiedRuntime, capabilities: [...readyCapabilities] },
       sessions: [session],
     });
     await bootstrapHarness();
@@ -635,7 +709,8 @@ describe("Harness IPC client", () => {
     const refreshCursors: number[] = [];
     mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
       if (command === "harness_bootstrap") return {
-        compatibility: { status: "ready", profile: "profile", capabilities: readyCapabilities },
+        compatibility: { status: "ready", profile: "profile", capabilities: [...readyCapabilities] },
+        runtime: { ...verifiedRuntime, capabilities: [...readyCapabilities] },
         sessions: [],
       };
       if (command === "harness_refresh_session") {
@@ -675,7 +750,8 @@ describe("Harness IPC client", () => {
     const refreshCursors: number[] = [];
     mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
       if (command === "harness_bootstrap") return {
-        compatibility: { status: "ready", profile: "profile", capabilities: readyCapabilities },
+        compatibility: { status: "ready", profile: "profile", capabilities: [...readyCapabilities] },
+        runtime: { ...verifiedRuntime, capabilities: [...readyCapabilities] },
         sessions: [session],
       };
       if (command === "harness_refresh_session") {

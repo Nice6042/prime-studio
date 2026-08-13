@@ -1,6 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { openUrl } from "@tauri-apps/plugin-opener";
 
 import * as rpc from "../rpc";
 import type { Account, AppSettings, LayoutPreferencesV1 } from "../types";
@@ -151,6 +150,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const selectedSession = selectedCatalogChat?.binding ? sessions[selectedCatalogChat.binding.sessionId] ?? null : null;
   const selectedChatEvidence = selectedSession ? chatAttentionEvidence(selectedSession) : null;
   const compatibility = useStudioSelector((state) => state.compatibility);
+  const runtime = useStudioSelector((state) => state.runtime);
   const drafts = useStudioSelector((state) => state.drafts);
   const attachments = useStudioSelector((state) => state.attachments);
   const conversationDisplay = useStudioSelector((state) => state.conversationDisplay);
@@ -842,7 +842,18 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       case "window.minimize": await getCurrentWindow().minimize(); break;
       case "window.maximize-toggle": await getCurrentWindow().toggleMaximize(); break;
       case "window.close": await getCurrentWindow().close(); break;
-      case "route.external-docs.open": await openUrl(operation.payload.document === "support" ? "https://github.com/Nice6042/prime-studio/blob/main/SUPPORT.md" : "https://www.npmjs.com/package/prime-agent"); break;
+      case "route.external-docs.open": {
+        if (operation.payload.document === "licenses") {
+          await rpc.openPackagedLicenseNotices();
+        } else {
+          const documents = {
+            "prime-agent": "https://www.npmjs.com/package/prime-agent",
+            support: "https://github.com/Nice6042/prime-studio/blob/main/SUPPORT.md",
+          } as const;
+          await rpc.openExternalStrict(documents[operation.payload.document]);
+        }
+        break;
+      }
       case "conversation.response.copy": await navigator.clipboard.writeText(operation.payload.text); break;
       case "activity.command.copy": await navigator.clipboard.writeText(operation.payload.command); break;
       case "editor.file.save": {
@@ -1220,6 +1231,8 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       onSection={(section) => { void dispatchOperation({ action: "route.settings.open", payload: { section } }); }}
       onBack={() => { void dispatchOperation({ action: "route.settings.back", payload: {} }); }}
       compatibility={compatibility}
+      runtime={runtime}
+      onExecute={dispatchOperation}
       settings={settings}
       accounts={accounts}
       onAccountsChanged={(next) => {

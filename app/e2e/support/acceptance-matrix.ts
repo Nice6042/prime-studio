@@ -19,7 +19,7 @@ export const settingsDestinations: readonly SettingsDestination[] = [
   { id: "environments", label: "Environments", signature: (settings) => settings.getByLabel("Agent environment") },
   { id: "privacy", label: "Privacy & security", signature: (settings) => settings.getByRole("switch", { name: "Telemetry" }) },
   { id: "shortcuts", label: "Keyboard shortcuts", signature: (settings) => settings.getByText("Open command palette", { exact: true }) },
-  { id: "about", label: "About", signature: (settings) => settings.getByText("0.1.0", { exact: true }) },
+  { id: "about", label: "About", signature: (settings) => settings.getByText("prime-agent 0.7.1", { exact: true }) },
 ] as const;
 
 export async function activateWithKeyboard(locator: Locator): Promise<void> {

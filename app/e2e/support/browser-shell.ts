@@ -49,6 +49,8 @@ export const test = base.extend<ShellFixtures>({
         __PRIME_STUDIO_BROWSER_INVOKES__?: string[];
         __PRIME_STUDIO_BROWSER_REQUESTS__?: Array<{ command: string; args: Record<string, unknown> }>;
         __PRIME_STUDIO_CLIPBOARD__?: string[];
+        __PRIME_STUDIO_OPENED_URLS__?: string[];
+        __PRIME_STUDIO_PACKAGED_LICENSE_OPENS__?: number;
         __TAURI_INTERNALS__?: TauriInternals;
         __TAURI_EVENT_PLUGIN_INTERNALS__?: {
           unregisterListener: (event: string, id: number) => void;
@@ -58,6 +60,8 @@ export const test = base.extend<ShellFixtures>({
       global.__PRIME_STUDIO_BROWSER_INVOKES__ = [];
       global.__PRIME_STUDIO_BROWSER_REQUESTS__ = [];
       global.__PRIME_STUDIO_CLIPBOARD__ = [];
+      global.__PRIME_STUDIO_OPENED_URLS__ = [];
+      global.__PRIME_STUDIO_PACKAGED_LICENSE_OPENS__ = 0;
       Object.defineProperty(navigator, "clipboard", {
         configurable: true,
         value: { writeText: async (text: string) => { global.__PRIME_STUDIO_CLIPBOARD__?.push(text); } },
@@ -238,10 +242,25 @@ export const test = base.extend<ShellFixtures>({
               compatibility: {
                 status: "ready",
                 profile: "prime-agent-daemon-v7-schema13-816309b1cd50",
-                capabilities: scenario.runtime.capabilities,
+                capabilities: [...scenario.runtime.capabilities],
               },
+              runtime: { ...scenario.runtime, capabilities: [...scenario.runtime.capabilities] },
               sessions: projectedHarnessSessions,
             };
+          case "plugin:app|version":
+            return "0.1.0";
+          case "open_external": {
+            if (args.url === "prime-studio:packaged-license-notices") {
+              global.__PRIME_STUDIO_PACKAGED_LICENSE_OPENS__ = (global.__PRIME_STUDIO_PACKAGED_LICENSE_OPENS__ ?? 0) + 1;
+            }
+            return null;
+          }
+          case "plugin:opener|open_url": {
+            const url = typeof args.url === "string" ? args.url : null;
+            if (!url) throw new Error("External document URL unavailable");
+            global.__PRIME_STUDIO_OPENED_URLS__?.push(url);
+            return null;
+          }
           case "harness_attach_session": {
             const request = args.request as { sessionId?: string } | undefined;
             const index = projectedHarnessSessions.findIndex((session) => session.sessionId === request?.sessionId);

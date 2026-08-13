@@ -13,6 +13,10 @@ import type { HarnessInspectorAdapter } from "../features/harness/adapter";
 import * as rpc from "../rpc";
 import * as projectCatalogClient from "../features/navigation/projectCatalogClient";
 
+const nativeDocs = vi.hoisted(() => ({ getVersion: vi.fn(async () => "0.1.0") }));
+
+vi.mock("@tauri-apps/api/app", () => ({ getVersion: nativeDocs.getVersion }));
+
 const chat = {
   id: "chat-1",
   projectId: "project-1",
@@ -80,6 +84,46 @@ afterEach(() => {
 });
 
 describe("Studio application state", () => {
+  it("opens packaged license notices through the native document owner", async () => {
+    const openPackagedLicenseNotices = vi.spyOn(rpc, "openPackagedLicenseNotices").mockResolvedValueOnce(undefined);
+    const runtime = {
+      packageName: "prime-agent" as const,
+      packageVersion: "0.7.1",
+      packageDigest: `sha256:${"a".repeat(64)}`,
+      entrypointDigest: `sha256:${"b".repeat(64)}`,
+      protocolName: "prime-agent.daemon",
+      protocolVersion: 7,
+      schemaRevision: 13,
+      schemaId: "protocol-7-schema-13-816309b1cd50",
+      capabilities: ["attach_snapshot", "event_sequence"] as const,
+    };
+    const store = createStudioStore(initialStudioState({
+      compatibility: { status: "ready", profile: "verified", capabilities: runtime.capabilities },
+      runtime,
+    }));
+    store.dispatch({ type: "route/settings", section: "about" });
+
+    render(<AppProviders store={store}><StudioApp /></AppProviders>);
+    await userEvent.click(await screen.findByRole("button", { name: "Open license notices" }));
+
+    await waitFor(() => expect(openPackagedLicenseNotices).toHaveBeenCalledOnce());
+    expect(openPackagedLicenseNotices).toHaveBeenCalledWith();
+    openPackagedLicenseNotices.mockRestore();
+  });
+
+  it("reports remote documentation denial instead of claiming native success", async () => {
+    const openExternalStrict = vi.spyOn(rpc, "openExternalStrict").mockRejectedValueOnce(new Error("native navigation denied"));
+    const store = createStudioStore(initialStudioState());
+
+    render(<AppProviders store={store}><StudioApp /></AppProviders>);
+    await userEvent.click(screen.getByRole("button", { name: "Help" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Support" }));
+
+    expect(await screen.findByRole("alert", { name: "System operation failed" })).toHaveTextContent("native navigation denied");
+    expect(openExternalStrict).toHaveBeenCalledWith("https://github.com/Nice6042/prime-studio/blob/main/SUPPORT.md");
+    openExternalStrict.mockRestore();
+  });
+
   it("projects daemon messages under the separately bound Studio chat identity", () => {
     const state = initialStudioState({ projectCatalog: catalogBoundToRootSession(), sessions: [rootSession] });
     expect(state.navigation.selectedChatId).toBe("chat-1");
@@ -383,7 +427,7 @@ describe("Studio application state", () => {
     };
     render(<AppProviders store={store}><StudioApp harnessAdapter={adapter} /></AppProviders>);
     expect(await screen.findByRole("status", { name: /Runtime status:.*ctx 25%.*server_is_overloaded/i })).toBeVisible();
-    act(() => store.dispatch({ type: "harness/bootstrap-loaded", projection: { compatibility: { status: "unavailable", reason: "security_verification_failed" }, sessions: [rootSession] } }));
+    act(() => store.dispatch({ type: "harness/bootstrap-loaded", projection: { compatibility: { status: "unavailable", reason: "security_verification_failed" }, runtime: null, sessions: [rootSession] } }));
     await waitFor(() => expect(screen.getByRole("status", { name: /Runtime status/ })).toHaveTextContent("ctx unavailable"));
     expect(screen.getByRole("status", { name: /Runtime status/ })).toHaveTextContent("overload unavailable");
     expect(screen.getByRole("status", { name: /Runtime status/ })).not.toHaveTextContent("server_is_overloaded");

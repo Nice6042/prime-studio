@@ -3818,6 +3818,17 @@ fn list_workspace_files(app: AppHandle, dir: String) -> Result<Vec<FileEntry>, S
 #[tauri::command]
 fn open_external(app: AppHandle, url: String) -> Result<(), String> {
     require_tauri_authority(&app.state::<AppState>(), TauriCommand::OpenExternal)?;
+    if url == "prime-studio:packaged-license-notices" {
+        let root = app
+            .path()
+            .resource_dir()
+            .map_err(|_| "application resource directory is unavailable".to_owned())?;
+        let notices = packaged_license_notices(&root)?;
+        return app
+            .opener()
+            .open_path(notices.to_string_lossy().into_owned(), None::<&str>)
+            .map_err(|error| error.to_string());
+    }
     // Only web URLs — the opener would happily hand anything else to the shell.
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err(format!("refusing to open non-http url: {url}"));
@@ -3825,6 +3836,47 @@ fn open_external(app: AppHandle, url: String) -> Result<(), String> {
     app.opener()
         .open_url(url, None::<&str>)
         .map_err(|e| e.to_string())
+}
+
+fn packaged_license_notices(resource_root: &Path) -> Result<PathBuf, String> {
+    [
+        resource_root.join("public").join("THIRD_PARTY_NOTICES.md"),
+        resource_root
+            .join("_up_")
+            .join("public")
+            .join("THIRD_PARTY_NOTICES.md"),
+        resource_root.join("THIRD_PARTY_NOTICES.md"),
+    ]
+    .into_iter()
+    .find(|candidate| candidate.is_file())
+    .ok_or_else(|| "packaged third-party notices are unavailable".to_owned())
+}
+
+#[cfg(test)]
+mod packaged_license_tests {
+    use super::packaged_license_notices;
+
+    #[test]
+    fn resolves_only_the_notice_installed_under_the_application_resource_root() {
+        let root =
+            std::env::temp_dir().join(format!("prime-studio-license-{}", uuid::Uuid::new_v4()));
+        let packaged = root.join("public").join("THIRD_PARTY_NOTICES.md");
+        std::fs::create_dir_all(packaged.parent().unwrap()).unwrap();
+        std::fs::write(&packaged, "packaged notices").unwrap();
+
+        assert_eq!(packaged_license_notices(&root).unwrap(), packaged);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_when_the_packaged_notice_is_absent() {
+        let root =
+            std::env::temp_dir().join(format!("prime-studio-license-{}", uuid::Uuid::new_v4()));
+        assert_eq!(
+            packaged_license_notices(&root).unwrap_err(),
+            "packaged third-party notices are unavailable"
+        );
+    }
 }
 
 // ---------------------------------------------------------------- app

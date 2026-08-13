@@ -181,6 +181,20 @@ fn main() {
                 }
             }));
         }
+        "broker-runtime-mismatch" => {
+            let discovery = read_frame();
+            let mut runtime = broker_runtime();
+            runtime["entrypointDigest"] = json!(format!("sha256:{}", "c".repeat(64)));
+            write_frame(&json!({
+                "studioProtocol": 1,
+                "requestId": discovery["requestId"],
+                "payload": {
+                    "type":"discover_runtime_result",
+                    "runtime":runtime,
+                    "compatibility":{"status":"unavailable","reason":"runtime_identity_mismatch"}
+                }
+            }));
+        }
         "broker-bootstrap" | "broker-wrong-profile" | "broker-generation-transition" => {
             let profile = if mode != "broker-wrong-profile" {
                 "prime-agent-daemon-v7-schema13-816309b1cd50"

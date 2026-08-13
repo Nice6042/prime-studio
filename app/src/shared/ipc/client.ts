@@ -427,10 +427,17 @@ function deepFreeze<T>(value: T, seen = new Set<object>()): T {
 }
 
 export function decodeBootProjection(value: unknown): BootProjection {
-  const source = record(detach(value), ["compatibility", "sessions"]);
+  const source = record(detach(value), ["compatibility", "runtime", "sessions"]);
   const decodedCompatibility = compatibility(source.compatibility);
+  const decodedRuntime = source.runtime === null ? null : runtime(source.runtime);
   const sessions = array(source.sessions, 256).map(session);
   if ((decodedCompatibility.status === "unavailable" || decodedCompatibility.status === "read_only") && sessions.length !== 0) fail();
+  if (decodedCompatibility.status === "unavailable" && decodedRuntime !== null) fail();
+  if ((decodedCompatibility.status === "ready" || decodedCompatibility.status === "degraded") && decodedRuntime === null) fail();
+  if (decodedRuntime && (decodedCompatibility.status === "ready" || decodedCompatibility.status === "degraded")) {
+    if (decodedCompatibility.capabilities.length !== decodedRuntime.capabilities.length
+      || decodedCompatibility.capabilities.some((capability) => !decodedRuntime.capabilities.includes(capability))) fail();
+  }
   const rootIds = new Set(sessions.map((item) => item.sessionId));
   if (rootIds.size !== sessions.length) fail();
   const childOwners = new Set<string>();
@@ -440,7 +447,7 @@ export function decodeBootProjection(value: unknown): BootProjection {
       childOwners.add(child.id);
     }
   }
-  return deepFreeze({ compatibility: decodedCompatibility, sessions });
+  return deepFreeze({ compatibility: decodedCompatibility, runtime: decodedRuntime, sessions });
 }
 
 export function decodeHarnessProjectionEvent(value: unknown): HarnessProjectionEvent {
