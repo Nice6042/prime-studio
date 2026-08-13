@@ -282,6 +282,47 @@ describe("HarnessInspector", () => {
     expect(screen.queryByText("0:16")).not.toBeInTheDocument();
   });
 
+  it("uses one presentation timer for every elapsed row and never fabricates null progress", async () => {
+    let monotonicNow = 500;
+    const presentationTicks: TimerHandler[] = [];
+    vi.spyOn(performance, "now").mockImplementation(() => monotonicNow);
+    const setInterval = vi.spyOn(window, "setInterval").mockImplementation((handler, delay) => {
+      if (delay === 1_000) presentationTicks.push(handler);
+      return 1;
+    });
+    const unknownProgressChild = {
+      id: "child-unknown-progress",
+      status: "running" as const,
+      task: "Await authoritative progress",
+      provider: "OpenAI",
+      model: "gpt-test",
+      progress: null,
+    };
+    render(<HarnessInspector
+      chatId="chat-a"
+      session={{ ...session, children: [...session.children, unknownProgressChild] }}
+      compatibility={compatibility}
+      adapter={adapter()}
+    />);
+
+    const numericProgress = await screen.findByRole("button", { name: /Review protocol, running/ });
+    const mainAgent = screen.getByRole("region", { name: "Main agent" });
+    expect(within(mainAgent).getByText("13:20")).toBeVisible();
+    expect(within(numericProgress).getByText("12:40")).toBeVisible();
+    expect(within(numericProgress).getByLabelText("42% complete")).toBeVisible();
+    const indeterminateProgress = screen.getByRole("button", { name: /Await authoritative progress, running/ });
+    expect(within(indeterminateProgress).queryByLabelText(/% complete/)).not.toBeInTheDocument();
+    expect(setInterval.mock.calls.filter(([, delay]) => delay === 1_000)).toHaveLength(1);
+
+    monotonicNow += 1_000;
+    act(() => {
+      for (const tick of presentationTicks) if (typeof tick === "function") tick();
+    });
+
+    expect(within(mainAgent).getByText("13:21")).toBeVisible();
+    expect(within(numericProgress).getByText("12:41")).toBeVisible();
+  });
+
   it("routes every overview action through the typed adapter and reports success", async () => {
     const commands: StudioOperation[] = [];
     const user = userEvent.setup();

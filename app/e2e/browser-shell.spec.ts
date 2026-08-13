@@ -214,6 +214,17 @@ test("Harness keeps child work, activity, and current-chat usage out of the pare
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-harness");
 });
 
+test("Harness renders only authoritative child progress without per-row estimates", async ({ shellPage }) => {
+  const harness = shellPage.getByRole("complementary", { name: "Harness" });
+  const running = harness.getByRole("button", { name: /Verify runtime compatibility, running/ });
+  const completed = harness.getByRole("button", { name: /Map project navigation, done/ });
+
+  await expect(running.getByLabel("72% complete")).toBeVisible();
+  await expect(completed.getByLabel("100% complete")).toBeVisible();
+  await expect(harness.locator('.harness-agent-row [aria-label$="% complete"]')).toHaveCount(2);
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-harness-authoritative-progress");
+});
+
 test("Activity exposes only the redacted command and opens its exact opaque artifact", async ({ shellPage }) => {
   const harness = shellPage.getByRole("complementary", { name: "Harness" });
   await harness.getByRole("tab", { name: "Activity" }).click();
