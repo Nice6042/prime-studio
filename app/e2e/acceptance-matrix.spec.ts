@@ -37,7 +37,7 @@ test("archive route and parent conversation remain distinct from Harness child d
   const harness = shellPage.getByRole("complementary", { name: "Harness" });
   const content = harness.getByRole("region", { name: "Harness inspector content" });
   await expect(content.getByRole("region", { name: "Main agent" })).toBeVisible();
-  await expect(content.getByRole("region", { name: "This chat" })).toContainText("2.4k");
+  await expect(content.getByRole("region", { name: "This chat" })).toContainText("15.2k");
   await expect(harness.getByRole("button", { name: "Verify runtime compatibility, running" })).toBeVisible();
   await expect(harness.getByRole("button", { name: "Map project navigation, done" })).toBeVisible();
 
