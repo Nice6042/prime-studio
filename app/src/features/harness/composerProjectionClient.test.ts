@@ -27,6 +27,20 @@ describe("Harness composer projection client", () => {
     expect(invoke).toHaveBeenCalledWith("harness_composer_projection", { request: { sessionId: "session-1" } });
   });
 
+  it("preserves an explicit unavailable provider instead of treating it as selectable", async () => {
+    invoke.mockResolvedValue(JSON.stringify({
+      models: [{ id: "other/gpt", label: "Other GPT", shortLabel: "Other", enabled: false, disabledReason: "This provider is not configured in the verified model catalog." }],
+      selectedModel: "other/gpt",
+      thinkingLevels: [], selectedThinking: null, supportedCommands: [],
+    }));
+
+    await expect(loadHarnessComposerProjection("session-1")).resolves.toEqual({
+      models: [{ id: "other/gpt", label: "Other GPT", shortLabel: "Other", enabled: false, disabledReason: "This provider is not configured in the verified model catalog." }],
+      selectedModel: "other/gpt",
+      thinkingLevels: [], selectedThinking: null, supportedCommands: [],
+    });
+  });
+
   it.each([
     { models: [], selectedModel: null, thinkingLevels: [], selectedThinking: null, supportedCommands: ["model"] },
     { models: [{ id: "duplicate", label: "One", shortLabel: "One", enabled: true }, { id: "duplicate", label: "Two", shortLabel: "Two", enabled: true }], selectedModel: "duplicate", thinkingLevels: [], selectedThinking: null, supportedCommands: [] },

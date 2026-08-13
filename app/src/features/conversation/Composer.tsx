@@ -123,12 +123,19 @@ export function Composer({
   };
 
   const runSlashCommand = (command: SlashCommand) => {
+    if (command.id === "model") {
+      setModelOpen(true);
+      onSlashCommand?.(command.id);
+      return;
+    }
+    if (command.id === "effort") {
+      setThinkingOpen(true);
+      onSlashCommand?.(command.id);
+      return;
+    }
     onDraftChange("");
     if (command.id === "usage") onOpenUsage();
-    else {
-      if (command.id === "effort") setThinkingOpen(true);
-      onSlashCommand?.(command.id);
-    }
+    else onSlashCommand?.(command.id);
   };
   const submit = () => {
     const exactSlash = slashCommands.find((command) => command.label === draft.trim());

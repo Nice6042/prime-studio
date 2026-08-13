@@ -9,7 +9,7 @@ test("composer runtime operations admit only the exact current catalog and think
     currentCursor: cursor,
     connection: {
       async getModelCatalog() {
-        return { models: [{ provider: "openai-codex", id: "gpt-5.6-sol" }] };
+        return { models: [{ provider: "openai-codex", id: "gpt-5.6-sol" }], configuredProviders: ["openai-codex"] };
       },
       async getState() {
         return { availableThinkingLevels: ["low", "high"] };
@@ -40,7 +40,7 @@ test("composer runtime operations reject stale or invented catalog and thinking 
   const port = {
     currentCursor: cursor,
     connection: {
-      async getModelCatalog() { return { models: [{ provider: "openai-codex", id: "gpt-5.6-sol" }] }; },
+      async getModelCatalog() { return { models: [{ provider: "openai-codex", id: "gpt-5.6-sol" }], configuredProviders: ["openai-codex"] }; },
       async getState() { return { availableThinkingLevels: ["low"] }; },
       async setModel() { mutations += 1; },
       async setThinkingLevel() { mutations += 1; },
@@ -66,4 +66,57 @@ test("composer runtime operations reject stale or invented catalog and thinking 
   });
   assert.equal(rawSlash.status, "unavailable");
   assert.equal(mutations, 0);
+});
+
+test("unconfigured catalog providers and preflight transport failures never admit composer mutations", async () => {
+  const { StudioHarnessOperationDispatcher } = await import("../src/studioHarnessOperations.js");
+  const cursor = { runtimeGeneration: "generation-1", sequence: 9 };
+  const operation = {
+    operationId: "composer-preflight-model", action: "composer.model.select" as const,
+    payload: { chatId: "chat-1", modelId: "openai-codex/gpt-5.6-sol" }, expectedCursor: cursor, idempotencyKey: "composer-preflight-model-key",
+  };
+  let mutations = 0;
+  let attempts = 0;
+  const dispatcher = new StudioHarnessOperationDispatcher();
+  const port = {
+    currentCursor: cursor,
+    connection: {
+      async getModelCatalog() {
+        attempts += 1;
+        if (attempts === 1) throw new Error("catalog transport interrupted before admission");
+        return { models: [{ provider: "openai-codex", id: "gpt-5.6-sol" }], configuredProviders: ["openai-codex"] };
+      },
+      async getState() { throw new Error("thinking transport interrupted before admission"); },
+      async setModel() { mutations += 1; },
+      async setThinkingLevel() { mutations += 1; },
+    },
+  };
+
+  const unavailableProvider = await dispatcher.dispatch({
+    ...port,
+    connection: {
+      ...port.connection,
+      async getModelCatalog() { return { models: [{ provider: "openai-codex", id: "gpt-5.6-sol" }], configuredProviders: [] }; },
+    },
+  }, { ...operation, operationId: "composer-unconfigured-provider", idempotencyKey: "composer-unconfigured-provider-key" });
+  assert.equal(unavailableProvider.status, "unavailable");
+  assert.equal(mutations, 0);
+
+  const preflightFailure = await dispatcher.dispatch(port, operation);
+  assert.deepEqual(preflightFailure, {
+    status: "rejected", reason: "Verified model catalog could not be refreshed before admission.", retryable: true,
+  });
+  assert.equal(mutations, 0);
+  const retry = await dispatcher.dispatch(port, operation);
+  assert.equal(retry.status, "updated");
+  assert.equal(mutations, 1);
+
+  const effort = await dispatcher.dispatch(port, {
+    operationId: "composer-preflight-effort", action: "composer.thinking.select",
+    payload: { chatId: "chat-1", level: "high" }, expectedCursor: cursor, idempotencyKey: "composer-preflight-effort-key",
+  });
+  assert.deepEqual(effort, {
+    status: "rejected", reason: "Verified thinking levels could not be refreshed before admission.", retryable: true,
+  });
+  assert.equal(mutations, 1);
 });

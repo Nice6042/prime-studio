@@ -1320,6 +1320,24 @@ describe("Studio application state", () => {
     branchSpy.mockRestore();
   }, 20_000);
 
+  it("opens the exact verified model picker for /model and retains the command draft", async () => {
+    const operations: StudioOperation[] = [];
+    const store = createStudioStore(initialStudioState({
+      projectCatalog: catalogBoundToRootSession(), sessions: [rootSession],
+      compatibility: { status: "ready", profile: "verified", capabilities: ["model_catalog"] },
+    }));
+    store.dispatch({ type: "chat/open", chatId: chat.id });
+    render(<AppProviders store={store}><StudioApp harnessAdapter={conversationAdapter(operations)} /></AppProviders>);
+
+    const composer = screen.getByRole("textbox", { name: "Message Prime Studio" });
+    await userEvent.type(composer, "/model");
+    fireEvent.keyDown(composer, { key: "Enter" });
+
+    expect(await screen.findByRole("menu", { name: "Verified models" })).toBeVisible();
+    expect(composer).toHaveValue("/model");
+    expect(operations).not.toContainEqual(expect.objectContaining({ action: "composer.model.select" }));
+  }, 15_000);
+
   it("keeps the parent selected and reports failure when a resident branch cannot be reconciled", async () => {
     const sourceCatalog = catalogBoundToRootSession();
     const loadSpy = vi.spyOn(projectCatalogClient, "loadProjectCatalog").mockResolvedValue({ revision: 2, state: sourceCatalog });

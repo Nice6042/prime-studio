@@ -199,6 +199,28 @@ describe("Composer", () => {
     expect(onDraftChange).toHaveBeenCalledWith("");
   });
 
+  it("opens the verified model picker from /model without silently clearing the draft", () => {
+    const onDraftChange = vi.fn();
+    render(<Composer
+      draft="/model"
+      state={{ kind: "idle", draft: "/model", canSend: true }}
+      models={[{ id: "model-a", label: "Model A", enabled: true }]}
+      selectedModel="model-a"
+      onSelectModel={vi.fn()}
+      slashCommands={deriveSlashCommands({ model: true, effort: false, compact: false, fork: false, new: false, usage: false, export: false })}
+      onDraftChange={onDraftChange}
+      onSubmit={vi.fn()}
+      onAbort={vi.fn()}
+      onOpenUsage={vi.fn()}
+      onSlashCommand={vi.fn()}
+    />);
+
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Message Prime Studio" }), { key: "Enter" });
+
+    expect(screen.getByRole("menu", { name: "Verified models" })).toBeVisible();
+    expect(onDraftChange).not.toHaveBeenCalledWith("");
+  });
+
   it("navigates slash choices from the keyboard without submitting the draft", () => {
     const onSlashCommand = vi.fn();
     render(<Composer

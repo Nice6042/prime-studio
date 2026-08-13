@@ -102,7 +102,7 @@ export interface PrimeHarnessInspectorDetails {
     error: Readonly<{ code: string; message: string; retryable: boolean }> | null;
   }>>>;
   readonly composer: Readonly<{
-    models: readonly Readonly<{ id: string; label: string; shortLabel: string; enabled: true }>[];
+    models: readonly Readonly<{ id: string; label: string; shortLabel: string; enabled: boolean; disabledReason?: string }>[];
     selectedModel: string | null;
     thinkingLevels: readonly ("off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max")[];
     selectedThinking: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | null;
@@ -604,7 +604,14 @@ function composerProjection(
   catalogRaw: unknown,
 ): PrimeHarnessInspectorDetails["composer"] {
   const state = plain(initial.state) ? initial.state : {};
-  const catalog = plain(catalogRaw) && Array.isArray(catalogRaw.models) ? catalogRaw.models : [];
+  const catalogSource = plain(catalogRaw) ? catalogRaw : null;
+  const catalog = catalogSource && Array.isArray(catalogSource.models) ? catalogSource.models : [];
+  const configuredProviderRows = catalogSource && Array.isArray(catalogSource.configuredProviders)
+    ? catalogSource.configuredProviders
+    : [];
+  const configuredProviders = new Set(configuredProviderRows.flatMap((provider) =>
+    typeof provider === "string" && /^[\w.@:+-]{1,128}$/u.test(provider) ? [provider] : [],
+  ));
   const seen = new Set<string>();
   const models = catalog.slice(0, 512).flatMap((raw) => {
     if (!plain(raw) || typeof raw.id !== "string" || typeof raw.provider !== "string") return [];
@@ -614,7 +621,8 @@ function composerProjection(
     if (id.length > 128 || !/^[\w./:@+-]+$/u.test(id) || seen.has(id)) return [];
     seen.add(id);
     const label = typeof raw.name === "string" ? boundedString(raw.name, 200) : modelId;
-    return [{ id, label, shortLabel: label, enabled: true as const }];
+    const enabled = configuredProviders.has(provider);
+    return [{ id, label, shortLabel: label, enabled, ...(enabled ? {} : { disabledReason: "This provider is not configured in the verified model catalog." }) }];
   });
   const current = plain(state.model) ? state.model : {};
   const selectedModel = typeof current.provider === "string" && typeof current.id === "string"
@@ -628,7 +636,7 @@ function composerProjection(
     ? state.thinkingLevel as ProjectedThinkingLevel
     : null;
   const supportedCommands: Array<"model" | "effort" | "compact" | "fork" | "export"> = [];
-  if (models.length > 0 && typeof connection.setModel === "function") supportedCommands.push("model");
+  if (models.some((model) => model.enabled) && typeof connection.setModel === "function") supportedCommands.push("model");
   if (thinkingLevels.length > 0 && typeof connection.setThinkingLevel === "function") supportedCommands.push("effort");
   if (typeof connection.compact === "function") supportedCommands.push("compact");
   if (typeof connection.fork === "function") supportedCommands.push("fork");

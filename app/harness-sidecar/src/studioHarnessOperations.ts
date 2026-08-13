@@ -196,11 +196,21 @@ async function invoke(port: StudioHarnessOperationPort, method: string, ...argum
 }
 
 async function selectModel(port: StudioHarnessOperationPort, selector: string): Promise<unknown> {
-  const catalog = await invoke(port, "getModelCatalog");
-  if (!plain(catalog) || !Array.isArray(catalog.models)) throw new ReferenceError("upstream model catalog is unavailable");
+  let catalog: unknown;
+  try {
+    catalog = await invoke(port, "getModelCatalog");
+  } catch (error) {
+    if (error instanceof ReferenceError) throw new ReferenceError("upstream model catalog is unavailable");
+    throw new PreAdmissionRetryableError("Verified model catalog could not be refreshed before admission.");
+  }
+  if (!plain(catalog) || !Array.isArray(catalog.models) || !Array.isArray(catalog.configuredProviders)) {
+    throw new ReferenceError("upstream model catalog is unavailable");
+  }
+  const configuredProviders = new Set(catalog.configuredProviders.filter((provider): provider is string => typeof provider === "string"));
   const matches = catalog.models.filter((model) => plain(model)
     && typeof model.id === "string"
     && typeof model.provider === "string"
+    && configuredProviders.has(model.provider)
     && `${model.provider}/${model.id}` === selector);
   if (matches.length !== 1) throw new ReferenceError("The selected model is absent or ambiguous in the verified model catalog.");
   return invoke(port, "setModel", matches[0]!.provider, matches[0]!.id);
@@ -208,8 +218,16 @@ async function selectModel(port: StudioHarnessOperationPort, selector: string): 
 
 const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
+class PreAdmissionRetryableError extends Error {}
+
 async function selectThinking(port: StudioHarnessOperationPort, level: string): Promise<unknown> {
-  const state = await invoke(port, "getState");
+  let state: unknown;
+  try {
+    state = await invoke(port, "getState");
+  } catch (error) {
+    if (error instanceof ReferenceError) throw new ReferenceError("upstream supported thinking levels are unavailable");
+    throw new PreAdmissionRetryableError("Verified thinking levels could not be refreshed before admission.");
+  }
   if (!plain(state) || !Array.isArray(state.availableThinkingLevels)) {
     throw new ReferenceError("upstream supported thinking levels are unavailable");
   }
@@ -344,6 +362,7 @@ export async function dispatchStudioHarnessOperation(port: StudioHarnessOperatio
     }
     return { status: "updated", revision: port.currentCursor.sequence + 1, ...(data === undefined ? {} : { data }) };
   } catch (error) {
+    if (error instanceof PreAdmissionRetryableError) return { status: "rejected", reason: error.message, retryable: true };
     if (error instanceof ReferenceError) return { status: "unavailable", reason: error.message };
     if (error instanceof TypeError) return { status: "rejected", reason: error.message, retryable: false };
     return { status: "unknown_outcome", operationId: operation.operationId, reason: "Daemon operation outcome could not be proven." };
@@ -379,6 +398,7 @@ export class StudioHarnessOperationDispatcher {
       return { status: "rejected", reason: "Operation replay ledger capacity is exhausted; reattach to reconcile the session.", retryable: true };
     }
     const outcome = await dispatchStudioHarnessOperation(port, operation);
+    if (outcome.status === "rejected" && outcome.retryable) return outcome;
     const record = Object.freeze({ fingerprint, outcome });
     this.#byOperationId.set(operation.operationId, record);
     if (operation.idempotencyKey) this.#byIdempotencyKey.set(operation.idempotencyKey, record);

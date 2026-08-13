@@ -43,11 +43,19 @@ export function decodeHarnessComposerProjection(value: unknown): HarnessComposer
   if (!Array.isArray(source.models) || source.models.length > 512) unavailable();
   const modelIds = new Set<string>();
   const models = source.models.map((value) => {
-    const model = record(value, ["id", "label", "shortLabel", "enabled"]);
+    if (!value || typeof value !== "object" || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) unavailable();
+    const candidate = value as Record<string, unknown>;
+    if (typeof candidate.enabled !== "boolean") unavailable();
+    const model = record(candidate, candidate.enabled
+      ? ["id", "label", "shortLabel", "enabled"]
+      : ["id", "label", "shortLabel", "enabled", "disabledReason"]);
     const modelId = id(model.id);
     if (modelIds.has(modelId) || typeof model.enabled !== "boolean") unavailable();
     modelIds.add(modelId);
-    return Object.freeze({ id: modelId, label: text(model.label, 200), shortLabel: text(model.shortLabel, 200), enabled: model.enabled });
+    return Object.freeze({
+      id: modelId, label: text(model.label, 200), shortLabel: text(model.shortLabel, 200), enabled: model.enabled,
+      ...(model.enabled ? {} : { disabledReason: text(model.disabledReason, 200) }),
+    });
   });
   if (!Array.isArray(source.thinkingLevels) || source.thinkingLevels.length > LEVELS.size) unavailable();
   if (!Array.isArray(source.supportedCommands) || source.supportedCommands.length > COMMANDS.size) unavailable();
@@ -57,7 +65,7 @@ export function decodeHarnessComposerProjection(value: unknown): HarnessComposer
   const selectedThinking = source.selectedThinking === null ? null : choice(source.selectedThinking, LEVELS);
   if (selectedModel !== null && !modelIds.has(selectedModel)) unavailable();
   if (selectedThinking !== null && !thinkingLevels.includes(selectedThinking)) unavailable();
-  if (supportedCommands.includes("model") && models.length === 0) unavailable();
+  if (supportedCommands.includes("model") && !models.some((model) => model.enabled)) unavailable();
   if (supportedCommands.includes("effort") && thinkingLevels.length === 0) unavailable();
   return Object.freeze({ models: Object.freeze(models), selectedModel, thinkingLevels: Object.freeze([...thinkingLevels]), selectedThinking, supportedCommands: Object.freeze([...supportedCommands]) });
 }
