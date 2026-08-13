@@ -72,7 +72,7 @@ test("typed failure toasts deduplicate, stay outside the inspector, and dismiss 
   await dismiss.click();
   await expect(toast).toHaveCount(0);
   await expect.poll(() => shellPage.evaluate(() => document.activeElement?.getAttribute("data-control-id")))
-    .toMatch(/^(rail-workspace-menu|sidebar-workspace-menu|workspace-switch|title-harness)$/u);
+    .toMatch(/^(rail-workspace-menu|sidebar-workspace-menu|workspace-switch|title-action\.inspector\.toggle)$/u);
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-typed-toast-wide");
 });
 
@@ -95,10 +95,10 @@ test("collapsed rail preserves one dispatcher-owned keyboard action set and adap
   const rail = shellPage.getByRole("toolbar", { name: "Collapsed navigation" });
   await expect(rail).toBeVisible();
   const expected = [
-    ["rail-expand", "Expand sidebar", "Expand sidebar (Ctrl+B)"],
-    ["rail-new-chat", "New chat", /^New chat (?:\(Ctrl\+N\)|unavailable:)/],
-    ["rail-search", "Search", "Search (Ctrl+K)"],
-    ["rail-settings", "Settings", "Settings (Ctrl+,)"],
+    ["rail.sidebar.toggle", "Expand sidebar", "Expand sidebar (Ctrl+B)"],
+    ["rail.chat.new", "New chat", /^New chat (?:\(Ctrl\+N\)|unavailable:)/],
+    ["rail.palette.open", "Search", "Search (Ctrl+K)"],
+    ["rail.settings.open", "Settings", "Settings (Ctrl+,)"],
     ["rail-workspace-menu", "Prime Studio workspace menu", "Prime Studio: D:\\fixture\\Prime Studio"],
   ] as const;
   for (const [controlId, label, description] of expected) {
@@ -107,11 +107,11 @@ test("collapsed rail preserves one dispatcher-owned keyboard action set and adap
     await expect(control).toHaveAccessibleName(label);
     await expect(control).toHaveAccessibleDescription(description);
   }
-  await expect(shellPage.locator('[data-control-id="rail-expand"]')).toBeFocused();
+  await expect(shellPage.locator('[data-control-id="rail.sidebar.toggle"]')).toBeFocused();
   await shellPage.keyboard.press("ArrowDown");
-  await expect(shellPage.locator('[data-control-id="rail-new-chat"]')).toBeFocused();
+  await expect(shellPage.locator('[data-control-id="rail.chat.new"]')).toBeFocused();
   await shellPage.keyboard.press("ArrowDown");
-  const search = shellPage.locator('[data-control-id="rail-search"]');
+  const search = shellPage.locator('[data-control-id="rail.palette.open"]');
   await expect(search).toBeFocused();
   await expect(search.locator("xpath=following-sibling::*[@role='tooltip']")).toHaveCSS("opacity", "1");
   await shellPage.keyboard.press("Enter");
@@ -121,19 +121,19 @@ test("collapsed rail preserves one dispatcher-owned keyboard action set and adap
   await shellPage.screenshot({ path: testInfo.outputPath("collapsed-rail-wide.png"), fullPage: true });
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "collapsed-rail-wide");
 
-  await shellPage.locator('[data-control-id="rail-expand"]').focus();
+  await shellPage.locator('[data-control-id="rail.sidebar.toggle"]').focus();
   await shellPage.keyboard.press("Enter");
-  await expect(shellPage.locator('[data-control-id="sidebar-collapse"]')).toBeFocused();
+  await expect(shellPage.locator('[data-control-id="sidebar.collapse"]')).toBeFocused();
   await shellPage.setViewportSize({ width: 820, height: 640 });
-  await expect(shellPage.locator('[data-control-id="rail-expand"]')).toBeFocused();
+  await expect(shellPage.locator('[data-control-id="rail.sidebar.toggle"]')).toBeFocused();
   await shellPage.keyboard.press("Enter");
   const sheet = shellPage.locator('[data-studio-sheet="sidebar"]');
-  await expect(sheet.locator('[data-control-id="sidebar-collapse"]')).toBeFocused();
+  await expect(sheet.locator('[data-control-id="sidebar.collapse"]')).toBeFocused();
   await expect(shellPage.locator('.studio-sidebar[data-mode="rail"]')).toHaveAttribute("inert", "");
   await shellPage.setViewportSize({ width: 1280, height: 800 });
-  await expect(shellPage.locator('[data-control-id="sidebar-collapse"]')).toBeFocused();
+  await expect(shellPage.locator('[data-control-id="sidebar.collapse"]')).toBeFocused();
   await shellPage.keyboard.press("Enter");
-  await expect(shellPage.locator('[data-control-id="rail-expand"]')).toBeFocused();
+  await expect(shellPage.locator('[data-control-id="rail.sidebar.toggle"]')).toBeFocused();
 });
 
 test("sidebar reports admitted chat lifecycle without starting an inactive chat", async ({ shellPage }, testInfo) => {
@@ -258,6 +258,59 @@ test("command palette, settings search, theme, and editor are keyboard reachable
   await expect(shellPage.getByRole("region", { name: "Editor" })).toBeVisible();
   await expect(shellPage.getByText(/No verified file or Canvas revision/)).toBeVisible();
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-settings-editor");
+});
+
+test("registry keeps Ctrl+N K comma B J in parity with visible commands and Settings rows", async ({ shellPage }) => {
+  const requestCount = (command: string) => shellPage.evaluate((name) => {
+    const requests = (window as typeof window & { __PRIME_STUDIO_BROWSER_REQUESTS__?: Array<{ command: string }> }).__PRIME_STUDIO_BROWSER_REQUESTS__ ?? [];
+    return requests.filter((request) => request.command === name).length;
+  }, command);
+
+  const beforeNew = await requestCount("project_catalog_apply");
+  const newChat = shellPage.getByRole("button", { name: "New chat" });
+  await expect(newChat).toBeDisabled();
+  await shellPage.keyboard.press("Control+N");
+  await expect.poll(() => requestCount("project_catalog_apply")).toBe(beforeNew);
+  await newChat.click({ force: true });
+  await expect.poll(() => requestCount("project_catalog_apply")).toBe(beforeNew);
+
+  await shellPage.keyboard.press("Control+K");
+  await expect(shellPage.getByRole("dialog", { name: "Command palette" })).toBeVisible();
+  await shellPage.keyboard.press("Escape");
+  await shellPage.getByRole("button", { name: "Search" }).click();
+  await expect(shellPage.getByRole("dialog", { name: "Command palette" })).toBeVisible();
+  await shellPage.keyboard.press("Escape");
+
+  await shellPage.keyboard.press("Control+,");
+  await expect(shellPage.getByRole("main", { name: "Settings" })).toBeVisible();
+  await shellPage.getByRole("button", { name: "Back to chat" }).click();
+  await shellPage.getByRole("button", { name: "Settings" }).click();
+  await shellPage.getByRole("button", { name: /^Keyboard shortcuts/ }).click();
+  const application = shellPage.getByRole("heading", { name: "Application" }).locator("..");
+  for (const row of [["New chat", "Ctrl+N"], ["Open command palette", "Ctrl+K"], ["Toggle projects", "Ctrl+B"], ["Toggle Harness", "Ctrl+J"], ["Open settings", "Ctrl+,"]] as const) {
+    await expect(application).toContainText(row[0]);
+    await expect(application).toContainText(row[1]);
+  }
+  await shellPage.getByRole("button", { name: "Back to chat" }).click();
+
+  const beforeSidebar = await requestCount("set_layout_preferences");
+  await shellPage.keyboard.press("Control+B");
+  await expect(shellPage.getByRole("toolbar", { name: "Collapsed navigation" })).toBeVisible();
+  await expect.poll(() => requestCount("set_layout_preferences")).toBe(beforeSidebar + 1);
+  await shellPage.getByRole("button", { name: "Expand sidebar" }).click();
+  await expect(shellPage.getByRole("button", { name: "Collapse sidebar" })).toBeVisible();
+  await expect.poll(() => requestCount("set_layout_preferences")).toBe(beforeSidebar + 2);
+
+  const beforeHarness = await requestCount("set_layout_preferences");
+  await shellPage.keyboard.press("Control+J");
+  await expect(shellPage.getByRole("complementary", { name: "Harness" })).toHaveCount(0);
+  await expect.poll(() => requestCount("set_layout_preferences")).toBe(beforeHarness + 1);
+  await shellPage.getByRole("button", { name: "View" }).click();
+  await shellPage.getByRole("menuitem", { name: "Toggle Harness" }).click();
+  await expect(shellPage.getByRole("complementary", { name: "Harness" })).toBeVisible();
+  await expect.poll(() => requestCount("set_layout_preferences")).toBe(beforeHarness + 2);
+
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-command-registry-parity");
 });
 
 test("wide settings renders every registered destination without horizontal page overflow", async ({ shellPage }) => {

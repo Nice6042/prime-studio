@@ -32,7 +32,7 @@ import { SettingsShell } from "../features/settings/SettingsShell";
 import { ArchivedCatalogSettings } from "../features/settings/ArchivedCatalogSettings";
 import { CommandPalette } from "../features/command-palette/CommandPalette";
 import type { PaletteChat, PaletteMessage } from "../features/command-palette/searchIndex";
-import { operationForStudioCommand, shortcutStudioCommand, studioCommands, type StudioCommandId } from "../entities/commands/commandRegistry";
+import { commandPlacements, createStudioCommandExecutor, shortcutStudioCommand, studioCommand, type StudioCommandId } from "../entities/commands/commandRegistry";
 import { EditorPane, type EditorMode } from "../features/editor/EditorPane";
 import type { ArtifactDocument } from "../entities/editor/types";
 import type { StudioOperation, StudioOperationOutcome } from "../contracts/studioOperations";
@@ -50,6 +50,21 @@ import type { StudioToast, ToastInput } from "../components/toastQueue";
 
 let bootstrapPromise: ReturnType<typeof rpc.bootstrapHarness> | null = null;
 let catalogPromise: ReturnType<typeof loadProjectCatalog> | null = null;
+
+function titleActionPresentation(commandId: StudioCommandId) {
+  const placement = commandPlacements("title-action").find((candidate) => candidate.commandId === commandId);
+  if (!placement) throw new Error(`Missing title action placement for ${commandId}.`);
+  const command = studioCommand(commandId);
+  return { id: placement.id, label: placement.label ?? command.label, action: command.action };
+}
+
+const titleActions = {
+  projects: titleActionPresentation("sidebar.toggle"),
+  harness: titleActionPresentation("inspector.toggle"),
+  editorOpen: titleActionPresentation("editor.open"),
+  editorClose: titleActionPresentation("editor.close"),
+  palette: titleActionPresentation("palette.open"),
+};
 
 function loadHarnessProjection() {
   bootstrapPromise ??= rpc.bootstrapHarness().catch((error) => {
@@ -154,7 +169,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const [activeSheet, setActiveSheet] = useState<"sidebar" | "inspector" | "editor" | null>(null);
   const sheetOpener = useRef<HTMLElement | null>(null);
   const suppressSheetOpenerRestore = useRef(false);
-  const sidebarReplacementFocus = useRef<"rail-expand" | "sidebar-collapse" | null>(null);
+  const sidebarReplacementFocus = useRef<"rail.sidebar.toggle" | "sidebar.collapse" | null>(null);
   const sidebarHadFocus = useRef(false);
   const previousSidebarHost = useRef<"pane" | "rail" | "sheet" | null>(null);
   const [canvas, setCanvas] = useState<Readonly<{ chatId: string; messageId: string; displayRevision: number; content: string }> | null>(null);
@@ -636,12 +651,24 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
             ? { status: "updated", revision: JSON.stringify(layout) }
             : changeLayout({ sidebarOpen: true });
         }
-        sidebarReplacementFocus.current = layout.sidebarOpen ? "rail-expand" : "sidebar-collapse";
+        sidebarReplacementFocus.current = layout.sidebarOpen ? "rail.sidebar.toggle" : "sidebar.collapse";
         return changeLayout({ sidebarOpen: !layout.sidebarOpen });
       }
       case "layout.sidebar.resize": return changeLayout({ sidebarWidth: operation.payload.width });
       case "layout.sidebar.reset": return changeLayout({ sidebarWidth: 264 });
-      case "layout.inspector.toggle": return changeLayout((current) => ({ ...current, inspectorOpen: !current.inspectorOpen }));
+      case "layout.inspector.toggle": {
+        if (viewport < 760) {
+          if (activeSheet === "inspector") setActiveSheet(null);
+          else {
+            sheetOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+            setActiveSheet("inspector");
+          }
+          return layout.inspectorOpen
+            ? { status: "updated", revision: JSON.stringify(layout) }
+            : changeLayout({ inspectorOpen: true });
+        }
+        return changeLayout((current) => ({ ...current, inspectorOpen: !current.inspectorOpen }));
+      }
       case "layout.inspector.resize": return changeLayout({ inspectorWidth: operation.payload.width });
       case "layout.inspector.reset": return changeLayout({ inspectorWidth: 384 });
       case "layout.editor.toggle": return changeLayout((current) => ({ ...current, editorOpen: !current.editorOpen }));
@@ -866,27 +893,33 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     }
   }, [attention.status, navigation.selectedChatId, selectedChatEvidence?.runtimeGeneration, selectedChatEvidence?.marker, selectedChatEvidence?.occurredAtMs]);
 
-  const createChat = () => {
-    const projectId = store.getSnapshot().projectCatalog.selectedProjectId;
-    void dispatchOperation({ action: "catalog.chat.create", payload: { projectId } });
-  };
-
   const createProject = (name: string, folderPath: string) => {
     void dispatchOperation({ action: "catalog.project.create", payload: { title: name, folderPath } });
   };
 
-  const runCommand = (id: StudioCommandId) => {
-    const command = studioCommands.find((candidate) => candidate.id === id);
-    if (!command) return;
-    void dispatchOperation(operationForStudioCommand(command, store.getSnapshot().projectCatalog.selectedProjectId));
-  };
+  const newChatDisabledReason = catalogOperation.phase === "pending" ? catalogOperation.label : residentCreationDisabledReason(settings) ?? undefined;
+  const admissionConnected = Boolean(
+    selectedSession
+    && selectedSession.freshness === "live"
+    && (compatibility.status === "ready" || compatibility.status === "degraded")
+    && compatibility.capabilities.includes("session_input_admission"),
+  );
+  const commandAvailability = {
+    admissionConnected,
+    disabledActions: newChatDisabledReason ? { "catalog.chat.create": newChatDisabledReason } : undefined,
+  } as const;
 
-  const runTitleOperation = (operation: StudioOperation) => {
-    const normalized = operation.action === "catalog.chat.create" ? { ...operation, payload: { projectId: store.getSnapshot().projectCatalog.selectedProjectId } } as StudioOperation : operation;
-    void dispatchOperation(normalized).then((outcome) => {
+  const executeCommand = createStudioCommandExecutor(
+    () => ({ projectId: store.getSnapshot().projectCatalog.selectedProjectId, availability: commandAvailability }),
+    dispatchOperation,
+  );
+  const runCommand = (id: StudioCommandId) => {
+    void executeCommand(id).then((outcome) => {
       if (outcome.status === "unavailable" || outcome.status === "rejected" || outcome.status === "unknown_outcome") setAdmissionMessage(outcome.reason);
     });
   };
+
+  const createChat = () => runCommand("chat.new");
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -900,7 +933,6 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  const openSettings = () => { void dispatchOperation({ action: "route.settings.open", payload: {} }); };
   const workspaceIdentity = deriveWorkspaceIdentity(settingsLoaded
     ? { status: "ready", defaultCwd: settings.defaultCwd }
     : settingsLoadFailed
@@ -942,20 +974,13 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     previousSidebarHost.current = workspaceFooterHost;
     if (workspaceMenuHostRef.current === null) {
       const controlId = sidebarReplacementFocus.current ?? (hostChanged && sidebarHadFocus.current
-        ? workspaceFooterHost === "rail" ? "rail-expand" : workspaceFooterHost === "pane" || workspaceFooterHost === "sheet" ? "sidebar-collapse" : null
+        ? workspaceFooterHost === "rail" ? "rail.sidebar.toggle" : workspaceFooterHost === "pane" || workspaceFooterHost === "sheet" ? "sidebar.collapse" : null
         : null);
       const target = controlId ? document.querySelector<HTMLButtonElement>(`[data-control-id="${controlId}"]`) : null;
       if (target) target.focus();
     }
     sidebarReplacementFocus.current = null;
   }, [workspaceFooterHost]);
-  const newChatDisabledReason = catalogOperation.phase === "pending" ? catalogOperation.label : residentCreationDisabledReason(settings) ?? undefined;
-  const admissionConnected = Boolean(
-    selectedSession
-    && selectedSession.freshness === "live"
-    && (compatibility.status === "ready" || compatibility.status === "degraded")
-    && compatibility.capabilities.includes("session_input_admission"),
-  );
   const executeSettingOperation = (operation: StudioOperation, key: keyof AppSettings, value: string | null) => {
     void harnessAdapter.execute(operation).then((outcome) => {
       if (operationAccepted(outcome.status)) void rpc.setAppSetting(key, value).then(setSettings).catch(() => undefined);
@@ -989,27 +1014,27 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         onNewChat={createChat}
         onNewProject={createProject}
         newChatDisabledReason={newChatDisabledReason}
-        onOpenSearch={openPalette}
-        onOpenArchived={() => { void dispatchOperation({ action: "route.archived.open", payload: {} }); }}
-        onCollapse={() => { if (layout.sidebarOpen) void dispatchOperation({ action: "layout.sidebar.toggle", payload: {} }); }}
-        onOpenSettings={openSettings}
+        onOpenSearch={() => runCommand("palette.open")}
+        onOpenArchived={() => runCommand("archived.open")}
+        onCollapse={() => { if (layout.sidebarOpen) runCommand("sidebar.toggle"); }}
+        onOpenSettings={() => runCommand("settings.open")}
         workspace={workspaceIdentity}
         workspaceMenuOpen={workspaceMenuHost === workspaceFooterHost && (workspaceFooterHost === "pane" || workspaceFooterHost === "sheet")}
         onExecuteWorkspaceOperation={dispatchOperation}
       />
     : <CollapsedSidebar
-        selectedProjectId={projectCatalog.selectedProjectId}
         newChatDisabledReason={newChatDisabledReason}
         workspace={workspaceIdentity}
         workspaceMenuOpen={workspaceMenuHost === "rail" && workspaceFooterHost === "rail"}
-        onExecute={dispatchOperation}
+        onCommand={runCommand}
+        onExecuteWorkspaceOperation={dispatchOperation}
       />;
   const sidebarRailContent = <CollapsedSidebar
-    selectedProjectId={projectCatalog.selectedProjectId}
     newChatDisabledReason={newChatDisabledReason}
     workspace={workspaceIdentity}
     workspaceMenuOpen={workspaceMenuHost === "rail" && workspaceFooterHost === "rail"}
-    onExecute={dispatchOperation}
+    onCommand={runCommand}
+    onExecuteWorkspaceOperation={dispatchOperation}
   />;
 
   if (navigation.route === "settings") {
@@ -1039,7 +1064,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       quota={quotaProjection}
       quotaStatus={codexQuota.status}
       onRefreshQuota={refreshQuota}
-    />{paletteOpen && <CommandPalette admissionConnected={admissionConnected} onRun={runCommand} onClose={() => { void dispatchOperation({ action: "palette.close", payload: {} }); }} restoreFocusTo={paletteOpener} chats={paletteChats} messages={paletteMessages} onOpenChat={openCatalogChat} onOpenMessage={(chatId) => openCatalogChat(chatId)} />}
+    />{paletteOpen && <CommandPalette admissionConnected={admissionConnected} disabledActions={commandAvailability.disabledActions} onRun={runCommand} onClose={() => { void dispatchOperation({ action: "palette.close", payload: {} }); }} restoreFocusTo={paletteOpener} chats={paletteChats} messages={paletteMessages} onOpenChat={openCatalogChat} onOpenMessage={(chatId) => openCatalogChat(chatId)} />}
     {createProjectOpen && <CreateProjectDialog restoreFocusTo={createProjectOpener} onCancel={() => { void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} onCreate={(name, folderPath) => { createProject(name, folderPath); void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} />}</>;
   }
 
@@ -1144,11 +1169,11 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   };
   return <div className="studio-application">
     <Toasts toasts={toasts} execute={dispatchOperation} retry={(operationId) => toastCoordinator.current!.retry(operationId)} />
-    <TitleBar title={title} onOperation={runTitleOperation} actions={<>
-      <button type="button" {...controlBinding("title-projects", "layout.sidebar.toggle")} className="studio-command-trigger" aria-label="Projects" aria-pressed={solvedSidebarMode === "rail" ? activeSheet === "sidebar" : layout.sidebarOpen} onClick={(event) => { sheetOpener.current = event.currentTarget; void dispatchOperation({ action: "layout.sidebar.toggle", payload: {} }); }}><NavigationIcon kind="menu" /></button>
-      <button type="button" {...controlBinding("title-harness", "layout.inspector.toggle")} className="studio-command-trigger" aria-label="Harness" aria-pressed={viewport < 760 ? activeSheet === "inspector" : layout.inspectorOpen} onClick={(event) => { if (viewport < 760) { sheetOpener.current = event.currentTarget; if (!layout.inspectorOpen) void dispatchOperation({ action: "layout.inspector.toggle", payload: {} }); setActiveSheet((value) => value === "inspector" ? null : "inspector"); } else void dispatchOperation({ action: "layout.inspector.toggle", payload: {} }); }}><NavigationIcon kind="harness" /></button>
-      <button type="button" {...controlBinding("title-editor", layout.editorOpen ? "layout.editor.close" : "layout.editor.toggle")} className="studio-command-trigger" aria-label={layout.editorOpen ? "Close editor" : "Open editor"} onClick={(event) => { if (!layout.editorOpen) sheetOpener.current = event.currentTarget; void dispatchOperation({ action: layout.editorOpen ? "layout.editor.close" : "layout.editor.toggle", payload: {} }); setActiveSheet(layout.editorOpen ? null : "editor"); }}><NavigationIcon kind="editor" /></button>
-      <button type="button" {...controlBinding("title-command-palette", "palette.open")} className="studio-command-trigger" aria-label="Open command palette" onClick={() => { void dispatchOperation({ action: "palette.open", payload: {} }); }}><NavigationIcon kind="command" /></button>
+    <TitleBar title={title} availability={commandAvailability} onCommand={runCommand} actions={<>
+      <button type="button" {...controlBinding(titleActions.projects.id, titleActions.projects.action)} className="studio-command-trigger" aria-label={titleActions.projects.label} aria-pressed={solvedSidebarMode === "rail" ? activeSheet === "sidebar" : layout.sidebarOpen} onClick={(event) => { sheetOpener.current = event.currentTarget; runCommand("sidebar.toggle"); }}><NavigationIcon kind="menu" /></button>
+      <button type="button" {...controlBinding(titleActions.harness.id, titleActions.harness.action)} className="studio-command-trigger" aria-label={titleActions.harness.label} aria-pressed={viewport < 760 ? activeSheet === "inspector" : layout.inspectorOpen} onClick={(event) => { sheetOpener.current = event.currentTarget; runCommand("inspector.toggle"); }}><NavigationIcon kind="harness" /></button>
+      <button type="button" {...controlBinding(layout.editorOpen ? titleActions.editorClose.id : titleActions.editorOpen.id, layout.editorOpen ? titleActions.editorClose.action : titleActions.editorOpen.action)} className="studio-command-trigger" aria-label={layout.editorOpen ? titleActions.editorClose.label : titleActions.editorOpen.label} onClick={(event) => { if (!layout.editorOpen) sheetOpener.current = event.currentTarget; runCommand(layout.editorOpen ? "editor.close" : "editor.open"); setActiveSheet(layout.editorOpen ? null : "editor"); }}><NavigationIcon kind="editor" /></button>
+      <button type="button" {...controlBinding(titleActions.palette.id, titleActions.palette.action)} className="studio-command-trigger" aria-label={titleActions.palette.label} onClick={() => runCommand("palette.open")}><NavigationIcon kind="command" /></button>
     </>} />
     <WorkspaceShell
       viewport={viewport}
@@ -1321,7 +1346,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       } : null}
       inspector={adapterConnected && (compatibility.status === "ready" || compatibility.status === "degraded") ? runtimeInspector : null}
     />
-    {paletteOpen && <CommandPalette admissionConnected={admissionConnected} onRun={runCommand} onClose={() => { void dispatchOperation({ action: "palette.close", payload: {} }); }} restoreFocusTo={paletteOpener} chats={paletteChats} messages={paletteMessages} onOpenChat={openCatalogChat} onOpenMessage={(chatId) => openCatalogChat(chatId)} />}
+    {paletteOpen && <CommandPalette admissionConnected={admissionConnected} disabledActions={commandAvailability.disabledActions} onRun={runCommand} onClose={() => { void dispatchOperation({ action: "palette.close", payload: {} }); }} restoreFocusTo={paletteOpener} chats={paletteChats} messages={paletteMessages} onOpenChat={openCatalogChat} onOpenMessage={(chatId) => openCatalogChat(chatId)} />}
     {createProjectOpen && <CreateProjectDialog restoreFocusTo={createProjectOpener} onCancel={() => { void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} onCreate={(name, folderPath) => { createProject(name, folderPath); void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} />}
   </div>;
 }

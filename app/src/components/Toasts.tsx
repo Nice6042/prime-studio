@@ -47,7 +47,7 @@ export function Toasts({
       return;
     }
     document.querySelector<HTMLElement>(
-      '[data-toast-focus-fallback], [data-control-id="title-harness"], [data-control-id="settings.back"], [data-control-id="title-projects"], button:not(.toast-action):not(.toast-dismiss)',
+      '[data-toast-focus-fallback], [data-control-id="title-action.inspector.toggle"], [data-control-id="settings.back"], [data-control-id="title-action.sidebar.toggle"], button:not(.toast-action):not(.toast-dismiss)',
     )?.focus();
     done();
   });

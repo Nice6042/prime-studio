@@ -30,6 +30,17 @@ describe("SettingsShell", () => {
     expect(screen.getAllByText(/verified Harness connection/i).length).toBeGreaterThan(0);
   });
 
+  it("lists only explicitly placed application shortcuts from the command registry", () => {
+    render(<SettingsShell section="shortcuts" onBack={() => undefined} onSection={() => undefined} compatibility={unavailable} />);
+    const application = screen.getByRole("heading", { name: "Application" }).parentElement!;
+    expect(application).toHaveTextContent("New chatCtrl+N");
+    expect(application).toHaveTextContent("Open command paletteCtrl+K");
+    expect(application).toHaveTextContent("Toggle projectsCtrl+B");
+    expect(application).toHaveTextContent("Toggle HarnessCtrl+J");
+    expect(application).toHaveTextContent("Open settingsCtrl+,");
+    expect(application).not.toHaveTextContent("Undo");
+  });
+
   it("keeps Harness and tool policy controls unavailable without a verified operation adapter", () => {
     const ready: HarnessCompatibility = { status: "ready", profile: "verified", capabilities: ["attach_snapshot", "event_sequence"] };
     const { rerender } = render(<SettingsShell section="harness" onBack={() => undefined} onSection={() => undefined} compatibility={ready} onSetting={vi.fn()} />);

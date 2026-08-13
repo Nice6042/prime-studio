@@ -45,6 +45,27 @@ describe("CommandPalette", () => {
     expect(run).toHaveBeenCalledWith("archived.open");
   });
 
+  it("does not advertise title-menu-only history, window, or help commands", async () => {
+    render(<CommandPalette admissionConnected onRun={vi.fn()} onClose={() => undefined} />);
+    const query = screen.getByRole("combobox", { name: "Search commands, chats, and messages" });
+    for (const menuOnly of ["Undo", "Minimize", "Prime Agent documentation"]) {
+      await userEvent.clear(query);
+      await userEvent.type(query, menuOnly);
+      expect(screen.getByText("No results")).toBeVisible();
+    }
+  });
+
+  it("renders a capability-disabled command once and never executes it", async () => {
+    const run = vi.fn();
+    render(<CommandPalette admissionConnected disabledActions={{ "route.settings.open": "Settings are unavailable." }} onRun={run} onClose={() => undefined} />);
+    await userEvent.type(screen.getByRole("combobox", { name: "Search commands, chats, and messages" }), "open settings");
+    const option = screen.getByRole("option", { name: /Open settings/ });
+    expect(option).toHaveAttribute("aria-disabled", "true");
+    expect(option).toHaveTextContent("Settings are unavailable.");
+    await userEvent.click(option);
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it("closes on Escape", async () => {
     const close = vi.fn();
     render(<CommandPalette admissionConnected={false} onRun={() => undefined} onClose={close} />);

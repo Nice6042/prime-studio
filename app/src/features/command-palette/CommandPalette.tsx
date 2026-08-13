@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 
 import { createControlBinding } from "../../contracts/studioOperations";
-import type { StudioCommandId } from "../../entities/commands/commandRegistry";
+import type { CommandAvailabilityContext, StudioCommandId } from "../../entities/commands/commandRegistry";
 import { useModalSurfaceFocus } from "../../modalSurface";
 import { useTopmostSurfaceEscape } from "../../surfaceEscape";
 import { searchPaletteIndex, type PaletteChat, type PaletteMessage, type PaletteResult } from "./searchIndex";
@@ -13,8 +13,9 @@ const controls = {
   close: createControlBinding("palette.close", "palette.close"),
 };
 
-export function CommandPalette({ admissionConnected, onRun, onClose, restoreFocusTo, chats = [], messages = [], onOpenChat, onOpenMessage }: {
+export function CommandPalette({ admissionConnected, disabledActions, onRun, onClose, restoreFocusTo, chats = [], messages = [], onOpenChat, onOpenMessage }: {
   readonly admissionConnected: boolean;
+  readonly disabledActions?: CommandAvailabilityContext["disabledActions"];
   readonly onRun: (id: StudioCommandId) => void;
   readonly onClose: () => void;
   readonly restoreFocusTo?: HTMLElement | null;
@@ -30,7 +31,7 @@ export function CommandPalette({ admissionConnected, onRun, onClose, restoreFocu
   const dialogRef = useRef<HTMLElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(restoreFocusTo ?? null);
   restoreFocusRef.current = restoreFocusTo ?? null;
-  const results = useMemo(() => searchPaletteIndex(query, { admissionConnected }, chats, messages), [admissionConnected, chats, messages, query]);
+  const results = useMemo(() => searchPaletteIndex(query, { admissionConnected, disabledActions }, chats, messages), [admissionConnected, chats, disabledActions, messages, query]);
   const groups = useMemo(() => (["Actions", "Chats", "Messages"] as const).map((name) => ({ name, rows: results.filter((result) => result.group === name) })).filter((group) => group.rows.length > 0), [results]);
   const enabledIndexes = useMemo(() => results.flatMap((result, index) => result.enabled ? [index] : []), [results]);
   const selectedIndex = results[active]?.enabled ? active : (enabledIndexes[0] ?? -1);

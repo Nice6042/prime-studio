@@ -5,10 +5,27 @@ import { controlBinding } from "../conversation/controlBinding";
 import { useModalSurfaceFocus } from "../../modalSurface";
 import { useTopmostSurfaceEscape } from "../../surfaceEscape";
 import type { StudioOperation, StudioOperationOutcome } from "../../contracts/studioOperations";
+import { commandPlacements, studioCommand, type StudioCommandId } from "../../entities/commands/commandRegistry";
 import { WorkspaceFooter } from "./WorkspaceFooter";
 import type { WorkspaceIdentityProjection } from "./workspaceIdentity";
 import type { NavigationChat } from "./navigationSelectors";
 import "./navigation.css";
+
+function sidebarPresentation(commandId: StudioCommandId) {
+  const placement = commandPlacements("sidebar").find((candidate) => candidate.commandId === commandId);
+  if (!placement) throw new Error(`Missing sidebar placement for ${commandId}.`);
+  const command = studioCommand(commandId);
+  return { id: placement.id, label: placement.label ?? command.label, hint: placement.hint ?? command.shortcuts[0], action: command.action };
+}
+
+const sidebarCommands = {
+  newChat: sidebarPresentation("chat.new"),
+  search: sidebarPresentation("palette.open"),
+  newProject: sidebarPresentation("project.new"),
+  archived: sidebarPresentation("archived.open"),
+  settings: sidebarPresentation("settings.open"),
+  collapse: sidebarPresentation("sidebar.toggle"),
+};
 
 export function CreateProjectDialog({ onCreate, onCancel, restoreFocusTo }: {
   readonly onCreate: (name: string, folderPath: string) => void;
@@ -176,18 +193,18 @@ export function ProjectSidebar({
     <div className="project-sidebar-brand">
       <span className="project-mark" aria-hidden="true"><span /></span>
       <strong>Prime Studio</strong>
-      {onCollapse && <button type="button" className="project-brand-action" {...controlBinding("sidebar-collapse", "layout.sidebar.toggle")} aria-label="Collapse sidebar" onClick={onCollapse}><NavigationIcon kind="collapse" /></button>}
+      {onCollapse && <button type="button" className="project-brand-action" {...controlBinding(sidebarCommands.collapse.id, sidebarCommands.collapse.action)} aria-label={sidebarCommands.collapse.label} onClick={onCollapse}><NavigationIcon kind="collapse" /></button>}
     </div>
     <button
       className="project-primary-action"
       type="button"
-      aria-label="New chat"
-      {...controlBinding("sidebar-new-chat", "catalog.chat.create")}
+      aria-label={sidebarCommands.newChat.label}
+      {...controlBinding(sidebarCommands.newChat.id, sidebarCommands.newChat.action)}
       onClick={onNewChat}
       disabled={Boolean(newChatDisabledReason)}
       title={newChatDisabledReason}
-    ><NavigationIcon kind="add" /><span>New chat</span><kbd>Ctrl+N</kbd></button>
-    {onOpenSearch ? <button type="button" className="project-search-trigger" {...controlBinding("sidebar-search", "palette.open")} aria-label="Search" onClick={onOpenSearch}><NavigationIcon kind="search" /><span>Search</span><kbd>Ctrl+K</kbd></button> : <label className="project-search">
+    ><NavigationIcon kind="add" /><span>{sidebarCommands.newChat.label}</span><kbd>{sidebarCommands.newChat.hint}</kbd></button>
+    {onOpenSearch ? <button type="button" className="project-search-trigger" {...controlBinding(sidebarCommands.search.id, sidebarCommands.search.action)} aria-label={sidebarCommands.search.label} onClick={onOpenSearch}><NavigationIcon kind="search" /><span>{sidebarCommands.search.label}</span><kbd>{sidebarCommands.search.hint}</kbd></button> : <label className="project-search">
         <NavigationIcon kind="search" />
         <span className="sr-only">Search chats</span>
         <input
@@ -208,13 +225,13 @@ export function ProjectSidebar({
       <div className="project-pinned-list">
         {projects.flatMap((project) => project.chats.filter((chat) => chat.pinned)).map((chat) => <ChatRow key={chat.id} chat={chat} pinned onSelect={() => onSelectChat(chat.id)} />)}
       </div>
-      <div className="project-section-heading"><span>Projects</span>{onNewProject && <button ref={newProjectRef} type="button" {...controlBinding("sidebar-new-project", "catalog.project.create")} aria-label="New project" onClick={() => setCreatingProject(true)}><NavigationIcon kind="add" /></button>}</div>
+      <div className="project-section-heading"><span>Projects</span>{onNewProject && <button ref={newProjectRef} type="button" {...controlBinding(sidebarCommands.newProject.id, sidebarCommands.newProject.action)} aria-label={sidebarCommands.newProject.label} onClick={() => setCreatingProject(true)}><NavigationIcon kind="add" /></button>}</div>
       {projects.map((project) => <ProjectGroup key={project.id} project={project} onToggleProject={onToggleProject} onSelectChat={onSelectChat} />)}
       {projects.length === 0 && <p className="project-empty">No matching chats</p>}
-      {onOpenArchived && <button type="button" className="project-archived" {...controlBinding("sidebar-archived", "route.archived.open")} onClick={onOpenArchived}><NavigationIcon kind="archive" />Archived chats</button>}
+      {onOpenArchived && <button type="button" className="project-archived" {...controlBinding(sidebarCommands.archived.id, sidebarCommands.archived.action)} onClick={onOpenArchived}><NavigationIcon kind="archive" />{sidebarCommands.archived.label}</button>}
     </div>
     <footer className="project-sidebar-footer">
-      <button className="project-settings" type="button" {...controlBinding("sidebar-settings", "route.settings.open")} aria-label="Settings" onClick={onOpenSettings}><NavigationIcon kind="settings" /><span>Settings</span><kbd>Ctrl+,</kbd></button>
+      <button className="project-settings" type="button" {...controlBinding(sidebarCommands.settings.id, sidebarCommands.settings.action)} aria-label={sidebarCommands.settings.label} onClick={onOpenSettings}><NavigationIcon kind="settings" /><span>{sidebarCommands.settings.label}</span><kbd>{sidebarCommands.settings.hint}</kbd></button>
       <WorkspaceFooter identity={workspace} variant="expanded" open={workspaceMenuOpen} onExecute={onExecuteWorkspaceOperation} />
     </footer>
     {creatingProject && <CreateProjectDialog restoreFocusTo={newProjectRef.current} onCancel={() => setCreatingProject(false)} onCreate={(name, path) => { onNewProject?.(name, path); setCreatingProject(false); }} />}

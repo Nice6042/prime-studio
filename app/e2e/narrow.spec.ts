@@ -53,10 +53,10 @@ test("320px at 2x keeps the complete rail unique, described, and sheet-safe", as
   const controls = rail.getByRole("button");
   await expect(controls).toHaveCount(5);
   const expectedDescriptions = {
-    "rail-expand": "Expand sidebar (Ctrl+B)",
-    "rail-new-chat": /^New chat (?:\(Ctrl\+N\)|unavailable:)/,
-    "rail-search": "Search (Ctrl+K)",
-    "rail-settings": "Settings (Ctrl+,)",
+    "rail.sidebar.toggle": "Expand sidebar (Ctrl+B)",
+    "rail.chat.new": /^New chat (?:\(Ctrl\+N\)|unavailable:)/,
+    "rail.palette.open": "Search (Ctrl+K)",
+    "rail.settings.open": "Settings (Ctrl+,)",
     "rail-workspace-menu": "Prime Studio: D:\\fixture\\Prime Studio",
   } as const;
   for (const [controlId, description] of Object.entries(expectedDescriptions)) {
@@ -71,17 +71,17 @@ test("320px at 2x keeps the complete rail unique, described, and sheet-safe", as
     expect(box!.x + box!.width).toBeLessThanOrEqual(320);
     expect(box!.y + box!.height).toBeLessThanOrEqual(176);
   }
-  await shellPage.locator('[data-control-id="rail-expand"]').focus();
+  await shellPage.locator('[data-control-id="rail.sidebar.toggle"]').focus();
   await shellPage.keyboard.press("End");
   await expect(shellPage.locator('[data-control-id="rail-workspace-menu"]')).toBeFocused();
   await shellPage.keyboard.press("Home");
   await shellPage.keyboard.press("Enter");
   const sheet = shellPage.locator('[data-studio-sheet="sidebar"]');
-  await expect(sheet.locator('[data-control-id="sidebar-collapse"]')).toBeFocused();
+  await expect(sheet.locator('[data-control-id="sidebar.collapse"]')).toBeFocused();
   await expect(shellPage.locator('.studio-sidebar[data-mode="rail"]')).toHaveAttribute("inert", "");
-  await expect(shellPage.locator('[data-control-id="rail-expand"]')).not.toBeFocused();
+  await expect(shellPage.locator('[data-control-id="rail.sidebar.toggle"]')).not.toBeFocused();
   await shellPage.keyboard.press("Escape");
-  await expect(shellPage.locator('[data-control-id="rail-expand"]')).toBeFocused();
+  await expect(shellPage.locator('[data-control-id="rail.sidebar.toggle"]')).toBeFocused();
   await shellPage.screenshot({ path: testInfo.outputPath("collapsed-rail-320-2x.png"), fullPage: true });
   await expectNoDocumentOverflow(shellPage);
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "collapsed-rail-320-2x");
@@ -186,7 +186,7 @@ test("collapsed workspace footer keeps its menu in-view and restores keyboard fo
   await trigger.click();
   await shellPage.keyboard.press("Shift+Tab");
   await expect(shellPage.getByRole("menu", { name: "Workspace actions" })).toHaveCount(0);
-  await expect(shellPage.locator('[data-control-id="rail-settings"]')).toBeFocused();
+  await expect(shellPage.locator('[data-control-id="rail.settings.open"]')).toBeFocused();
 });
 
 test("typed failure toast reflows and remains keyboard-dismissible at 320px and 200%", async ({ shellPage }) => {
@@ -203,7 +203,7 @@ test("typed failure toast reflows and remains keyboard-dismissible at 320px and 
   await shellPage.keyboard.press("Enter");
   await expect(toast).toHaveCount(0);
   await expect.poll(() => shellPage.evaluate(() => document.activeElement?.getAttribute("data-control-id")))
-    .toMatch(/^(rail-workspace-menu|sidebar-workspace-menu|workspace-switch|title-harness)$/u);
+    .toMatch(/^(rail-workspace-menu|sidebar-workspace-menu|workspace-switch|title-action\.inspector\.toggle)$/u);
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-typed-toast-narrow");
 });
 

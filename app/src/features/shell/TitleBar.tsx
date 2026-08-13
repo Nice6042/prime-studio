@@ -1,34 +1,19 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import type { StudioOperation } from "../../contracts/studioOperations";
-import { operationForStudioCommand, studioCommands, type StudioCommandId } from "../../entities/commands/commandRegistry";
+import {
+  commandAvailability,
+  commandPlacements,
+  studioCommand,
+  type CommandAvailabilityContext,
+  type StudioCommandId,
+  type TitleMenuName,
+} from "../../entities/commands/commandRegistry";
 import { usePopoverSurface } from "../../surfaceEscape";
 import { controlBinding } from "../conversation/controlBinding";
 
-type MenuItem = Readonly<{ label: string; hint?: string; operation: StudioOperation }>;
-
-function commandMenuItem(id: StudioCommandId, label?: string): MenuItem {
-  const command = studioCommands.find((candidate) => candidate.id === id);
-  if (!command) throw new Error(`Missing Studio command ${id}.`);
-  return { label: label ?? command.label, hint: command.shortcuts[0], operation: operationForStudioCommand(command, "") };
-}
-
-const menus: readonly Readonly<{ label: string; items: readonly MenuItem[] }>[] = [
-  { label: "File", items: [commandMenuItem("chat.new"), commandMenuItem("settings.open", "Settings")] },
-  { label: "Edit", items: [
-    { label: "Undo", hint: "Ctrl+Z", operation: { action: "history.undo", payload: {} } },
-    { label: "Redo", hint: "Ctrl+Y", operation: { action: "history.redo", payload: {} } },
-  ] },
-  { label: "View", items: [commandMenuItem("sidebar.toggle", "Toggle sidebar"), commandMenuItem("inspector.toggle")] },
-  { label: "Window", items: [
-    { label: "Minimize", operation: { action: "window.minimize", payload: {} } },
-    { label: "Maximize", operation: { action: "window.maximize-toggle", payload: {} } },
-  ] },
-  { label: "Help", items: [
-    { label: "Prime Agent documentation", operation: { action: "route.external-docs.open", payload: { document: "prime-agent" } } },
-    { label: "Support", operation: { action: "route.external-docs.open", payload: { document: "support" } } },
-  ] },
-];
+const menuNames: readonly TitleMenuName[] = ["File", "Edit", "View", "Window", "Help"];
+const titlePlacements = commandPlacements("title-menu");
+const windowPlacements = commandPlacements("window-control");
 
 function WindowControlIcon({ kind }: { readonly kind: "minimize" | "maximize" | "close" }) {
   return <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.15" strokeLinecap="square">
@@ -38,7 +23,12 @@ function WindowControlIcon({ kind }: { readonly kind: "minimize" | "maximize" | 
   </svg>;
 }
 
-export function TitleBar({ title, actions, onOperation }: { readonly title: string; readonly actions?: ReactNode; readonly onOperation?: (operation: StudioOperation) => void }) {
+export function TitleBar({ title, actions, availability, onCommand }: {
+  readonly title: string;
+  readonly actions?: ReactNode;
+  readonly availability: CommandAvailabilityContext;
+  readonly onCommand?: (id: StudioCommandId) => void;
+}) {
   const [open, setOpen] = useState<string | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const openMenu = useRef<HTMLSpanElement>(null);
@@ -50,16 +40,25 @@ export function TitleBar({ title, actions, onOperation }: { readonly title: stri
   }, []);
   return <div className="studio-titlebar" ref={root}>
     <span className="studio-title-mark" aria-hidden="true"><i /></span><strong>Prime Studio</strong>
-    <nav className="studio-title-menus" aria-label="Application menu">{menus.map((menu) => <span className="studio-title-menu-root" key={menu.label}>
-      <button type="button" {...controlBinding(`title-menu-${menu.label.toLocaleLowerCase()}`, "surface.popover.toggle")} aria-label={menu.label} aria-haspopup="menu" aria-expanded={open === menu.label} onClick={() => setOpen((value) => value === menu.label ? null : menu.label)} onPointerEnter={() => { if (open) setOpen(menu.label); }}>{menu.label}</button>
-      {open === menu.label && <span ref={openMenu} data-studio-overlay="menu" className="studio-title-menu" role="menu" aria-label={`${menu.label} menu`}>{menu.items.map((item) => <button key={item.label} type="button" role="menuitem" aria-label={item.label} {...controlBinding(`title-${item.operation.action}`, item.operation.action)} disabled={!onOperation} onClick={() => { setOpen(null); onOperation?.(item.operation); }}><span>{item.label}</span>{item.hint && <kbd>{item.hint}</kbd>}</button>)}</span>}
+    <nav className="studio-title-menus" aria-label="Application menu">{menuNames.map((menu) => <span className="studio-title-menu-root" key={menu}>
+      <button type="button" {...controlBinding(`title-menu-${menu.toLocaleLowerCase()}`, "surface.popover.toggle")} aria-label={menu} aria-haspopup="menu" aria-expanded={open === menu} onClick={() => setOpen((value) => value === menu ? null : menu)} onPointerEnter={() => { if (open) setOpen(menu); }}>{menu}</button>
+      {open === menu && <span ref={openMenu} data-studio-overlay="menu" className="studio-title-menu" role="menu" aria-label={`${menu} menu`}>{titlePlacements.filter((placement) => placement.menu === menu).map((placement) => {
+        const command = studioCommand(placement.commandId);
+        const state = commandAvailability(command, availability);
+        const label = placement.label ?? command.label;
+        return <button key={placement.id} type="button" role="menuitem" aria-label={label} {...controlBinding(placement.id, command.action)} disabled={!onCommand || !state.enabled} title={state.reason} onClick={() => { setOpen(null); onCommand?.(command.id); }}><span>{label}</span>{(placement.hint ?? command.shortcuts[0]) && <kbd>{placement.hint ?? command.shortcuts[0]}</kbd>}</button>;
+      })}</span>}
     </span>)}</nav>
     <span className="studio-title-current" title={title}>{title}</span>
     <span className="studio-titlebar-actions">{actions}</span>
     <span className="studio-window-controls" aria-label="Window controls">
-      <button type="button" {...controlBinding("window-minimize", "window.minimize")} aria-label="Minimize window" onClick={() => onOperation?.({ action: "window.minimize", payload: {} })}><WindowControlIcon kind="minimize" /></button>
-      <button type="button" {...controlBinding("window-maximize-toggle", "window.maximize-toggle")} aria-label="Maximize or restore window" onClick={() => onOperation?.({ action: "window.maximize-toggle", payload: {} })}><WindowControlIcon kind="maximize" /></button>
-      <button type="button" {...controlBinding("window-close", "window.close")} aria-label="Close window" onClick={() => onOperation?.({ action: "window.close", payload: {} })}><WindowControlIcon kind="close" /></button>
+      {windowPlacements.map((placement) => {
+        const command = studioCommand(placement.commandId);
+        const state = commandAvailability(command, availability);
+        const kind = command.id === "window.minimize" ? "minimize" : command.id === "window.maximize" ? "maximize" : "close";
+        const label = placement.label ?? command.label;
+        return <button key={placement.id} type="button" {...controlBinding(placement.id, command.action)} aria-label={label} disabled={!onCommand || !state.enabled} title={state.reason} onClick={() => onCommand?.(command.id)}><WindowControlIcon kind={kind} /></button>;
+      })}
     </span>
   </div>;
 }

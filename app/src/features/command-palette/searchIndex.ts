@@ -1,4 +1,4 @@
-import { studioCommands, type CommandAvailabilityContext, type StudioCommand, type StudioCommandId } from "../../entities/commands/commandRegistry";
+import { commandAvailability, commandPlacements, studioCommand, type CommandAvailabilityContext, type StudioCommand, type StudioCommandId } from "../../entities/commands/commandRegistry";
 
 export interface PaletteChat { readonly id: string; readonly title: string; readonly project: string; readonly archived?: boolean }
 export interface PaletteMessage { readonly id: string; readonly chatId: string; readonly project: string; readonly excerpt: string; readonly channel: "parent" | "child" }
@@ -16,8 +16,8 @@ function matches(query: readonly string[], ...fields: readonly string[]) { const
 
 export function searchPaletteIndex(query: string, context: CommandAvailabilityContext, chats: readonly PaletteChat[] = [], messages: readonly PaletteMessage[] = []): readonly PaletteResult[] {
   const queryTerms = terms(query.slice(0, 200));
-  const commandRows: PaletteResult[] = studioCommands.filter((command) => queryTerms.length === 0 || matches(queryTerms, command.label, command.group, ...command.keywords)).map((command) => {
-    const availability = command.availability(context);
+  const commandRows: PaletteResult[] = commandPlacements("palette").map((placement) => studioCommand(placement.commandId)).filter((command) => queryTerms.length === 0 || matches(queryTerms, command.label, command.group, ...command.keywords)).map((command) => {
+    const availability = commandAvailability(command, context);
     return { kind: "command", id: `command:${command.id}`, group: "Actions", title: command.label, detail: availability.reason ?? command.group, command, enabled: availability.enabled, disabledReason: availability.reason ?? null };
   });
   const chatRows: PaletteResult[] = chats.slice(0, MAX_INDEX_ITEMS).filter((chat) => !chat.archived && (queryTerms.length === 0 || matches(queryTerms, chat.title, chat.project))).map((chat) => ({ kind: "chat", id: `chat:${chat.id}`, group: "Chats", title: chat.title.slice(0, 160), detail: chat.project.slice(0, 160), chatId: chat.id, enabled: true, disabledReason: null }));

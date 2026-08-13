@@ -95,6 +95,24 @@ describe("ProjectSidebar", () => {
     expect(onOpenSettings).toHaveBeenCalledOnce();
   });
 
+  it("projects sidebar command bindings and shortcut hints from registered placements", () => {
+    render(<ProjectSidebar {...workspaceProps} projects={projects} onSelectChat={() => undefined} onToggleProject={() => undefined} onNewChat={() => undefined} onOpenSettings={() => undefined} onOpenSearch={() => undefined} onOpenArchived={() => undefined} onNewProject={() => undefined} onCollapse={() => undefined} />);
+    const expected = [
+      ["New chat", "sidebar.chat.new", "catalog.chat.create", "Ctrl+N"],
+      ["Search", "sidebar.palette.open", "palette.open", "Ctrl+K"],
+      ["Settings", "sidebar.settings.open", "route.settings.open", "Ctrl+,"],
+      ["Archived chats", "sidebar.archived.open", "route.archived.open", null],
+      ["New project", "sidebar.project.new", "surface.popover.toggle", null],
+      ["Collapse sidebar", "sidebar.collapse", "layout.sidebar.toggle", null],
+    ] as const;
+    for (const [label, placementId, action, hint] of expected) {
+      const button = screen.getByRole("button", { name: label });
+      expect(button).toHaveAttribute("data-control-id", placementId);
+      expect(button).toHaveAttribute("data-studio-action", action);
+      if (hint) expect(button).toHaveTextContent(hint);
+    }
+  });
+
   it("collects a project name and folder before requesting durable creation", async () => {
     const onNewProject = vi.fn();
     render(<ProjectSidebar {...workspaceProps} projects={projects} onSelectChat={() => undefined} onToggleProject={() => undefined}

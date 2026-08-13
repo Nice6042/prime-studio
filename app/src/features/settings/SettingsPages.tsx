@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import { Accounts } from "../../components/Accounts";
 import { createControlBinding, type StudioActionId } from "../../contracts/studioOperations";
-import { studioCommands } from "../../entities/commands/commandRegistry";
+import { commandPlacements, studioCommand } from "../../entities/commands/commandRegistry";
 import type { HarnessCompatibility } from "../../shared/ipc/harness.generated";
 import type { Account, AppSettings } from "../../types";
 import type { SubscriptionQuotaProjection } from "../../quotaProjection";
@@ -130,7 +130,10 @@ export function PrivacySettings({ compatibility, settings, onSetting }: { readon
 
 export function ShortcutsSettings() {
   const composer = [{ label: "Send message", keys: "Enter" }, { label: "New line", keys: "Shift+Enter" }];
-  return <><SettingGroup title="Application"><div className="studio-shortcut-list">{studioCommands.filter((command) => command.shortcuts.length > 0).map((command) => <div key={command.id}><span>{command.label}</span><kbd>{command.shortcuts[0]}</kbd></div>)}</div></SettingGroup><SettingGroup title="Composer"><div className="studio-shortcut-list">{composer.map((row) => <div key={row.label}><span>{row.label}</span><kbd>{row.keys}</kbd></div>)}</div></SettingGroup></>;
+  return <><SettingGroup title="Application"><div className="studio-shortcut-list">{commandPlacements("settings-shortcut").map((placement) => {
+    const command = studioCommand(placement.commandId);
+    return <div key={placement.id}><span>{placement.label ?? command.label}</span><kbd>{placement.hint ?? command.shortcuts[0]}</kbd></div>;
+  })}</div></SettingGroup><SettingGroup title="Composer"><div className="studio-shortcut-list">{composer.map((row) => <div key={row.label}><span>{row.label}</span><kbd>{row.keys}</kbd></div>)}</div></SettingGroup></>;
 }
 
 export function AboutSettings({ compatibility }: { readonly compatibility: HarnessCompatibility }) {
