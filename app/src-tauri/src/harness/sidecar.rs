@@ -14,9 +14,8 @@ use uuid::Uuid;
 use crate::harness::generated::{
     reject_duplicate_json_keys, ChildAgentSummary, CurrentChatUsage, HarnessCompatibility,
     MessageBlock, ParentMessage, RootSessionSnapshot, RuntimeIdentity, StudioEnvelope,
-    TurnPerformanceProjection,
-    StudioRequest, StudioResponse, WorkerRecoveryStatus, HARNESS_FRAME_MAX_BYTES,
-    STUDIO_HARNESS_PROTOCOL,
+    StudioRequest, StudioResponse, TurnPerformanceProjection, WorkerRecoveryStatus,
+    HARNESS_FRAME_MAX_BYTES, STUDIO_HARNESS_PROTOCOL,
 };
 use crate::session_process::{
     contain_child, prepare_process_containment, suppress_console_window, ProcessContainment,

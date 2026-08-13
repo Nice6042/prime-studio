@@ -2186,7 +2186,10 @@ mod artifact_candidate_tests {
             },
             performance: TurnPerformanceProjection::Unavailable {
                 session_id: session_id.to_owned(),
-                cursor: HarnessCursor { runtime_generation: "generation-a".to_owned(), sequence },
+                cursor: HarnessCursor {
+                    runtime_generation: "generation-a".to_owned(),
+                    sequence,
+                },
                 reason: TurnPerformanceUnavailableReason::EventChronologyUnavailable,
             },
         }

@@ -83,7 +83,10 @@ fn snapshot(
         },
         performance: TurnPerformanceProjection::Unavailable {
             session_id: session.to_owned(),
-            cursor: HarnessCursor { runtime_generation: generation.to_owned(), sequence },
+            cursor: HarnessCursor {
+                runtime_generation: generation.to_owned(),
+                sequence,
+            },
             reason: TurnPerformanceUnavailableReason::EventChronologyUnavailable,
         },
     }

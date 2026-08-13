@@ -4227,7 +4227,10 @@ mod tests {
             },
             performance: TurnPerformanceProjection::Unavailable {
                 session_id: session_id.to_owned(),
-                cursor: HarnessCursor { runtime_generation: "generation-a".to_owned(), sequence: 99 },
+                cursor: HarnessCursor {
+                    runtime_generation: "generation-a".to_owned(),
+                    sequence: 99,
+                },
                 reason: TurnPerformanceUnavailableReason::EventChronologyUnavailable,
             },
         }
