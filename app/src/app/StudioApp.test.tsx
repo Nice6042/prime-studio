@@ -33,6 +33,12 @@ const rootSession: RootSessionProjection = {
   performance: { status: "unavailable", sessionId: "session-1", cursor: { runtimeGeneration: "g1", sequence: 2 }, reason: "event_chronology_unavailable" },
 };
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => { resolve = next; });
+  return { promise, resolve };
+}
+
 function conversationAdapter(operations: StudioOperation[]): HarnessInspectorAdapter {
   return {
     availability: { status: "available" },
@@ -1140,5 +1146,41 @@ describe("Studio application state", () => {
     expect(composer).toHaveValue("new draft written after rejection");
     expect(directCommand).not.toHaveBeenCalled();
     directCommand.mockRestore();
+  }, 15_000);
+
+  it("does not erase an ABA-authored draft when a safe Retry settles after edit-away and edit-back", async () => {
+    const settlement = deferred<StudioOperationOutcome>();
+    let prompts = 0;
+    const adapter: HarnessInspectorAdapter = {
+      ...conversationAdapter([]),
+      execute: async (operation) => {
+        if (operation.action !== "harness.session.prompt") return { status: "updated", revision: 1 };
+        prompts += 1;
+        return prompts === 1
+          ? { status: "rejected", reason: "Safe to retry.", retryable: true }
+          : settlement.promise;
+      },
+    };
+    const store = createStudioStore(initialStudioState({
+      projectCatalog: catalogBoundToRootSession(), sessions: [rootSession],
+      compatibility: { status: "ready", profile: "verified", capabilities: ["session_input_admission", "model_catalog"] },
+    }));
+    store.dispatch({ type: "chat/open", chatId: chat.id });
+    render(<AppProviders store={store}><StudioApp harnessAdapter={adapter} /></AppProviders>);
+
+    const composer = screen.getByRole("textbox", { name: "Message Prime Studio" });
+    await userEvent.type(composer, "same visible text");
+    fireEvent.keyDown(composer, { key: "Enter" });
+    const toast = await screen.findByRole("alert", { name: "Harness request failed" });
+    await userEvent.click(within(toast).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(prompts).toBe(2));
+
+    await userEvent.clear(composer);
+    await userEvent.type(composer, "different authored draft");
+    await userEvent.clear(composer);
+    await userEvent.type(composer, "same visible text");
+    await act(async () => settlement.resolve({ status: "accepted", commandId: "stable-command" }));
+
+    expect(composer).toHaveValue("same visible text");
   }, 15_000);
 });

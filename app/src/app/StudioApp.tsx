@@ -175,6 +175,8 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const [runtimeInspector, setRuntimeInspector] = useState<HarnessRuntimeStatusProjection | null>(null);
   const [residentBindingFailure, setResidentBindingFailure] = useState<Readonly<{ projectId: string; chatId: string; reason: string }> | null>(null);
   const workerRecoveryAttempts = useRef<Set<string>>(new Set());
+  const draftRevisions = useRef<Map<string, number>>(new Map());
+  const sessionAdmissions = useRef<WeakMap<object, Readonly<{ chatId: string; draftRevision: number }>>>(new WeakMap());
 
   const adapterConnected = harnessAdapter.availability.status === "available";
   const hasCapability = (capability: string) => compatibility.status !== "unavailable" && compatibility.status !== "read_only" && compatibility.capabilities.includes(capability as typeof compatibility.capabilities[number]);
@@ -652,7 +654,14 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         return { status: "updated", revision: activeDocumentId };
       }
       case "conversation.suggestion.fill":
-      case "composer.draft.change": store.dispatch({ type: "draft/change", chatId: operation.payload.chatId, draft: operation.payload.text }); break;
+      case "composer.draft.change": {
+        const current = store.getSnapshot().drafts[operation.payload.chatId] ?? "";
+        if (current !== operation.payload.text) {
+          draftRevisions.current.set(operation.payload.chatId, (draftRevisions.current.get(operation.payload.chatId) ?? 0) + 1);
+        }
+        store.dispatch({ type: "draft/change", chatId: operation.payload.chatId, draft: operation.payload.text });
+        break;
+      }
       case "composer.attachment.remove": store.dispatch({ type: "attachments/change", chatId: operation.payload.chatId, attachments: (attachments[operation.payload.chatId] ?? []).filter((attachment) => attachment.id !== operation.payload.attachmentId) }); break;
       default: return { status: "unavailable", reason: `${operation.action} has no registered renderer implementation.` };
     }
@@ -741,17 +750,34 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     if (harnessAdapter.availability.status !== "available") {
       return { status: "unavailable", reason: harnessAdapter.availability.reason };
     }
-    const outcome = await harnessAdapter.execute(operation);
-    if (
-      (operation.action === "harness.session.prompt" || operation.action === "harness.session.follow-up" || operation.action === "harness.session.steer")
-      && (outcome.status === "accepted" || outcome.status === "queued" || outcome.status === "updated")
-    ) {
+    const sessionMutation = operation.action === "harness.session.prompt" || operation.action === "harness.session.follow-up" || operation.action === "harness.session.steer";
+    let admission = sessionMutation ? sessionAdmissions.current.get(operation) : undefined;
+    if (sessionMutation && !admission) {
       const state = store.getSnapshot();
       const owners = state.projectCatalog.projects.flatMap((project) => project.chats)
         .filter((chat) => !chat.archived && chat.binding?.sessionId === operation.payload.sessionId);
       const owner = owners.length === 1 ? owners[0] : undefined;
-      if (owner && state.drafts[owner.id] === operation.payload.text) {
-        store.dispatch({ type: "draft/change", chatId: owner.id, draft: "" });
+      if (owner) {
+        admission = Object.freeze({ chatId: owner.id, draftRevision: draftRevisions.current.get(owner.id) ?? 0 });
+        sessionAdmissions.current.set(operation, admission);
+      }
+    }
+    const outcome = await harnessAdapter.execute(operation);
+    if (
+      sessionMutation
+      && (outcome.status === "accepted" || outcome.status === "queued" || outcome.status === "updated")
+      && admission
+    ) {
+      const state = store.getSnapshot();
+      const owner = state.projectCatalog.projects.flatMap((project) => project.chats).find((chat) =>
+        chat.id === admission.chatId && !chat.archived && chat.binding?.sessionId === operation.payload.sessionId,
+      );
+      if (
+        owner
+        && (draftRevisions.current.get(admission.chatId) ?? 0) === admission.draftRevision
+        && state.drafts[admission.chatId] === operation.payload.text
+      ) {
+        store.dispatch({ type: "draft/change", chatId: admission.chatId, draft: "" });
       }
     }
     return outcome;
