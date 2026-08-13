@@ -34,7 +34,7 @@ export function Toasts({
       done();
       return;
     }
-    const nextToast = document.querySelector<HTMLElement>(".toasts button:not(:disabled)");
+    const nextToast = document.querySelector<HTMLElement>(".toasts button:not(:disabled):not([aria-disabled=\"true\"])");
     if (nextToast) {
       nextToast.focus();
       done();

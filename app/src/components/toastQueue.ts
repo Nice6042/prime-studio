@@ -145,3 +145,23 @@ export function resolveToast(queue: readonly StudioToast[], identity: ToastIdent
 export function dismissToast(queue: readonly StudioToast[], id: string): readonly StudioToast[] {
   return Object.freeze(queue.filter((toast) => toast.id !== id));
 }
+
+export function dismissToastSnapshot(
+  queue: readonly StudioToast[],
+  id: string,
+  coveredOccurrences: number,
+  coveredActionIds: readonly string[],
+): readonly StudioToast[] {
+  const coveredActions = new Set(coveredActionIds);
+  return Object.freeze(queue.flatMap((toast) => {
+    if (toast.id !== id) return [toast];
+    const actions = Object.freeze(toast.actions.filter((action) => !coveredActions.has(action.id)));
+    const laterOccurrences = Math.max(0, toast.occurrences - coveredOccurrences);
+    if (laterOccurrences === 0 && actions.length === 0) return [];
+    return [Object.freeze({
+      ...toast,
+      occurrences: Math.max(1, laterOccurrences),
+      actions,
+    })];
+  }));
+}

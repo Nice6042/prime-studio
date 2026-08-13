@@ -164,6 +164,41 @@ describe("toast operation coordinator", () => {
     expect(coordinator.getSnapshot()).toEqual([]);
   });
 
+  it("in-flight toast.dismiss preserves a later accepted actionable failure coalesced into the presentation", async () => {
+    const dismissal = deferred<StudioOperationOutcome>();
+    const dispatched: StudioOperation[] = [];
+    const coordinator = new ToastOperationCoordinator({
+      createOperationId: () => "generation",
+      dispatch: async (admitted) => {
+        dispatched.push(admitted);
+        if (admitted.action === "toast.dismiss") return dismissal.promise;
+        return { status: "rejected", reason: "Retry safely.", retryable: true };
+      },
+    });
+    await coordinator.execute(operation(1));
+    const toastId = coordinator.getSnapshot()[0]!.id;
+
+    const dismissing = coordinator.execute({ action: "toast.dismiss", payload: { toastId } });
+    await coordinator.execute(operation(2));
+    expect(coordinator.getSnapshot()[0]?.actions.map((action) => action.id)).toEqual([
+      "generation:1",
+      "generation:3",
+    ]);
+
+    dismissal.resolve({ status: "updated", revision: 1 });
+    expect(await dismissing).toMatchObject({ status: "updated" });
+    expect(coordinator.getSnapshot()).toHaveLength(1);
+    expect(coordinator.getSnapshot()[0]?.actions.map((action) => action.id)).toEqual(["generation:3"]);
+    expect(coordinator.hasAction("generation:1")).toBe(false);
+    expect(coordinator.hasAction("generation:3")).toBe(true);
+
+    expect(await coordinator.retry("generation:3")).toMatchObject({ status: "rejected", retryable: true });
+    expect(dispatched[dispatched.length - 1]).toMatchObject({
+      operationId: "generation:3",
+      payload: { workspaceId: "workspace-2" },
+    });
+  });
+
   it("stable equivalent presentation dedupe coexists with a distinct privacy-safe per-operation action ledger", async () => {
     let id = 0;
     const coordinator = new ToastOperationCoordinator({

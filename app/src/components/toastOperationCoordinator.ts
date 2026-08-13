@@ -2,7 +2,7 @@ import type { StudioOperation, StudioOperationOutcome } from "../contracts/studi
 import { projectOperationToast } from "./operationToasts";
 import {
   MAX_VISIBLE_TOASTS,
-  dismissToast,
+  dismissToastSnapshot,
   enqueueToast,
   resolveToast,
   settleToastAction,
@@ -77,12 +77,17 @@ export class ToastOperationCoordinator {
   async execute(operation: StudioOperation): Promise<StudioOperationOutcome> {
     if (operation.action === "toast.dismiss") {
       const toastId = operation.payload.toastId;
-      if (!this.queue.some((toast) => toast.id === toastId)) {
+      const toast = this.queue.find((candidate) => candidate.id === toastId);
+      if (!toast) {
         return { status: "unavailable", reason: "This notification is already resolved." };
       }
       if (this.dismissingToastIds.has(toastId)) {
         return { status: "unavailable", reason: "This notification is already resolving." };
       }
+      const snapshot = Object.freeze({
+        occurrences: toast.occurrences,
+        actionIds: Object.freeze(toast.actions.map((action) => action.id)),
+      });
       this.dismissingToastIds.add(toastId);
       const admitted = this.admit(operation);
       let outcome: StudioOperationOutcome;
@@ -93,7 +98,7 @@ export class ToastOperationCoordinator {
       } finally {
         this.dismissingToastIds.delete(toastId);
       }
-      if (completed(outcome)) this.dismiss(toastId);
+      if (completed(outcome)) this.dismiss(toastId, snapshot);
       return outcome;
     }
 
@@ -165,10 +170,9 @@ export class ToastOperationCoordinator {
     this.clearCapacityIfAvailable();
   }
 
-  private dismiss(toastId: string) {
-    const toast = this.queue.find((candidate) => candidate.id === toastId);
-    if (toast) for (const action of toast.actions) this.actions.delete(action.id);
-    this.replaceQueue(dismissToast(this.queue, toastId));
+  private dismiss(toastId: string, snapshot: Readonly<{ occurrences: number; actionIds: readonly string[] }>) {
+    for (const actionId of snapshot.actionIds) this.actions.delete(actionId);
+    this.replaceQueue(dismissToastSnapshot(this.queue, toastId, snapshot.occurrences, snapshot.actionIds));
     this.clearCapacityIfAvailable();
   }
 
