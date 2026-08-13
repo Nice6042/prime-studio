@@ -103,6 +103,7 @@ export const test = base.extend<ShellFixtures>({
       let artifactContent = "# Verified browser artifact\n\nOpened through an opaque Harness candidate.";
       const settledExtensionRequests = new Set<string>();
       let attentionRevision = 0;
+      const chatDisplayRecords = new Map<string, { chatId: string; messageId: string; revision: number; content: string }>();
       let attentionRecord = { chatId: "chat-e2e", chatSeen: null, activitySeen: null } as {
         chatId: string;
         chatSeen: null | { runtimeGeneration: string; marker: string; occurredAtMs: number };
@@ -537,6 +538,20 @@ export const test = base.extend<ShellFixtures>({
                 }],
               },
             };
+          case "chat_display_load":
+            return { schemaVersion: 1, records: [...chatDisplayRecords.values()] };
+          case "chat_display_apply": {
+            const request = args.request as { chatId?: string; messageId?: string; expectedRevision?: number; content?: string } | undefined;
+            if (!request || request.chatId !== "chat-e2e" || typeof request.messageId !== "string" || typeof request.content !== "string" || !Number.isSafeInteger(request.expectedRevision)) {
+              throw new Error("invalidInput");
+            }
+            const key = `${request.chatId}\u0000${request.messageId}`;
+            const current = chatDisplayRecords.get(key);
+            if ((current?.revision ?? 1) !== request.expectedRevision) throw new Error("revisionConflict");
+            const record = { chatId: request.chatId, messageId: request.messageId, revision: request.expectedRevision + 1, content: request.content };
+            chatDisplayRecords.set(key, record);
+            return record;
+          }
           case "list_models":
             return [
               {
