@@ -189,6 +189,24 @@ test("collapsed workspace footer keeps its menu in-view and restores keyboard fo
   await expect(shellPage.locator('[data-control-id="rail-settings"]')).toBeFocused();
 });
 
+test("typed failure toast reflows and remains keyboard-dismissible at 320px and 200%", async ({ shellPage }) => {
+  const trigger = shellPage.getByRole("button", { name: "Prime Studio workspace menu" });
+  await activateWithKeyboard(trigger);
+  await activateWithKeyboard(shellPage.getByRole("menuitem", { name: "Switch workspace" }));
+
+  const toast = shellPage.getByRole("alert", { name: "Studio data operation failed" });
+  await expect(toast).toBeVisible();
+  await expectWithinViewport(toast, shellPage);
+  await expectNoDocumentOverflow(shellPage);
+  const dismiss = toast.getByRole("button", { name: "Dismiss Studio data operation failed" });
+  await dismiss.focus();
+  await shellPage.keyboard.press("Enter");
+  await expect(toast).toHaveCount(0);
+  await expect.poll(() => shellPage.evaluate(() => document.activeElement?.getAttribute("data-control-id")))
+    .toMatch(/^(rail-workspace-menu|sidebar-workspace-menu|workspace-switch|title-harness)$/u);
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-typed-toast-narrow");
+});
+
 test("settings and palette use compact responsive surfaces", async ({ shellPage }) => {
   await shellPage.keyboard.press("Control+K");
   await expect(shellPage.getByRole("dialog", { name: "Command palette" })).toBeVisible();

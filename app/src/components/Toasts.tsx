@@ -1,50 +1,126 @@
-import { useEffect, useState } from "react";
-import * as rpc from "../rpc";
-import { dismissToast, enqueueToast, type StudioToast } from "./toastQueue";
+import { useEffect, useRef, useState } from "react";
 
-export function Toasts() {
-  const [toasts, setToasts] = useState<readonly StudioToast[]>([]);
+import type { StudioOperation, StudioOperationOutcome } from "../contracts/studioOperations";
+import { MAX_VISIBLE_TOASTS, type StudioToast } from "./toastQueue";
+
+function completed(outcome: StudioOperationOutcome) {
+  return outcome.status === "accepted" || outcome.status === "queued" || outcome.status === "updated" || outcome.status === "cancelled";
+}
+
+export function Toasts({
+  toasts,
+  retry,
+  execute,
+}: {
+  readonly toasts: readonly StudioToast[];
+  readonly retry: (actionId: string) => Promise<StudioOperationOutcome>;
+  readonly execute: (operation: StudioOperation) => Promise<StudioOperationOutcome>;
+}) {
+  const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set());
+  const attempts = useRef<Set<string>>(new Set());
+  const lastOutsideFocus = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    const push = (text: string, kind: "status" | "failure") => {
-      let queued: StudioToast | undefined;
-      setToasts((current) => {
-        const next = enqueueToast(current, { kind, text: text.slice(0, 300) });
-        queued = next.find((toast) => toast.text === text.slice(0, 300) && toast.kind === kind);
-        return next;
-      });
-      if (kind === "status") setTimeout(() => {
-        if (queued) setToasts((current) => dismissToast(current, queued!.id));
-      }, 6000);
+    const remember = (event: FocusEvent) => {
+      const target = event.target;
+      if (target instanceof HTMLElement && !target.closest(".toasts")) lastOutsideFocus.current = target;
     };
-    // A non-zero prime exit is not an error (PROTOCOL quirks), so `onExited`
-    // deliberately isn't wired here — only real failures and stderr noise are.
-    const offErr = rpc.onError((text) => push(text, "failure"));
-    const offStderr = rpc.onStderr((line) => push(line, "status"));
-    return () => {
-      offErr();
-      offStderr();
-    };
+    document.addEventListener("focusin", remember, true);
+    return () => document.removeEventListener("focusin", remember, true);
   }, []);
 
-  if (!toasts.length) return null;
-  const dismiss = (id: string) =>
-    setToasts((current) => dismissToast(current, id));
-  return (
-    <div className="toasts">
-      {toasts.map((t) => (
-        <div key={t.id} className="toast" role="alert" aria-atomic="true">
-          <span>{t.text}{t.occurrences > 1 ? ` (${t.occurrences})` : ""}</span>
+  const handOffFocus = () => window.requestAnimationFrame(() => {
+    const nextToast = document.querySelector<HTMLElement>(".toasts button:not(:disabled)");
+    if (nextToast) {
+      nextToast.focus();
+      return;
+    }
+    const prior = lastOutsideFocus.current;
+    if (prior?.isConnected) {
+      prior.focus();
+      return;
+    }
+    document.querySelector<HTMLElement>(
+      '[data-toast-focus-fallback], [data-control-id="title-harness"], [data-control-id="settings.back"], [data-control-id="title-projects"], button:not(.toast-action):not(.toast-dismiss)',
+    )?.focus();
+  });
+
+  const attempt = async (toast: StudioToast, attemptId: string, run: () => Promise<StudioOperationOutcome>) => {
+    if (attempts.current.has(attemptId)) return;
+    const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const startedInside = Boolean(active?.closest(`[data-toast-id="${CSS.escape(toast.id)}"]`));
+    let movedOutside = false;
+    const watchFocus = (event: FocusEvent) => {
+      const target = event.target;
+      if (target instanceof HTMLElement && !target.closest(`[data-toast-id="${CSS.escape(toast.id)}"]`)) movedOutside = true;
+    };
+    document.addEventListener("focusin", watchFocus, true);
+    attempts.current.add(attemptId);
+    setPending((current) => new Set(current).add(attemptId));
+    try {
+      const outcome = await run();
+      if (completed(outcome) && startedInside && !movedOutside) handOffFocus();
+    } finally {
+      document.removeEventListener("focusin", watchFocus, true);
+      attempts.current.delete(attemptId);
+      setPending((current) => {
+        const next = new Set(current);
+        next.delete(attemptId);
+        return next;
+      });
+    }
+  };
+
+  useEffect(() => {
+    const timers = toasts.filter((toast) => !toast.persistent).map((toast) => window.setTimeout(() => {
+      void execute({ action: "toast.dismiss", payload: { toastId: toast.id } });
+    }, Math.max(0, (toast.expiresAtMs ?? Date.now()) - Date.now())));
+    return () => timers.forEach(window.clearTimeout);
+  }, [execute, toasts]);
+
+  const visible = toasts.slice(0, MAX_VISIBLE_TOASTS);
+  if (visible.length === 0) return null;
+  return <section className="toasts" aria-label="Notifications">
+    {visible.map((toast) => {
+      const assertive = toast.severity === "warning" || toast.severity === "error";
+      const action = toast.actions[0];
+      const actionPending = action ? pending.has(action.id) : false;
+      const dismissPending = pending.has(`dismiss:${toast.id}`);
+      return <article
+        key={toast.id}
+        className="toast"
+        data-toast-id={toast.id}
+        data-severity={toast.severity}
+        role={assertive ? "alert" : "status"}
+        aria-label={toast.title}
+        aria-atomic="true"
+      >
+        <span className="toast-severity" aria-hidden="true" />
+        <span className="toast-copy">
+          <strong>{toast.title}</strong>
+          <span>{toast.message}</span>
+          {toast.occurrences > 1 && <small>Occurred {toast.occurrences} times</small>}
+        </span>
+        <span className="toast-actions">
+          {action && <button
+            type="button"
+            className="toast-action"
+            disabled={actionPending}
+            data-control-id={`toast.action:${toast.id}`}
+            data-studio-action={action.action}
+            onClick={() => void attempt(toast, action.id, () => retry(action.id))}
+          >{actionPending ? `${action.label}…` : action.label}{toast.actions.length > 1 && !actionPending ? ` (${toast.actions.length})` : ""}</button>}
           <button
             type="button"
             className="toast-dismiss"
-            aria-label="Dismiss notification"
-            onClick={() => dismiss(t.id)}
-          >
-            ×
-          </button>
-        </div>
-      ))}
-    </div>
-  );
+            disabled={dismissPending || actionPending}
+            data-control-id={`toast.dismiss:${toast.id}`}
+            data-studio-action="toast.dismiss"
+            aria-label={`Dismiss ${toast.title}`}
+            onClick={() => void attempt(toast, `dismiss:${toast.id}`, () => execute({ action: "toast.dismiss", payload: { toastId: toast.id } }))}
+          >Dismiss</button>
+        </span>
+      </article>;
+    })}
+  </section>;
 }

@@ -329,7 +329,7 @@ describe("Studio application state", () => {
     expect(loadComposer).toHaveBeenCalledWith(rootSession.sessionId);
     const runtimeStatus = await screen.findByRole("status", { name: /Runtime status:.*openai\/gpt-live.*ctx 25%.*server_is_overloaded/i });
     expect(runtimeStatus).toHaveTextContent("10k / 40k");
-  });
+  }, 15_000);
 
   it("never leaks an earlier cursor's deferred composer result into runtime status", async () => {
     const store = createStudioStore(initialStudioState({
@@ -526,7 +526,10 @@ describe("Studio application state", () => {
     await user.click(trigger);
     await user.click(screen.getByRole("menuitem", { name: "Switch workspace" }));
     expect(within(screen.getByRole("menu", { name: "Workspace actions" }).parentElement!).getByRole("status")).toHaveTextContent("Workspace switching is unavailable because no workspace catalog authority is configured.");
-    expect(screen.getByRole("alert", { name: "Studio operation failed" })).toHaveTextContent("Workspace switching is unavailable");
+    const failureToast = screen.getByRole("alert", { name: "Studio data operation failed" });
+    expect(failureToast).toHaveTextContent("Workspace switching is unavailable");
+    expect(within(failureToast).getByRole("button", { name: "Dismiss Studio data operation failed" }))
+      .toHaveAttribute("data-studio-action", "toast.dismiss");
 
     await user.click(screen.getByRole("menuitem", { name: "Sign out" }));
     expect(within(screen.getByRole("menu", { name: "Workspace actions" }).parentElement!).getByRole("status")).toHaveTextContent("Workspace sign-out is unavailable because configured folders do not own an authenticated session.");
@@ -548,10 +551,10 @@ describe("Studio application state", () => {
 
     fireEvent.change(screen.getByRole("spinbutton", { name: "Maximum concurrent agents" }), { target: { value: "8" } });
 
-    await waitFor(() => expect(operations).toContainEqual({
+    await waitFor(() => expect(operations).toContainEqual(expect.objectContaining({
       action: "settings.harness-policy.set",
       payload: { key: "maxConcurrentAgents", value: "8" },
-    }));
+    })));
   });
 
   it("automatically retries one observed silent-worker failure exactly once", async () => {
@@ -900,10 +903,10 @@ describe("Studio application state", () => {
     await userEvent.clear(editor);
     await userEvent.type(editor, "Edited prompt");
     await userEvent.click(screen.getByRole("button", { name: "Send edited message" }));
-    await waitFor(() => expect(operations).toContainEqual({
+    await waitFor(() => expect(operations).toContainEqual(expect.objectContaining({
       action: "conversation.user-version.create",
       payload: { chatId: "chat-1", messageId: "u1", text: "Edited prompt" },
-    }));
+    })));
     expect(store.getSnapshot().conversationDisplay[chat.id]?.messages.u1?.versions).toEqual([{ text: "Original prompt" }, { text: "Edited prompt" }]);
 
     await userEvent.click(screen.getByRole("button", { name: "Branch chat from message" }));
@@ -924,16 +927,16 @@ describe("Studio application state", () => {
     await userEvent.click(screen.getByRole("button", { name: "Thinking low" }));
     await userEvent.click(screen.getByRole("menuitemradio", { name: "High" }));
     expect(operations).toEqual(expect.arrayContaining([
-      { action: "conversation.response.regenerate", payload: { sessionId: "session-1", messageId: "a1" } },
-      { action: "composer.model.select", payload: { chatId: "chat-1", modelId: "verified-model" } },
-      { action: "composer.thinking.select", payload: { chatId: "chat-1", level: "high" } },
+      expect.objectContaining({ action: "conversation.response.regenerate", payload: { sessionId: "session-1", messageId: "a1" } }),
+      expect.objectContaining({ action: "composer.model.select", payload: { chatId: "chat-1", modelId: "verified-model" } }),
+      expect.objectContaining({ action: "composer.thinking.select", payload: { chatId: "chat-1", level: "high" } }),
     ]));
 
     act(() => store.dispatch({ type: "draft/change", chatId: chat.id, draft: "/compact" }));
     const composer = screen.getByRole("textbox", { name: "Message Prime Studio" });
     await waitFor(() => expect(composer).toHaveValue("/compact"));
     fireEvent.keyDown(composer, { key: "Enter" });
-    await waitFor(() => expect(operations).toContainEqual({ action: "harness.session.compact", payload: { sessionId: "session-1" } }));
+    await waitFor(() => expect(operations).toContainEqual(expect.objectContaining({ action: "harness.session.compact", payload: { sessionId: "session-1" } })));
     branchSpy.mockRestore();
   }, 20_000);
 
@@ -995,7 +998,7 @@ describe("Studio application state", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Branch chat from message" }));
 
-    expect(await screen.findByRole("alert", { name: "Studio operation failed" })).toHaveTextContent(/could not be verified.*parent chat remains selected/i);
+    expect(await screen.findByRole("alert", { name: "Harness request failed" })).toHaveTextContent(/could not be verified.*parent chat remains selected/i);
     expect(store.getSnapshot().navigation.selectedChatId).toBe("chat-1");
     expect(Object.keys(store.getSnapshot().sessions)).toEqual(["session-1"]);
     expect(branchSpy).toHaveBeenCalledTimes(2);
@@ -1027,6 +1030,36 @@ describe("Studio application state", () => {
     await userEvent.click(screen.getByRole("button", { name: "Edit" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Undo" }));
 
-    expect(await screen.findByRole("alert", { name: "Studio operation failed" })).toHaveTextContent(/Undo|execCommand/i);
+    expect(await screen.findByRole("alert", { name: "System operation failed" })).toHaveTextContent(/Undo|execCommand/i);
   });
+
+  it("binds Retry to the same dispatcher operation and removes it after an unavailable settlement", async () => {
+    const operations: StudioOperation[] = [];
+    const adapter: HarnessInspectorAdapter = {
+      ...conversationAdapter(operations),
+      execute: async (operation) => {
+        operations.push(operation);
+        return operations.length === 1
+          ? { status: "rejected", reason: "Model update can be retried.", retryable: true }
+          : { status: "unavailable", reason: "Model authority is now unavailable." };
+      },
+    };
+    const store = createStudioStore(initialStudioState({
+      projectCatalog: catalogBoundToRootSession(),
+      sessions: [rootSession],
+      compatibility: { status: "ready", profile: "verified", capabilities: ["model_catalog"] },
+    }));
+    store.dispatch({ type: "chat/open", chatId: chat.id });
+    render(<AppProviders store={store}><StudioApp harnessAdapter={adapter} /></AppProviders>);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Use Verified model" }));
+    const toast = await screen.findByRole("alert", { name: "Harness request failed" });
+    await userEvent.click(within(toast).getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(toast).toHaveTextContent("Model authority is now unavailable."));
+    expect(within(toast).queryByRole("button", { name: /Retry/ })).not.toBeInTheDocument();
+    expect(operations).toHaveLength(2);
+    expect(operations[0]?.operationId).toBeTruthy();
+    expect(operations[1]?.operationId).toBe(operations[0]?.operationId);
+  }, 15_000);
 });

@@ -41,6 +41,9 @@ import { chatAttentionEvidence, deriveUnreadChatIds } from "../attention/attenti
 import { loadAttentionSnapshot, markAttentionSeen } from "../attention/attentionClient";
 import { LayoutPersistenceCoordinator } from "./layoutPersistence";
 import type { RootSessionProjection } from "../entities/harness/types";
+import { Toasts } from "../components/Toasts";
+import { ToastOperationCoordinator } from "../components/toastOperationCoordinator";
+import type { StudioToast, ToastInput } from "../components/toastQueue";
 
 let bootstrapPromise: ReturnType<typeof rpc.bootstrapHarness> | null = null;
 let catalogPromise: ReturnType<typeof loadProjectCatalog> | null = null;
@@ -165,7 +168,8 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     });
   }
   const [catalogOperation, setCatalogOperation] = useState<WorkspaceOperationState>({ phase: "idle" });
-  const [operationFeedback, setOperationFeedback] = useState<string | null>(null);
+  const [toasts, setToasts] = useState<readonly StudioToast[]>([]);
+  const toastCoordinator = useRef<ToastOperationCoordinator | null>(null);
   const [loadedComposer, setLoadedComposer] = useState<Readonly<{ sessionId: string; cursor: RootSessionProjection["cursor"]; projection: HarnessComposerProjection }> | null>(null);
   const [composerUnavailableReason, setComposerUnavailableReason] = useState<string | null>(null);
   const [runtimeInspector, setRuntimeInspector] = useState<HarnessRuntimeStatusProjection | null>(null);
@@ -216,9 +220,27 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     }).catch(() => {
       if (!active) return;
       layoutCoordinator.current?.failInitial();
-      setOperationFeedback("Layout preferences could not be loaded. Layout changes will stay local until the app is restarted.");
+      toastCoordinator.current?.notify({
+        owner: "studio_durable",
+        scope: "loading.layout-preferences",
+        severity: "error",
+        title: "Studio loading failed",
+        message: "Layout preferences could not be loaded. Layout changes will stay local until the app is restarted.",
+      });
     });
     return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    const notify = (input: ToastInput) => toastCoordinator.current?.notify(input);
+    const offStderr = rpc.onStderr((message) => notify({
+      owner: "runtime",
+      scope: `runtime.stderr:${message.slice(0, 120)}`,
+      severity: "warning",
+      title: "Prime runtime notice",
+      message: message.slice(0, 300),
+    }));
+    return offStderr;
   }, []);
 
   useEffect(() => {
@@ -733,15 +755,21 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       : { status: "unavailable", reason: harnessAdapter.availability.reason };
   };
 
-  const dispatchOperation = createStudioOperationDispatcher({
+  const rawDispatchOperation = createStudioOperationDispatcher({
     harness: harnessExecutor,
     studioDurable: durableExecutor,
     renderer: rendererExecutor,
     native: nativeExecutor,
-    onOutcome: (_operation, outcome) => {
-      if (outcome.status === "unavailable" || outcome.status === "rejected" || outcome.status === "unknown_outcome") setOperationFeedback(outcome.reason);
-    },
   });
+  if (toastCoordinator.current === null) {
+    toastCoordinator.current = new ToastOperationCoordinator({
+      dispatch: rawDispatchOperation,
+      onQueueChange: setToasts,
+    });
+  } else {
+    toastCoordinator.current.setDispatch(rawDispatchOperation);
+  }
+  const dispatchOperation = (operation: StudioOperation) => toastCoordinator.current!.execute(operation);
 
   const selectCatalogChat = async (projectId: string, chatId: string) => {
     const selected = await dispatchOperation({ action: "catalog.chat.select", payload: { projectId, chatId } });
@@ -909,13 +937,13 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
 
   if (navigation.route === "settings") {
     if (navigation.settingsSection === "archived") {
-      return <>{operationFeedback && <p className="studio-operation-feedback" role="alert" aria-label="Studio operation failed">{operationFeedback}</p>}<main className="studio-settings" aria-label="Archived chats">
+      return <><Toasts toasts={toasts} execute={dispatchOperation} retry={(operationId) => toastCoordinator.current!.retry(operationId)} /><main className="studio-settings" aria-label="Archived chats">
         <section className="studio-settings-content"><div className="studio-settings-page"><header><button type="button" className="studio-settings-back" aria-label="Back to chat" onClick={() => store.dispatch({ type: "route/workspace" })}>Back to chat</button><h1>Archived chats</h1><span>Restore archived projects and conversations.</span></header>
           <ArchivedCatalogSettings catalog={projectCatalog} operation={catalogOperation} onRestoreProject={(projectId) => { void dispatchOperation({ action: "catalog.project.restore", payload: { projectId } }); }} onRestoreChat={(_projectId, chatId) => { void dispatchOperation({ action: "catalog.chat.restore", payload: { chatId } }); }} />
         </div></section>
       </main></>;
     }
-    return <>{operationFeedback && <p className="studio-operation-feedback" role="alert" aria-label="Studio operation failed">{operationFeedback}</p>}<SettingsShell
+    return <><Toasts toasts={toasts} execute={dispatchOperation} retry={(operationId) => toastCoordinator.current!.retry(operationId)} /><SettingsShell
       section={navigation.settingsSection}
       onSection={(section) => { void dispatchOperation({ action: "route.settings.open", payload: { section } }); }}
       onBack={() => { void dispatchOperation({ action: "route.settings.back", payload: {} }); }}
@@ -924,7 +952,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       accounts={accounts}
       onAccountsChanged={(next) => {
         if (next) setAccounts(next);
-        else void rpc.listAccounts().then(setAccounts).catch(() => setOperationFeedback("Account status could not be refreshed."));
+        else void rpc.listAccounts().then(setAccounts).catch(() => toastCoordinator.current?.notify({ owner: "studio_durable", scope: "loading.accounts", severity: "error", title: "Studio loading failed", message: "Account status could not be refreshed." }));
       }}
       onSetting={(key, value) => { void dispatchOperation(value === null ? { action: "settings.preference.reset", payload: { key } } : { action: "settings.preference.set", payload: { key, value } }); }}
       onHarnessSetting={writeHarnessSetting}
@@ -1035,13 +1063,13 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     }
   };
   return <div className="studio-application">
+    <Toasts toasts={toasts} execute={dispatchOperation} retry={(operationId) => toastCoordinator.current!.retry(operationId)} />
     <TitleBar title={title} onOperation={runTitleOperation} actions={<>
       <button type="button" {...controlBinding("title-projects", "layout.sidebar.toggle")} className="studio-command-trigger" aria-label="Projects" aria-pressed={solvedSidebarMode === "rail" ? activeSheet === "sidebar" : layout.sidebarOpen} onClick={(event) => { sheetOpener.current = event.currentTarget; void dispatchOperation({ action: "layout.sidebar.toggle", payload: {} }); }}><NavigationIcon kind="menu" /></button>
       <button type="button" {...controlBinding("title-harness", "layout.inspector.toggle")} className="studio-command-trigger" aria-label="Harness" aria-pressed={viewport < 760 ? activeSheet === "inspector" : layout.inspectorOpen} onClick={(event) => { if (viewport < 760) { sheetOpener.current = event.currentTarget; if (!layout.inspectorOpen) void dispatchOperation({ action: "layout.inspector.toggle", payload: {} }); setActiveSheet((value) => value === "inspector" ? null : "inspector"); } else void dispatchOperation({ action: "layout.inspector.toggle", payload: {} }); }}><NavigationIcon kind="harness" /></button>
       <button type="button" {...controlBinding("title-editor", layout.editorOpen ? "layout.editor.close" : "layout.editor.toggle")} className="studio-command-trigger" aria-label={layout.editorOpen ? "Close editor" : "Open editor"} onClick={(event) => { if (!layout.editorOpen) sheetOpener.current = event.currentTarget; void dispatchOperation({ action: layout.editorOpen ? "layout.editor.close" : "layout.editor.toggle", payload: {} }); setActiveSheet(layout.editorOpen ? null : "editor"); }}><NavigationIcon kind="editor" /></button>
       <button type="button" {...controlBinding("title-command-palette", "palette.open")} className="studio-command-trigger" aria-label="Open command palette" onClick={() => { void dispatchOperation({ action: "palette.open", payload: {} }); }}><NavigationIcon kind="command" /></button>
     </>} />
-    {operationFeedback && <p className="studio-operation-feedback" role="alert" aria-label="Studio operation failed">{operationFeedback}</p>}
     <WorkspaceShell
       viewport={viewport}
       sidebar={{ open: layout.sidebarOpen, preferred: layout.sidebarWidth }}

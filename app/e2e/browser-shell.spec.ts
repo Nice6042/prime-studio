@@ -55,6 +55,27 @@ test("configured workspace footer owns a keyboard menu with explicit operation o
   await expect(shellPage.getByRole("main", { name: "Settings" })).toBeVisible();
 });
 
+test("typed failure toasts deduplicate, stay outside the inspector, and dismiss through the dispatcher", async ({ shellPage }) => {
+  const trigger = shellPage.getByRole("button", { name: "Prime Studio workspace menu" });
+  await trigger.click();
+  const switchWorkspace = shellPage.getByRole("menuitem", { name: "Switch workspace" });
+  await switchWorkspace.click();
+  await switchWorkspace.click();
+
+  const toast = shellPage.getByRole("alert", { name: "Studio data operation failed" });
+  await expect(toast).toHaveCount(1);
+  await expect(toast).toContainText("Workspace switching is unavailable");
+  await expect(toast).toContainText("Occurred 2 times");
+  await expect(shellPage.getByRole("complementary", { name: "Harness" }).getByRole("alert", { name: "Studio data operation failed" })).toHaveCount(0);
+  const dismiss = toast.getByRole("button", { name: "Dismiss Studio data operation failed" });
+  await expect(dismiss).toHaveAttribute("data-studio-action", "toast.dismiss");
+  await dismiss.click();
+  await expect(toast).toHaveCount(0);
+  await expect.poll(() => shellPage.evaluate(() => document.activeElement?.getAttribute("data-control-id")))
+    .toMatch(/^(rail-workspace-menu|sidebar-workspace-menu|workspace-switch|title-harness)$/u);
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-typed-toast-wide");
+});
+
 test("collapsed rail preserves one dispatcher-owned keyboard action set and adaptive focus", async ({ shellPage }, testInfo) => {
   await shellPage.getByRole("button", { name: "Collapse sidebar" }).click();
   const rail = shellPage.getByRole("toolbar", { name: "Collapsed navigation" });
