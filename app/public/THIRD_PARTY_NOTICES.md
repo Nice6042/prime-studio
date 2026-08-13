@@ -21,8 +21,8 @@ node scripts/generate-third-party-artifacts.mjs --check
 node scripts/generate-third-party-artifacts.mjs --write
 ```
 
-- npm lock SHA-256: `4f676307300f7b3319bfea335c06f47970fc4a284710405bbac00d47e79e31e9`
-- Cargo lock SHA-256: `9e2d632e05a47236db99f6be518297b381efaecc11537bf1d382df3748220f89`
+- npm lock SHA-256: `8fc203ab9ab479b3f389e1f828a7c45d92068c2d98365ec0e27913e220019ebe`
+- Cargo lock SHA-256: `57797241b9e3c4cc01f47f2fcb23c87e54e8ac13d7e59ec2b40932ee9ba56f6d`
 - Cargo target: `x86_64-pc-windows-msvc`
 - Cargo scope: normal and build dependencies reachable from the workspace package;
   development dependencies are excluded.
@@ -113,14 +113,13 @@ the copyright notice and license text that belongs to that component.
 | `ISC` | 1 |
 | `Zlib` | 3 |
 
-## Reviewed Prime Agent adapter
+## Prime Agent is not distributed
 
-The complete Prime Agent runtime remains separately installed. Prime Studio distributes a
-generated adapter containing the reviewed public daemon exports from Prime Agent 0.7.1.
-Its source reference is commit `a18809e00ea30638584d87b3afea7285a9d7296c`
+Prime Agent is a separately installed runtime and is intentionally absent from this shipped
+dependency SBOM. The audited interoperability reference is commit `a18809e00ea30638584d87b3afea7285a9d7296c`
 at [PrimeIntellect-ai/prime-agent](https://github.com/PrimeIntellect-ai/prime-agent/tree/a18809e00ea30638584d87b3afea7285a9d7296c), declared `MIT`. No Prime Agent source or
-binary outside that owned adapter is vendored by this repository. Adapter dependency notices
-are shipped beside it in `harness-sidecar/vendor`. The audited upstream notices are:
+binary is vendored by this repository. If that boundary changes, regenerate the SBOM and
+perform a path-level pi-mono and nested-notice audit first. The audited upstream notices are:
 
 - Copyright (c) 2025 Mario Zechner
 - Copyright (c) 2026 Prime Intellect
