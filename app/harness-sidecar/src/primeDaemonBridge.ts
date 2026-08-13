@@ -1115,6 +1115,15 @@ export class PrimeDaemonBridge {
       return await dispatcher.dispatch({
         connection: (barrier?.connection ?? bound.connection) as unknown as Readonly<Record<string, ((...arguments_: any[]) => Promise<unknown>) | undefined>>,
         currentCursor: { runtimeGeneration: bound.studioGeneration!, sequence: bound.sequence },
+        ...(barrier ? {
+          preOperationSnapshot: barrier.source,
+          publishPostconditionSnapshot: (source: unknown) => this.snapshot(
+            activeSessionId,
+            bound.sequence + 1,
+            false,
+            { source, eventRevision: bound.eventRevision },
+          ),
+        } : {}),
         respondToExtensionUiRequest: (requestId, response) => this.#respondToExtensionUiRequest(bound, requestId, response),
       }, operation);
     } finally { await barrier?.close(); }
@@ -1312,7 +1321,12 @@ export class PrimeDaemonBridge {
     }
   }
 
-  async snapshot(activeSessionId: string, minimumSequence = 0, allowGenerationChange = true): Promise<FakeRootSessionSnapshot> {
+  async snapshot(
+    activeSessionId: string,
+    minimumSequence = 0,
+    allowGenerationChange = true,
+    prepared?: Readonly<{ source: unknown; eventRevision: bigint }>,
+  ): Promise<FakeRootSessionSnapshot> {
     const hello = await this.negotiate();
     const recovery = await this.#observeWorkerRecovery(activeSessionId, hello);
     if (recovery.status !== "starting" && recovery.status !== "ready" && recovery.status !== "recovered") {
@@ -1323,13 +1337,13 @@ export class PrimeDaemonBridge {
     const bound = await this.#bound(activeSessionId);
     const performanceEventRevision = bound.eventRevision;
     const performanceAtRevision = cloneTurnPerformance(bound.performance);
-    const barrier = await this.#openBarrier(activeSessionId, bound);
-    const publicationEventRevision = barrier.eventRevision;
+    const barrier = prepared ? null : await this.#openBarrier(activeSessionId, bound);
+    const publicationEventRevision = prepared?.eventRevision ?? barrier!.eventRevision;
     const atomicPerformance = publicationEventRevision === performanceEventRevision
       ? performanceAtRevision
       : initialTurnPerformance("event_chronology_incomplete");
-    const initial = barrier.source;
-    await barrier.close();
+    const initial = prepared?.source ?? barrier!.source;
+    await barrier?.close();
     const source = plain(initial) ? initial : {};
     const fallbackState = plain(source.state) ? source.state : await bound.connection.getState();
     const state = plain(fallbackState) ? fallbackState : {};

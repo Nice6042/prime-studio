@@ -43,6 +43,10 @@ function outcomeMessage(outcome: StudioOperationOutcome): { kind: "status" | "al
   return { kind: "alert", text: outcome.reason };
 }
 
+function childPendingScope(sessionScope: string, childId: string): string {
+  return JSON.stringify([sessionScope, childId]);
+}
+
 export function HarnessInspector({ chatId, session, compatibility, adapter = unavailableHarnessInspectorAdapter, onExecute, onOpenAccountUsage, onCollapse, routeRequest, attention = { status: "loading" }, onRuntimeStatus }: {
   readonly chatId: string | null;
   readonly session: RootSessionProjection | null;
@@ -61,23 +65,26 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
   const [detailsSnapshot, setDetailsSnapshot] = useState<Readonly<{ scope: string; value: HarnessPanelDetails }> | null>(null);
   const [activityEvidenceSnapshot, setActivityEvidenceSnapshot] = useState<Readonly<{ scope: string; value: AttentionEvidence | null | undefined }> | null>(null);
   const [loadPhase, setLoadPhase] = useState<"idle" | "loading" | "ready" | "unavailable" | "error">("idle");
-  const [pendingKey, setPendingKey] = useState<string | null>(null);
+  const [pendingByScope, setPendingByScope] = useState<ReadonlyMap<string, string>>(new Map());
   const [feedback, setFeedback] = useState<{ kind: "status" | "alert"; text: string } | null>(null);
   const [hiddenNoticeIds, setHiddenNoticeIds] = useState<ReadonlySet<string>>(new Set());
   const [settledExtensionSnapshot, setSettledExtensionSnapshot] = useState<Readonly<{ scope: string; ids: ReadonlySet<string> }> | null>(null);
   const extensionAttempts = useRef<Readonly<{ scope: string | null; ids: Set<string> }>>({ scope: requestIdentity, ids: new Set() });
-  const childReturnFocus = useRef<HTMLElement | null>(null);
+  const childReturnFocus = useRef<Readonly<{ scope: string; element: HTMLElement }> | null>(null);
   const stableInspectorFocus = useRef<HTMLButtonElement | null>(null);
   const stableChildFocus = useRef<HTMLButtonElement | null>(null);
+  const pendingAttempts = useRef(new Map<string, string>());
   const activitySeenAttempt = useRef<string | null>(null);
   const requestEpoch = useRef(0);
   const currentRequestIdentity = useRef<string | null>(requestIdentity);
+  const currentSessionScope = useRef<string | null>(sessionScope);
   const availabilityStatus = useRef(adapter.availability.status);
   const detailsLoadsInFlight = useRef<Set<number>>(new Set());
   if (currentRequestIdentity.current !== requestIdentity) {
     currentRequestIdentity.current = requestIdentity;
     requestEpoch.current += 1;
   }
+  currentSessionScope.current = sessionScope;
   if (extensionAttempts.current.scope !== requestIdentity) extensionAttempts.current = { scope: requestIdentity, ids: new Set() };
   const details = detailsSnapshot?.scope === sessionScope ? detailsSnapshot.value : null;
   const activityEvidence = activityEvidenceSnapshot?.scope === sessionScope ? activityEvidenceSnapshot.value : undefined;
@@ -87,6 +94,12 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
   currentLoadPhase.current = loadPhase;
   const now = useMonotonicNow(sessionScope, details?.observedAtMs);
   const activityAttention = chatId ? activityAttentionForChat(chatId, activityEvidence, attention) : { status: "unavailable" as const, reason: "Activity content evidence is unavailable for this chat." };
+  const selectedChildPendingScope = sessionScope && state.route.kind === "child"
+    ? childPendingScope(sessionScope, state.route.childId)
+    : null;
+  const pendingKey = sessionScope
+    ? (selectedChildPendingScope ? pendingByScope.get(selectedChildPendingScope) : undefined) ?? pendingByScope.get(sessionScope) ?? null
+    : null;
   const settledExtensionIds = settledExtensionSnapshot?.scope === requestIdentity ? settledExtensionSnapshot.ids : new Set<string>();
   const extensionRequests = details?.extensionUi.status === "available" && session
     ? details.extensionUi.requests.filter((request) => request.cursor.runtimeGeneration === session.cursor.runtimeGeneration && request.cursor.sequence === session.cursor.sequence && !settledExtensionIds.has(request.id))
@@ -162,8 +175,17 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
     return () => window.clearInterval(timer);
   }, [adapter, requestIdentity, session?.state, session?.freshness]);
   useEffect(() => {
-    dispatch({ type: "children/reconciled", childIds: session?.children.map((child) => child.id) ?? [] });
-  }, [session?.children]);
+    const childIds = session?.children.map((child) => child.id) ?? [];
+    const selectedChildDisappeared = state.route.kind === "child" && !childIds.includes(state.route.childId);
+    dispatch({ type: "children/reconciled", childIds });
+    if (selectedChildDisappeared && sessionScope && childReturnFocus.current?.scope === sessionScope) {
+      requestAnimationFrame(() => {
+        const opener = childReturnFocus.current?.element;
+        const target = opener?.isConnected ? opener : stableInspectorFocus.current;
+        target?.focus();
+      });
+    }
+  }, [session?.children, sessionScope, state.route]);
   useEffect(() => {
     const route = restoreRoute(chatId);
     if (route.kind === "child") dispatch({ type: "child/open", childId: route.childId });
@@ -177,21 +199,31 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
   }, [chatId, state.route]);
 
   const runAction = async (operation: StudioOperation, key: string, quiet = false) => {
-    if (pendingKey) return;
-    setPendingKey(key);
+    const actionScope = sessionScope;
+    if (!actionScope) return;
+    const attemptScope = operation.action === "harness.child.stop"
+      ? childPendingScope(actionScope, operation.payload.childId)
+      : actionScope;
+    if (pendingAttempts.current.has(attemptScope)) return;
+    pendingAttempts.current.set(attemptScope, key);
+    setPendingByScope(new Map(pendingAttempts.current));
     if (!quiet) setFeedback(null);
     try {
       const outcome = await (onExecute ?? adapter.execute)(operation);
-      const next = outcomeMessage(outcome);
+      if (currentSessionScope.current !== actionScope) return;
+      const next = operation.action === "harness.child.stop" && outcome.status === "updated"
+        ? { kind: "status" as const, text: "Child cancellation confirmed." }
+        : outcomeMessage(outcome);
       if (!quiet || next.kind === "alert") setFeedback(next);
       if (outcome.status !== "unavailable" && outcome.status !== "rejected" && outcome.status !== "unknown_outcome") {
         if (operation.action === "harness.overload.dismiss") setHiddenNoticeIds((current) => new Set([...current, operation.payload.errorId]));
         if (operation.action !== "activity.command.copy" && operation.action !== "harness.tab.select" && !operation.action.endsWith("open") && !operation.action.endsWith("toggle") && operation.action !== "harness.child.tab-select" && operation.action !== "harness.child.back") await loadDetails();
       }
     } catch (error) {
-      setFeedback({ kind: "alert", text: error instanceof Error ? error.message : "Harness action failed." });
+      if (currentSessionScope.current === actionScope) setFeedback({ kind: "alert", text: error instanceof Error ? error.message : "Harness action failed." });
     } finally {
-      setPendingKey(null);
+      if (pendingAttempts.current.get(attemptScope) === key) pendingAttempts.current.delete(attemptScope);
+      setPendingByScope(new Map(pendingAttempts.current));
     }
   };
 
@@ -208,14 +240,19 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
     if (chatId) void runAction({ action: "harness.tab.select", payload: { chatId, tab: route === "overview" ? "harness" : route } }, `tab:${route}`, true);
   };
   const openChild = (childId: string) => {
-    childReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (sessionScope && document.activeElement instanceof HTMLElement) childReturnFocus.current = { scope: sessionScope, element: document.activeElement };
     dispatch({ type: "child/open", childId });
     if (session) void runAction({ action: "harness.child.open", payload: { sessionId: session.sessionId, childId } }, `child:${childId}`, true);
   };
   const backFromChild = () => {
     dispatch({ type: "route/open", route: "overview" });
     if (session) void runAction({ action: "harness.child.back", payload: { sessionId: session.sessionId } }, "child:back", true);
-    requestAnimationFrame(() => childReturnFocus.current?.focus());
+    const scope = sessionScope;
+    requestAnimationFrame(() => {
+      const opener = childReturnFocus.current?.scope === scope ? childReturnFocus.current.element : null;
+      const target = opener?.isConnected ? opener : stableInspectorFocus.current;
+      target?.focus();
+    });
   };
 
   const selectedChildId = state.route.kind === "child" ? state.route.childId : null;

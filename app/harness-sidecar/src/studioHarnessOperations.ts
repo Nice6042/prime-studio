@@ -54,6 +54,10 @@ type AsyncMethod = (...arguments_: any[]) => Promise<unknown>;
 export interface StudioHarnessOperationPort {
   readonly connection: Readonly<Record<string, AsyncMethod | undefined>>;
   readonly currentCursor: Readonly<{ runtimeGeneration: string; sequence: number }>;
+  /** Atomic mutation-barrier snapshot used to bind an identity-sensitive command. */
+  readonly preOperationSnapshot?: unknown;
+  /** Publishes a reconciled barrier snapshot without taking a second unrelated snapshot. */
+  readonly publishPostconditionSnapshot?: (source: unknown) => Promise<unknown>;
   readonly respondToExtensionUiRequest?: (requestId: string, response: unknown) => Promise<unknown>;
 }
 
@@ -211,6 +215,82 @@ async function childTranscript(port: StudioHarnessOperationPort, childId: string
   finally { await (watcher.close as () => Promise<void>).call(watcher); }
 }
 
+interface ChildCancellationIdentity {
+  readonly id: string;
+  readonly activeSessionId: string;
+}
+
+function snapshotGeneration(value: Record<string, unknown>): string {
+  if (!plain(value.lastEventCursor) || !id(value.lastEventCursor.generation)
+    || !Number.isSafeInteger(value.lastEventCursor.sequence) || (value.lastEventCursor.sequence as number) < 0) {
+    throw new TypeError("Authoritative child snapshot cursor is invalid.");
+  }
+  return value.lastEventCursor.generation;
+}
+
+function snapshotRootSessionId(value: Record<string, unknown>): string {
+  if (!plain(value.state) || !id(value.state.activeSessionId)) throw new TypeError("Authoritative root session identity is invalid.");
+  return value.state.activeSessionId;
+}
+
+function exactChild(value: Record<string, unknown>, childId: string): ChildCancellationIdentity & Readonly<Record<string, unknown>> {
+  if (!Array.isArray(value.children)) throw new TypeError("Authoritative child catalog is invalid.");
+  const matches = value.children.filter((candidate) => plain(candidate) && candidate.id === childId);
+  if (matches.length !== 1 || !plain(matches[0]) || !id(matches[0].activeSessionId)) {
+    throw new TypeError("The exact child identity is absent or ambiguous.");
+  }
+  return matches[0] as ChildCancellationIdentity & Readonly<Record<string, unknown>>;
+}
+
+async function cancelChildWithPostcondition(
+  port: StudioHarnessOperationPort,
+  operation: StudioHarnessOperation,
+): Promise<StudioHarnessOperationOutcome> {
+  if (!plain(port.preOperationSnapshot) || !port.publishPostconditionSnapshot) {
+    return { status: "unavailable", reason: "Atomic child cancellation reconciliation is unavailable." };
+  }
+  const sessionId = field(operation.payload, "sessionId");
+  const childId = field(operation.payload, "childId");
+  let before: ChildCancellationIdentity & Readonly<Record<string, unknown>>;
+  let generation: string;
+  try {
+    if (snapshotRootSessionId(port.preOperationSnapshot) !== sessionId) throw new TypeError("The child is not bound to the requested root session.");
+    generation = snapshotGeneration(port.preOperationSnapshot);
+    if (generation !== operation.expectedCursor!.runtimeGeneration) throw new TypeError("The child cancellation cursor changed before admission.");
+    before = exactChild(port.preOperationSnapshot, childId);
+    if (before.status !== "queued" && before.status !== "running") throw new TypeError("The exact child is not cancellable.");
+  } catch (error) {
+    return { status: "rejected", reason: error instanceof Error ? error.message : "The exact child cancellation precondition is invalid.", retryable: false };
+  }
+
+  let after: Record<string, unknown>;
+  try {
+    await invoke(port, "cancelRlmChild", childId);
+    const raw = await invoke(port, "getInitialSnapshot");
+    if (!plain(raw)) throw new TypeError("Authoritative child postcondition snapshot is invalid.");
+    after = raw;
+    if (snapshotRootSessionId(after) !== sessionId || snapshotGeneration(after) !== generation) {
+      return { status: "unknown_outcome", operationId: operation.operationId, reason: "Runtime generation or root session identity changed while cancelling the child." };
+    }
+    if (!Array.isArray(after.children)) throw new TypeError("Authoritative child postcondition catalog is invalid.");
+    const matches = after.children.filter((candidate) => plain(candidate) && candidate.id === childId);
+    if (matches.length > 1) return { status: "unknown_outcome", operationId: operation.operationId, reason: "The child cancellation postcondition is ambiguous." };
+    if (matches.length === 1) {
+      const candidate = matches[0]!;
+      if (!plain(candidate) || candidate.activeSessionId !== before.activeSessionId) {
+        return { status: "unknown_outcome", operationId: operation.operationId, reason: "The child identity changed while cancellation was being reconciled." };
+      }
+      if (candidate.status !== "done" && candidate.status !== "error" && candidate.status !== "cancelled") {
+        return { status: "unknown_outcome", operationId: operation.operationId, reason: "Prime acknowledged child cancellation, but the exact child is still non-terminal." };
+      }
+    }
+    const projection = await port.publishPostconditionSnapshot(after);
+    return { status: "updated", revision: port.currentCursor.sequence + 1, data: projection };
+  } catch {
+    return { status: "unknown_outcome", operationId: operation.operationId, reason: "Prime child cancellation was admitted, but its authoritative postcondition could not be proven." };
+  }
+}
+
 export async function dispatchStudioHarnessOperation(port: StudioHarnessOperationPort, raw: unknown): Promise<StudioHarnessOperationOutcome> {
   const operation = parseStudioHarnessOperation(raw);
   if (!operation) return { status: "rejected", reason: "Studio Harness operation envelope is invalid.", retryable: false };
@@ -237,7 +317,7 @@ export async function dispatchStudioHarnessOperation(port: StudioHarnessOperatio
       case "harness.session.abort": data = await invoke(port, "abort"); return { status: "cancelled", commandId: operation.idempotencyKey };
       case "harness.session.export": data = p.format === "html" ? await invoke(port, "exportToHtml") : p.format === "jsonl" ? await invoke(port, "exportToJsonl") : (() => { throw new TypeError("format is invalid"); })(); break;
       case "harness.session.compact": data = await invoke(port, "compact"); break;
-      case "harness.child.stop": data = await invoke(port, "cancelRlmChild", field(p, "childId")); break;
+      case "harness.child.stop": return cancelChildWithPostcondition(port, operation);
       case "harness.child.transcript-page": data = await childTranscript(port, field(p, "childId")); break;
       case "harness.extension.respond": {
         if (!port.respondToExtensionUiRequest) throw new ReferenceError("verified extension UI response admission is unavailable");

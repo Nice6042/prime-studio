@@ -171,9 +171,13 @@ async function main(): Promise<void> {
               operationId: request.payload.operationId, action: request.payload.action, payload,
               expectedCursor: request.payload.expectedCursor, idempotencyKey: request.payload.idempotencyKey,
             });
-            const snapshot = ["accepted", "queued", "updated", "cancelled"].includes(outcome.status)
-              ? await bridge.snapshot(request.payload.sessionId)
+            const reconciledChildSnapshot = request.payload.action === "harness.child.stop"
+              && outcome.status === "updated" && "data" in outcome
+              ? outcome.data
               : null;
+            const snapshot = reconciledChildSnapshot ?? (["accepted", "queued", "updated", "cancelled"].includes(outcome.status)
+              ? await bridge.snapshot(request.payload.sessionId)
+              : null);
             const normalized = {
               type: "studio_operation_result", operationId: request.payload.operationId, status: outcome.status,
               commandId: "commandId" in outcome ? outcome.commandId : null,

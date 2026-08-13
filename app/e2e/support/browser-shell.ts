@@ -304,6 +304,26 @@ export const test = base.extend<ShellFixtures>({
                 session: null,
               };
             }
+            if (request.action === "harness.child.stop") {
+              const payload = JSON.parse(request.payloadJson ?? "null") as { sessionId?: string; childId?: string } | null;
+              const children = Array.isArray(current.children) ? current.children as Array<Record<string, unknown>> : [];
+              const matches = children.filter((child) => child.id === payload?.childId);
+              if (payload?.sessionId !== current.sessionId || matches.length !== 1 || (matches[0]!.status !== "running" && matches[0]!.status !== "queued")) {
+                throw new Error("Harness child cancellation precondition unavailable");
+              }
+              const sequence = current.cursor.sequence + 1;
+              const updated = {
+                ...current,
+                cursor: { ...current.cursor, sequence },
+                performance: { status: "unavailable", sessionId: current.sessionId, cursor: { ...current.cursor, sequence }, reason: "event_chronology_unavailable" },
+                children: children.filter((child) => child.id !== payload.childId),
+              };
+              projectedHarnessSessions = projectedHarnessSessions.map((session, candidate) => candidate === index ? updated : session);
+              return {
+                operationId: request.operationId, status: "updated", commandId: null, position: null,
+                revision: String(sequence), reason: null, retryable: null, session: updated,
+              };
+            }
             const sessionKind = request.action === "harness.session.prompt" ? "prompt"
               : request.action === "harness.session.follow-up" ? "follow_up"
                 : request.action === "harness.session.steer" ? "steer"

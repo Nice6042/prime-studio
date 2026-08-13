@@ -149,6 +149,20 @@ test("child composer stays locked, focusable, and in-view at 320 by 200", async 
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-child-composer-narrow");
 });
 
+test("authoritative child cancellation returns the narrow Harness sheet to a stable overview", async ({ shellPage }) => {
+  await shellPage.getByRole("button", { name: "Harness" }).click();
+  const harness = shellPage.getByRole("complementary", { name: "Harness" });
+  await harness.getByRole("button", { name: "Verify runtime compatibility, running" }).click();
+  await harness.getByRole("button", { name: "Stop task" }).click();
+
+  await expect(harness.getByText("The selected child is no longer available.")).toBeVisible();
+  await expect(harness.getByText("Child cancellation confirmed.")).toBeVisible();
+  await expect(harness.getByRole("button", { name: "Map project navigation, done" })).toBeVisible();
+  await expect(harness.getByRole("tab", { name: "Harness" })).toBeFocused();
+  await expectNoDocumentOverflow(shellPage);
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-authoritative-child-cancellation-narrow");
+});
+
 test("narrow project sheet keeps lifecycle labels and tooltips readable", async ({ shellPage }, testInfo) => {
   await shellPage.setViewportSize({ width: 320, height: 600 });
   await shellPage.getByRole("button", { name: "Projects" }).click();

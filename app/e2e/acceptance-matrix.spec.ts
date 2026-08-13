@@ -112,6 +112,30 @@ test("child detail receives focus after its final runtime extension prompt", asy
   await expect(parent.getByText("Private follow-up")).toHaveCount(0);
 });
 
+test("authoritative child cancellation is admitted once, removes only that child, and restores Harness focus", async ({ shellPage }) => {
+  const parent = shellPage.getByRole("main", { name: "Prime Harness architecture" });
+  const harness = shellPage.getByRole("complementary", { name: "Harness" });
+  await activateWithKeyboard(harness.getByRole("button", { name: "Verify runtime compatibility, running" }));
+  await expect(harness.getByRole("heading", { name: "Verify runtime compatibility" })).toBeVisible();
+
+  await harness.getByRole("button", { name: "Stop task" }).evaluate((button) => {
+    (button as HTMLButtonElement).click();
+    (button as HTMLButtonElement).click();
+  });
+  await expect(harness.getByText("The selected child is no longer available.")).toBeVisible();
+  await expect(harness.getByText("Child cancellation confirmed.")).toBeVisible();
+  await expect(harness.getByRole("button", { name: "Verify runtime compatibility, running" })).toHaveCount(0);
+  await expect(harness.getByRole("button", { name: "Map project navigation, done" })).toBeVisible();
+  await expect(harness.getByRole("tab", { name: "Harness" })).toBeFocused();
+  await expect(parent.getByText("Checking protocol identity and capability closure.")).toHaveCount(0);
+  const stopRequests = await shellPage.evaluate(() => {
+    const requests = (window as typeof window & { __PRIME_STUDIO_BROWSER_REQUESTS__?: Array<{ command: string; args: { request?: { action?: string } } }> }).__PRIME_STUDIO_BROWSER_REQUESTS__ ?? [];
+    return requests.filter((request) => request.command === "harness_studio_operation" && request.args.request?.action === "harness.child.stop").length;
+  });
+  expect(stopRequests).toBe(1);
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-authoritative-child-cancellation");
+});
+
 test("Harness overview, usage, and activity expose every truthful fixture projection", async ({ shellPage }) => {
   const harness = shellPage.getByRole("complementary", { name: "Harness" });
   const tabs = harness.getByRole("tablist", { name: "Harness views" });

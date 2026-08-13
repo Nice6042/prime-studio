@@ -325,6 +325,68 @@ describe("HarnessInspector", () => {
     ]));
   });
 
+  it("admits one child cancellation per exact session-child scope and does not leak pending into a replacement session", async () => {
+    let releaseFirst!: (value: { status: "updated"; revision: number }) => void;
+    const first = new Promise<{ status: "updated"; revision: number }>((resolve) => { releaseFirst = resolve; });
+    let stopCalls = 0;
+    const execute = vi.fn(async (operation: StudioOperation) => {
+      if (operation.action !== "harness.child.stop") return { status: "updated" as const, revision: 10 };
+      stopCalls += 1;
+      return stopCalls === 1 ? first : { status: "updated" as const, revision: 12 };
+    });
+    const sibling = { ...session.children[0]!, id: "child-sibling", task: "Second running task" };
+    const scopedSession = { ...session, children: [...session.children, sibling] };
+    const view = render(<HarnessInspector chatId="chat-a" session={scopedSession} compatibility={compatibility} adapter={adapter()} onExecute={execute} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Review protocol/ }));
+
+    const stop = screen.getByRole("button", { name: "Stop task" });
+    fireEvent.click(stop);
+    fireEvent.click(stop);
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(stopCalls).toBe(1);
+    expect(await screen.findByRole("button", { name: "Stopping…" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to Harness" }));
+    fireEvent.click(screen.getByRole("button", { name: "Second running task, running" }));
+    const siblingStop = await screen.findByRole("button", { name: "Stop task" });
+    expect(siblingStop).toBeEnabled();
+    fireEvent.click(siblingStop);
+    expect(stopCalls).toBe(2);
+    expect(execute).toHaveBeenCalledWith({ action: "harness.child.stop", payload: { sessionId: "root-a", childId: "child-sibling" } });
+
+    const replacement = { ...scopedSession, sessionId: "root-b", cursor: { runtimeGeneration: "g2", sequence: 1 } };
+    view.rerender(<HarnessInspector chatId="chat-a" session={replacement} compatibility={compatibility} adapter={adapter()} onExecute={execute} />);
+    const replacementStop = await screen.findByRole("button", { name: "Stop task" });
+    expect(replacementStop).toBeEnabled();
+    fireEvent.click(replacementStop);
+    expect(stopCalls).toBe(3);
+    expect(execute).toHaveBeenLastCalledWith({ action: "harness.child.stop", payload: { sessionId: "root-b", childId: "child-sibling" } });
+
+    releaseFirst({ status: "updated", revision: 11 });
+    await act(async () => { await first; });
+    expect(screen.getByText("Child cancellation confirmed.")).toBeVisible();
+  }, 10_000);
+
+  it("returns safely to the Harness overview and stable focus when authoritative cancellation removes the selected child", async () => {
+    const execute = vi.fn(async () => ({ status: "updated" as const, revision: 11 }));
+    const user = userEvent.setup();
+    const view = render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={adapter()} onExecute={execute} />);
+    await user.click(await screen.findByRole("button", { name: /Review protocol/ }));
+    await user.click(screen.getByRole("button", { name: "Stop task" }));
+
+    view.rerender(<HarnessInspector
+      chatId="chat-a"
+      session={{ ...session, cursor: { ...session.cursor, sequence: 11 }, children: session.children.filter((child) => child.id !== "child-1") }}
+      compatibility={compatibility}
+      adapter={adapter()}
+      onExecute={execute}
+    />);
+
+    expect(await screen.findByText("The selected child is no longer available.")).toBeVisible();
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Harness" })).toHaveFocus());
+    expect(screen.queryByText("Task accepted.")).not.toBeInTheDocument();
+  });
+
   it("keeps the projected child composer visibly locked without a prompt path", async () => {
     const commands: StudioOperation[] = [];
     const user = userEvent.setup();
