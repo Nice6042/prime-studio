@@ -55,6 +55,14 @@ test("archive route and parent conversation remain distinct from Harness child d
   await expect(harness.getByRole("heading", { name: "Verify runtime compatibility" })).toBeVisible();
   await expect(harness.getByText("gpt-5.6-sol")).toBeVisible();
   await expect(harness.getByText("Verified child task details are unavailable.")).toBeVisible();
+  const childComposer = harness.getByRole("textbox", { name: "Child message" });
+  await expect(childComposer).toHaveAttribute("readonly", "");
+  await expect(childComposer).toHaveValue("Child tasks are managed by the harness");
+  await childComposer.focus();
+  await childComposer.press("Enter");
+  await expect(childComposer).toHaveValue("Child tasks are managed by the harness");
+  await expect(parent.getByText("Child tasks are managed by the harness")).toHaveCount(0);
+  await expect(harness.getByRole("textbox", { name: "Message Prime Studio" })).toHaveCount(0);
   const chatTab = harness.getByRole("tab", { name: "Chat" });
   await expect(chatTab).toHaveAttribute("aria-selected", "true");
   await expect(harness.getByRole("status", { name: "Child chat unavailable" })).toContainText("Deterministic fixtures do not supply authoritative child paging evidence.");

@@ -45,6 +45,29 @@ test("projects, Harness, and editor become controlled sheets", async ({ shellPag
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-narrow-sheets");
 });
 
+test("child composer stays locked, focusable, and in-view at 320 by 200", async ({ shellPage }) => {
+  await shellPage.getByRole("button", { name: "Harness" }).click();
+  const harness = shellPage.getByRole("complementary", { name: "Harness" });
+  await harness.getByRole("textbox", { name: "Extension instructions" }).press("Escape");
+  await shellPage.getByRole("button", { name: "Harness" }).click();
+  await harness.getByRole("textbox", { name: "Extension note" }).press("Escape");
+  await shellPage.getByRole("button", { name: "Harness" }).click();
+  await harness.getByRole("button", { name: "Verify runtime compatibility, running" }).click();
+
+  const childComposer = harness.getByRole("textbox", { name: "Child message" });
+  await expect(childComposer).toBeVisible();
+  await expect(childComposer).toHaveAttribute("readonly", "");
+  await expect(childComposer).toHaveValue("Child tasks are managed by the harness");
+  await childComposer.focus();
+  await expect(childComposer).toBeFocused();
+  await childComposer.press("Enter");
+  await expect(childComposer).toHaveValue("Child tasks are managed by the harness");
+  await expect(harness.getByRole("textbox", { name: "Message Prime Studio" })).toHaveCount(0);
+  await expectWithinViewport(childComposer, shellPage);
+  await expectNoDocumentOverflow(shellPage);
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-child-composer-narrow");
+});
+
 test("narrow project sheet keeps lifecycle labels and tooltips readable", async ({ shellPage }, testInfo) => {
   await shellPage.setViewportSize({ width: 320, height: 600 });
   await shellPage.getByRole("button", { name: "Projects" }).click();

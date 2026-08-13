@@ -284,6 +284,25 @@ describe("HarnessInspector", () => {
     ]));
   });
 
+  it("keeps the projected child composer visibly locked without a prompt path", async () => {
+    const commands: StudioOperation[] = [];
+    const user = userEvent.setup();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={adapter(commands)} />);
+    await user.click(await screen.findByRole("button", { name: /Review protocol/ }));
+    commands.length = 0;
+
+    const composer = screen.getByRole("textbox", { name: "Child message" });
+    expect(composer).toHaveAttribute("readonly");
+    expect(composer).toHaveValue("Child tasks are managed by the harness");
+    expect(composer).toHaveAccessibleDescription("Read-only in Prime Studio. The verified Harness owns child task input.");
+    expect(screen.queryByRole("button", { name: /send child/i })).not.toBeInTheDocument();
+
+    composer.focus();
+    await user.type(composer, "Do not send this{Enter}");
+    expect(composer).toHaveValue("Child tasks are managed by the harness");
+    expect(commands).toEqual([]);
+  });
+
   it("loads every child tab independently and pages older authoritative rows", async () => {
     const source = adapter();
     source.loadChildPage = vi.fn(async (_sessionId, _childId, tab, _displayedCursor, pageCursor) => {

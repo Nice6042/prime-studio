@@ -312,7 +312,11 @@
 .child-files span { overflow: hidden; color: var(--hi-soft); font: 10.75px/1.4 Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
 .child-files small { color: var(--hi-muted); font-size: 10.5px; }
 .child-detail-footer { display: grid; gap: 7px; padding: 9px 11px; border-block-start: 1px solid var(--hi-line); }
-.child-detail-footer > div { display: flex; align-items: center; gap: 7px; min-block-size: 36px; padding: 8px 10px; border: 1px solid var(--hi-line); border-radius: 10px; background: #16161b; color: var(--hi-faint); font-size: 11.5px; }
+.child-composer-lock { display: grid; min-inline-size: 0; gap: 5px; }
+.child-composer-field { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; min-block-size: 38px; padding: 7px 10px; border: 1px solid var(--hi-line-strong); border-radius: 10px; background: #16161b; color: var(--hi-muted); }
+.child-composer-field:focus-within { border-color: var(--hi-accent); outline: 2px solid rgb(142 133 240 / 0.28); outline-offset: 1px; }
+.child-composer-field textarea { min-inline-size: 0; min-block-size: 20px; max-block-size: 36px; resize: none; overflow: hidden; border: 0; outline: 0; background: transparent; color: var(--hi-soft); font: 11.5px/1.45 "Segoe UI Variable", "Segoe UI", system-ui, sans-serif; }
+.child-composer-lock p { margin: 0; color: var(--hi-muted); font-size: 10.75px; line-height: 1.4; overflow-wrap: anywhere; }
 .child-stop { min-block-size: 32px; border: 1px solid var(--hi-line-strong); border-radius: 7px; background: transparent; color: var(--hi-soft); font-size: 11.5px; }
 .child-stop:hover { border-color: rgb(255 119 125 / 0.5); background: rgb(255 119 125 / 0.05); color: var(--hi-danger); }
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 
 import { createControlBinding, type StudioOperation } from "../../contracts/studioOperations";
 import type { ChildAgentSummary, HarnessCursor } from "../../shared/ipc/harness.generated";
@@ -31,6 +31,7 @@ export function ChildDetail({ sessionId, displayedCursor, child, details, observ
   readonly onLoadPage?: (sessionId: string, childId: string, tab: "chat" | "activity" | "files", displayedCursor: HarnessCursor, pageCursor: string | null) => Promise<HarnessChildDataPage>;
 }) {
   const tabs = ["chat", "activity", "files"] as const;
+  const composerDescriptionId = useId();
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const percent = contextPercent(details?.context ?? null);
   const pageScope = JSON.stringify([sessionId, child.id, displayedCursor.runtimeGeneration, displayedCursor.sequence]);
@@ -98,6 +99,6 @@ export function ChildDetail({ sessionId, displayedCursor, child, details, observ
         {page?.status === "available" && page.tab === "files" && (page.items.length ? <div className="child-files">{page.items.map((file) => { const open = createControlBinding(`editor.artifact.open:${file.id}`, "editor.artifact.open"); return <button type="button" data-control-id={open.controlId} key={file.id} aria-label={`Open ${file.label}`} onClick={() => onAction({ action: "editor.artifact.open", payload: { sessionId, artifactId: file.candidateId } }, `file:${file.candidateId}`)}><span>{file.label}</span><small>{file.change}</small></button>; })}</div> : <p>No files touched yet.</p>)}
       </section>
     </div>
-    <footer className="child-detail-footer"><div><HarnessIcon kind="lock" size={14} /><span>Child tasks are managed by the harness</span></div>{(child.status === "running" || child.status === "queued") && <button type="button" data-control-id={stop.controlId} className="child-stop" disabled={pendingKey === `child-stop:${child.id}`} onClick={() => onAction({ action: "harness.child.stop", payload: { sessionId, childId: child.id } }, `child-stop:${child.id}`)}>{pendingKey === `child-stop:${child.id}` ? "Stopping…" : "Stop task"}</button>}</footer>
+    <footer className="child-detail-footer"><div className="child-composer-lock"><div className="child-composer-field"><HarnessIcon kind="lock" size={14} /><textarea aria-label="Child message" aria-describedby={composerDescriptionId} readOnly rows={1} value="Child tasks are managed by the harness" /></div><p id={composerDescriptionId}>Read-only in Prime Studio. The verified Harness owns child task input.</p></div>{(child.status === "running" || child.status === "queued") && <button type="button" data-control-id={stop.controlId} className="child-stop" disabled={pendingKey === `child-stop:${child.id}`} onClick={() => onAction({ action: "harness.child.stop", payload: { sessionId, childId: child.id } }, `child-stop:${child.id}`)}>{pendingKey === `child-stop:${child.id}` ? "Stopping…" : "Stop task"}</button>}</footer>
   </div>;
 }
