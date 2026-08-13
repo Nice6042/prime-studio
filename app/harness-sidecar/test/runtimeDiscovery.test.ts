@@ -161,5 +161,8 @@ test("the compiled credential-free sidecar is declared as a Tauri resource", asy
   const config = JSON.parse(await readFile(configPath, "utf8")) as {
     bundle?: { resources?: string[] };
   };
-  assert.deepEqual(config.bundle?.resources, ["../harness-sidecar/dist/src"]);
+  assert.deepEqual(config.bundle?.resources, [
+    "../harness-sidecar/dist/src",
+    "../public/THIRD_PARTY_NOTICES.md",
+  ]);
 });
