@@ -738,21 +738,23 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       if (viewport <= 900) setActiveSheet("editor");
       return { status: "updated", revision: result.document.ref.revision };
     }
-    if (operation.action === "harness.session.prompt" || operation.action === "harness.session.follow-up" || operation.action === "harness.session.steer" || operation.action === "harness.session.abort") {
-      const sessionId = operation.payload.sessionId;
-      const session = Object.values(store.getSnapshot().sessions).find((candidate) => candidate.sessionId === sessionId);
-      if (!session) return { status: "unavailable", reason: "The selected Harness session is no longer attached." };
-      const kind = operation.action === "harness.session.prompt" ? "prompt" : operation.action === "harness.session.follow-up" ? "follow_up" : operation.action === "harness.session.steer" ? "steer" : "abort";
-      const text = operation.action === "harness.session.abort" ? "" : operation.payload.text;
-      const result = await rpc.sendHarnessCommand({ sessionId, commandId: `studio-${crypto.randomUUID()}`, expectedCursor: session.cursor, kind, text });
-      store.dispatch({ type: "harness/session-projected", session: result.session });
-      if (kind !== "abort") store.dispatch({ type: "draft/change", chatId: session.chatId, draft: "" });
-      if (result.outcome === "queued") return { status: "queued", commandId: result.commandId, position: null };
-      return result.outcome === "accepted" ? { status: "accepted", commandId: result.commandId } : { status: "updated", revision: result.session.cursor.sequence };
+    if (harnessAdapter.availability.status !== "available") {
+      return { status: "unavailable", reason: harnessAdapter.availability.reason };
     }
-    return harnessAdapter.availability.status === "available"
-      ? harnessAdapter.execute(operation)
-      : { status: "unavailable", reason: harnessAdapter.availability.reason };
+    const outcome = await harnessAdapter.execute(operation);
+    if (
+      (operation.action === "harness.session.prompt" || operation.action === "harness.session.follow-up" || operation.action === "harness.session.steer")
+      && (outcome.status === "accepted" || outcome.status === "queued" || outcome.status === "updated")
+    ) {
+      const state = store.getSnapshot();
+      const owners = state.projectCatalog.projects.flatMap((project) => project.chats)
+        .filter((chat) => !chat.archived && chat.binding?.sessionId === operation.payload.sessionId);
+      const owner = owners.length === 1 ? owners[0] : undefined;
+      if (owner && state.drafts[owner.id] === operation.payload.text) {
+        store.dispatch({ type: "draft/change", chatId: owner.id, draft: "" });
+      }
+    }
+    return outcome;
   };
 
   const rawDispatchOperation = createStudioOperationDispatcher({

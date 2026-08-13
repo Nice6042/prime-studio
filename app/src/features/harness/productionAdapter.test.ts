@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createStudioStore, initialStudioState } from "../../shared/state/store";
 import type { RootSessionProjection } from "../../entities/harness/types";
+import type { StudioOperation } from "../../contracts/studioOperations";
 import { createProductionHarnessInspectorAdapter } from "./productionAdapter";
 
 const session: RootSessionProjection = {
@@ -30,6 +31,27 @@ function boundStore() {
 }
 
 describe("production Harness inspector adapter", () => {
+  it.each([
+    { action: "harness.session.prompt", payload: { sessionId: session.sessionId, text: "prompt" } },
+    { action: "harness.session.follow-up", payload: { sessionId: session.sessionId, text: "follow up" } },
+    { action: "harness.session.steer", payload: { sessionId: session.sessionId, text: "steer" } },
+    { action: "harness.session.abort", payload: { sessionId: session.sessionId } },
+  ] as const)("binds $action command/idempotency identity to the admitted coordinator operation", async (input) => {
+    const operationId = "coordinator-operation-0123456789abcdef";
+    const execute = vi.fn(async () => ({ outcome: { status: "accepted" as const, commandId: operationId }, session: null }));
+    const adapter = createProductionHarnessInspectorAdapter(boundStore(), { load: vi.fn(), execute });
+    const operation = { ...input, operationId } as StudioOperation;
+
+    await expect(adapter.execute(operation)).resolves.toEqual({ status: "accepted", commandId: operationId });
+    expect(execute).toHaveBeenCalledWith({
+      sessionId: session.sessionId,
+      operation,
+      expectedCursor: session.cursor,
+      idempotencyKey: operationId,
+    });
+    expect(operationId).toMatch(/^[!-~]{1,128}$/u);
+  });
+
   it("loads by authoritative daemon root identity and dispatches returned projections", async () => {
     const store = boundStore();
     const load = vi.fn(async () => ({ observedAtMs: 1, startedAtMs: null, context: null, extensionUi: { status: "available" as const, requests: [] }, contributions: [], notices: [], activity: [], outputs: [], sources: [], children: {} }));

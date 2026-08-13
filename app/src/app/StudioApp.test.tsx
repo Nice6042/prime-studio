@@ -1063,4 +1063,82 @@ describe("Studio application state", () => {
     expect(operations[0]?.operationId).toBeTruthy();
     expect(operations[1]?.operationId).toBe(operations[0]?.operationId);
   }, 15_000);
+
+  it("routes an admitted prompt through its operation identity and never offers Retry after uncertain transport reconciliation", async () => {
+    const directCommand = vi.spyOn(rpc, "sendHarnessCommand").mockRejectedValue(new Error("uncertain direct command transport"));
+    const promptOperations: StudioOperation[] = [];
+    const adapter: HarnessInspectorAdapter = {
+      ...conversationAdapter([]),
+      execute: async (operation) => {
+        if (operation.action === "harness.session.prompt") {
+          promptOperations.push(operation);
+          throw new Error("Harness operation failed: deadline_exceeded");
+        }
+        return { status: "updated", revision: 1 };
+      },
+    };
+    const store = createStudioStore(initialStudioState({
+      projectCatalog: catalogBoundToRootSession(),
+      sessions: [rootSession],
+      compatibility: { status: "ready", profile: "verified", capabilities: ["session_input_admission", "model_catalog"] },
+    }));
+    store.dispatch({ type: "chat/open", chatId: chat.id });
+    render(<AppProviders store={store}><StudioApp harnessAdapter={adapter} /></AppProviders>);
+
+    const composer = screen.getByRole("textbox", { name: "Message Prime Studio" });
+    await userEvent.type(composer, "perform this mutation once");
+    fireEvent.keyDown(composer, { key: "Enter" });
+
+    const toast = await screen.findByRole("alert", { name: "Harness request outcome unknown" });
+    expect(within(toast).queryByRole("button", { name: /Retry/ })).not.toBeInTheDocument();
+    expect(promptOperations).toHaveLength(1);
+    expect(promptOperations[0]?.operationId).toMatch(/^[!-~]{1,128}$/u);
+    expect(directCommand).not.toHaveBeenCalled();
+
+    act(() => store.dispatch({ type: "harness/session-projected", session: {
+      ...rootSession,
+      cursor: { ...rootSession.cursor, sequence: rootSession.cursor.sequence + 1 },
+      parentMessages: [...rootSession.parentMessages, { channel: "parent", kind: "user", id: "u-reconciled", text: "perform this mutation once", emittedAtMs: 3 }],
+    } }));
+    expect(within(toast).queryByRole("button", { name: /Retry/ })).not.toBeInTheDocument();
+    expect(promptOperations).toHaveLength(1);
+    directCommand.mockRestore();
+  }, 15_000);
+
+  it("reuses the exact admitted prompt operation identity after a safe retryable rejection", async () => {
+    const directCommand = vi.spyOn(rpc, "sendHarnessCommand").mockRejectedValue(new Error("direct command path must stay closed"));
+    const promptOperations: StudioOperation[] = [];
+    const adapter: HarnessInspectorAdapter = {
+      ...conversationAdapter([]),
+      execute: async (operation) => {
+        if (operation.action !== "harness.session.prompt") return { status: "updated", revision: 1 };
+        promptOperations.push(operation);
+        return promptOperations.length === 1
+          ? { status: "rejected", reason: "Cursor changed before admission.", retryable: true }
+          : { status: "accepted", commandId: operation.operationId! };
+      },
+    };
+    const store = createStudioStore(initialStudioState({
+      projectCatalog: catalogBoundToRootSession(), sessions: [rootSession],
+      compatibility: { status: "ready", profile: "verified", capabilities: ["session_input_admission", "model_catalog"] },
+    }));
+    store.dispatch({ type: "chat/open", chatId: chat.id });
+    render(<AppProviders store={store}><StudioApp harnessAdapter={adapter} /></AppProviders>);
+
+    const composer = screen.getByRole("textbox", { name: "Message Prime Studio" });
+    await userEvent.type(composer, "retry only if safe");
+    fireEvent.keyDown(composer, { key: "Enter" });
+    const toast = await screen.findByRole("alert", { name: "Harness request failed" });
+    await userEvent.clear(composer);
+    await userEvent.type(composer, "new draft written after rejection");
+    await userEvent.click(within(toast).getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(promptOperations).toHaveLength(2));
+    expect(promptOperations[0]?.operationId).toMatch(/^[!-~]{1,128}$/u);
+    expect(promptOperations[1]?.operationId).toBe(promptOperations[0]?.operationId);
+    expect(promptOperations[1]?.payload).toEqual(promptOperations[0]?.payload);
+    expect(composer).toHaveValue("new draft written after rejection");
+    expect(directCommand).not.toHaveBeenCalled();
+    directCommand.mockRestore();
+  }, 15_000);
 });

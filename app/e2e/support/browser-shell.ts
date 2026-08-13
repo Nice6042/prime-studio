@@ -269,11 +269,63 @@ export const test = base.extend<ShellFixtures>({
             return { commandId: request.commandId, outcome: "accepted", session: updated };
           }
           case "harness_studio_operation": {
-            const request = args.request as { sessionId?: string; operationId?: string; action?: string; payloadJson?: string; expectedCursor?: { runtimeGeneration?: string; sequence?: number } } | undefined;
+            const request = args.request as { sessionId?: string; operationId?: string; action?: string; payloadJson?: string; expectedCursor?: { runtimeGeneration?: string; sequence?: number }; idempotencyKey?: string } | undefined;
             const index = projectedHarnessSessions.findIndex((session) => session.sessionId === request?.sessionId);
-            if (index < 0 || !request?.operationId || request.action !== "harness.extension.respond" || !request.expectedCursor) throw new Error("Harness Studio operation unavailable");
-            const current = projectedHarnessSessions[index]! as Record<string, unknown> & { cursor: { runtimeGeneration: string; sequence: number } };
+            if (index < 0 || !request?.operationId || !request.expectedCursor || request.idempotencyKey !== request.operationId) throw new Error("Harness Studio operation unavailable");
+            const current = projectedHarnessSessions[index]! as Record<string, unknown> & {
+              cursor: { runtimeGeneration: string; sequence: number };
+              parentMessages: Array<Record<string, unknown>>;
+              usage: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; cost: number | null };
+            };
             if (request.expectedCursor.runtimeGeneration !== current.cursor.runtimeGeneration || request.expectedCursor.sequence !== current.cursor.sequence) throw new Error("Harness cursor stale");
+            if (request.action === "harness.overload.retry") {
+              return {
+                operationId: request.operationId,
+                status: "rejected",
+                commandId: null,
+                position: null,
+                revision: null,
+                reason: "The verified runtime rejected this retry before admission.",
+                retryable: true,
+                session: null,
+              };
+            }
+            const sessionKind = request.action === "harness.session.prompt" ? "prompt"
+              : request.action === "harness.session.follow-up" ? "follow_up"
+                : request.action === "harness.session.steer" ? "steer"
+                  : request.action === "harness.session.abort" ? "abort" : null;
+            if (sessionKind) {
+              const payload = JSON.parse(request.payloadJson ?? "null") as { text?: string } | null;
+              const text = sessionKind === "abort" ? "" : payload?.text;
+              if (sessionKind !== "abort" && !text) throw new Error("Harness Studio command payload unavailable");
+              const sequence = current.cursor.sequence + 1;
+              const input = sessionKind === "abort" ? 0 : Math.max(1, Math.ceil((text ?? "").length / 4));
+              const output = sessionKind === "abort" ? 0 : 12;
+              const messages = sessionKind === "abort" ? current.parentMessages : [...current.parentMessages,
+                { channel: "parent", kind: "user", id: `${request.operationId}-user`, text, emittedAtMs: 1_775_995_220_000 },
+                { channel: "parent", kind: "assistant", id: `${request.operationId}-assistant`, blocks: [{ kind: "text", text: "Synthetic Harness response admitted through the verified Studio protocol." }], streaming: false, emittedAtMs: 1_775_995_220_001 },
+              ];
+              const updated = {
+                ...current,
+                cursor: { ...current.cursor, sequence },
+                performance: { status: "unavailable", sessionId: current.sessionId, cursor: { ...current.cursor, sequence }, reason: "event_chronology_unavailable" },
+                state: sessionKind === "abort" ? "idle" : "working",
+                parentMessages: messages,
+                usage: { ...current.usage, input: current.usage.input + input, output: current.usage.output + output, totalTokens: current.usage.totalTokens + input + output },
+              };
+              projectedHarnessSessions = projectedHarnessSessions.map((session, candidate) => candidate === index ? updated : session);
+              return {
+                operationId: request.operationId,
+                status: sessionKind === "follow_up" ? "queued" : sessionKind === "abort" ? "cancelled" : "accepted",
+                commandId: request.operationId,
+                position: null,
+                revision: null,
+                reason: null,
+                retryable: null,
+                session: updated,
+              };
+            }
+            if (request.action !== "harness.extension.respond") throw new Error("Harness Studio operation unavailable");
             const payload = JSON.parse(request.payloadJson ?? "null") as { requestId?: string } | null;
             if (!payload?.requestId || settledExtensionRequests.has(payload.requestId)) throw new Error("Extension request stale");
             settledExtensionRequests.add(payload.requestId);

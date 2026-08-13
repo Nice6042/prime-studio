@@ -27,8 +27,11 @@ function missingExecutor(kind: "harness" | "studioDurable" | "renderer" | "nativ
   });
 }
 
-function rejected(error: unknown): StudioOperationOutcome {
+function rejected(operation: StudioOperation, error: unknown): StudioOperationOutcome {
   const reason = error instanceof Error ? error.message : "Studio operation failed.";
+  if (operation.operationId && STUDIO_ACTIONS[operation.action].owner.kind === "harness") {
+    return { status: "unknown_outcome", operationId: operation.operationId, reason };
+  }
   return { status: "rejected", reason, retryable: !reason.includes("interactive no-ops are forbidden") };
 }
 
@@ -59,7 +62,7 @@ export function createStudioOperationDispatcher(routes: StudioOperationRoutes): 
     try {
       outcome = await dispatchStudioOperation(operation, executors);
     } catch (error) {
-      outcome = rejected(error);
+      outcome = rejected(operation, error);
     }
     routes.onOutcome?.(operation, outcome);
     return outcome;

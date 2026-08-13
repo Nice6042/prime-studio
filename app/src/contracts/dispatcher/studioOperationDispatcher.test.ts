@@ -60,6 +60,22 @@ describe("createStudioOperationDispatcher", () => {
     });
   });
 
+  it("classifies a thrown executor settlement after stable admission as unknown_outcome, never retryable rejection", async () => {
+    const dispatch = createStudioOperationDispatcher({
+      harness: async () => { throw new Error("Harness operation failed: deadline_exceeded"); },
+    });
+
+    await expect(dispatch({
+      operationId: "operation-admitted-1",
+      action: "harness.session.prompt",
+      payload: { sessionId: "session-1", text: "perform once" },
+    })).resolves.toEqual({
+      status: "unknown_outcome",
+      operationId: "operation-admitted-1",
+      reason: "Harness operation failed: deadline_exceeded",
+    });
+  });
+
   it("rejects an executor that silently returns no outcome", async () => {
     const dispatch = createStudioOperationDispatcher({
       renderer: async () => undefined as never,
