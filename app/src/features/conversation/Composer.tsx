@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 
 import { AttachmentChips } from "./AttachmentChips";
@@ -18,6 +18,11 @@ import { SlashMenu } from "./SlashMenu";
 import type { ComposerModelId, ComposerRuntimeChoice, ThinkingLevel } from "./workspacePresentation";
 import { controlBinding } from "./controlBinding";
 import { usePopoverSurface } from "../../surfaceEscape";
+
+const COMPOSER_MAX_BLOCK_SIZE_PX = 140;
+const composerInputStyle = {
+  "--composer-max-block-size": `${COMPOSER_MAX_BLOCK_SIZE_PX}px`,
+} as CSSProperties;
 
 function SendIcon({ stop = false }: { readonly stop?: boolean }) {
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -148,6 +153,8 @@ export function Composer({
       <AttachmentChips attachments={attachments} onRemove={onAttachmentsChange ? (id) => onAttachmentsChange(attachments.filter((attachment) => attachment.id !== id)) : undefined} />
       <textarea
         {...controlBinding("composer-draft", "composer.draft.change")}
+        className="composer-input"
+        style={composerInputStyle}
         aria-label="Message Prime Studio"
         aria-controls={slashCommands.length > 0 ? "composer-slash-commands" : undefined}
         aria-activedescendant={activeSlash ? `slash-option-${activeSlash.id}` : undefined}

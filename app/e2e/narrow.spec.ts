@@ -154,3 +154,32 @@ test("200 percent equivalent geometry keeps sheets and keyboard controls inside 
 test("200 percent equivalent titlebar controls retain a minimum accessible target", async ({ shellPage }) => {
   await expectMinimumTarget(shellPage.getByRole("button", { name: "Open command palette" }));
 });
+
+test("composer remains bounded and internally scrollable in the 200 percent reflow project", async ({ shellPage }) => {
+  const textbox = shellPage.getByRole("textbox", { name: "Message Prime Studio" });
+  await textbox.fill("one line");
+  const initialHeight = await textbox.evaluate((element) => element.getBoundingClientRect().height);
+
+  await textbox.fill(Array.from({ length: 30 }, (_, index) => `zoom line ${index + 1}`).join("\n"));
+  const geometry = await textbox.evaluate((element) => {
+    const textarea = element as HTMLTextAreaElement;
+    const style = getComputedStyle(textarea);
+    return {
+      height: textarea.getBoundingClientRect().height,
+      clientHeight: textarea.clientHeight,
+      scrollHeight: textarea.scrollHeight,
+      fieldSizing: style.getPropertyValue("field-sizing"),
+      maxBlockSize: style.maxBlockSize,
+      overflowY: style.overflowY,
+    };
+  });
+
+  expect(geometry.fieldSizing).toBe("content");
+  expect(geometry.maxBlockSize).toBe("140px");
+  expect(geometry.height).toBeCloseTo(140, 0);
+  expect(geometry.height).toBeGreaterThan(initialHeight);
+  expect(geometry.scrollHeight).toBeGreaterThan(geometry.clientHeight);
+  expect(geometry.overflowY).toBe("auto");
+  await expectNoDocumentOverflow(shellPage);
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-composer-growth-200-percent");
+});

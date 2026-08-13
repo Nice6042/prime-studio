@@ -6,6 +6,50 @@ import { Composer } from "./Composer";
 import { deriveSlashCommands } from "./composerModel";
 
 describe("Composer", () => {
+  it("exposes the package-bound intrinsic growth contract without owning draft state", () => {
+    const onDraftChange = vi.fn();
+    const onSubmit = vi.fn();
+    const view = render(<Composer
+      draft="Alpha"
+      state={{ kind: "idle", draft: "Alpha", canSend: true }}
+      onDraftChange={onDraftChange}
+      onSubmit={onSubmit}
+      onAbort={vi.fn()}
+      onOpenUsage={vi.fn()}
+    />);
+
+    const textbox = screen.getByRole("textbox", { name: "Message Prime Studio" });
+    expect(textbox).toHaveAttribute("rows", "1");
+    expect(textbox).toHaveClass("composer-input");
+    expect(textbox).toHaveStyle("--composer-max-block-size: 140px");
+
+    fireEvent.compositionStart(textbox);
+    fireEvent.change(textbox, { target: { value: "Alpha\n構成" } });
+    fireEvent.keyDown(textbox, { key: "Enter", isComposing: true });
+    fireEvent.compositionEnd(textbox);
+    expect(onDraftChange).toHaveBeenLastCalledWith("Alpha\n構成");
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    view.rerender(<Composer
+      draft="Beta"
+      state={{ kind: "idle", draft: "Beta", canSend: true }}
+      onDraftChange={onDraftChange}
+      onSubmit={onSubmit}
+      onAbort={vi.fn()}
+      onOpenUsage={vi.fn()}
+    />);
+    expect(textbox).toHaveValue("Beta");
+    view.rerender(<Composer
+      draft="Alpha"
+      state={{ kind: "idle", draft: "Alpha", canSend: true }}
+      onDraftChange={onDraftChange}
+      onSubmit={onSubmit}
+      onAbort={vi.fn()}
+      onOpenUsage={vi.fn()}
+    />);
+    expect(textbox).toHaveValue("Alpha");
+  });
+
   it("keeps draft editing available while explaining why send is unavailable", () => {
     const onDraftChange = vi.fn();
     render(<Composer

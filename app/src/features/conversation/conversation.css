@@ -110,7 +110,7 @@
 .composer-dock { position: absolute; z-index: 4; inset-inline: 26px; inset-block-end: 4px; display: grid; justify-items: center; pointer-events: none; }
 .composer-frame { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; inline-size: min(100%, 780px); min-block-size: 74px; padding: 10px 12px 8px; border: 1px solid rgb(255 255 255 / 9%); border-radius: 16px; background: #17171c; box-shadow: 0 8px 30px rgb(0 0 0 / 24%); pointer-events: auto; transition: border-color 150ms ease; }
 .composer-frame:focus-within, .composer-frame[data-dragging="true"] { border-color: rgb(142 133 240 / 70%); }
-.composer-frame textarea { grid-column: 1 / -1; min-block-size: 28px; max-block-size: 180px; resize: none; overflow: auto; border: 0; outline: 0; color: var(--fg, #ececec); background: transparent; font: 15px/1.45 "Segoe UI Variable", "Segoe UI", sans-serif; }
+.composer-frame .composer-input { grid-column: 1 / -1; min-block-size: 28px; max-block-size: var(--composer-max-block-size); field-sizing: content; resize: none; overflow-x: hidden; overflow-y: auto; padding: 2px 4px; border: 0; outline: 0; color: var(--fg, #ececec); background: transparent; font: 13.5px/1.5 "Segoe UI Variable", "Segoe UI", sans-serif; }
 .composer-controls { grid-column: 1 / -1; display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 7px; min-block-size: 34px; margin-block-start: 7px; }
 .composer-context { margin-inline-start: auto; color: #a9a2ff; font-size: 11px; }
 .composer-attach { display: grid; place-items: center; inline-size: 30px; block-size: 30px; border-radius: 50%; color: var(--muted-strong, #d0d0d0); cursor: pointer; }
