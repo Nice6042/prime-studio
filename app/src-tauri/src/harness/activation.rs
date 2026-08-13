@@ -60,7 +60,7 @@ const PRODUCTION_RESOURCE_PINS: &[(&str, &str)] = &[
     ),
     (
         "fakeDaemonScenario.js",
-        "sha256:3a88d99e0131818b67c578dc0a472999af435f82ac242669ef1c1d097b92d869",
+        "sha256:42d88148f86b7c07b4b1313172094a4a69275960812e1f61a3cfb24b1f92d84f",
     ),
     (
         "framing.js",
@@ -68,15 +68,15 @@ const PRODUCTION_RESOURCE_PINS: &[(&str, &str)] = &[
     ),
     (
         "index.js",
-        "sha256:71737177be1d60a5e3efad27ea7395a18f56d09e50aead119ef5a12a65052cc8",
+        "sha256:cff5a9055d0c7bb51c055c419fd4cc4033e6cd7f23b73fd2373614fe1db1250a",
     ),
     (
         "primeDaemonBridge.js",
-        "sha256:2d5caac591571b6042e47608d56319cc06afbbcd794741595e8d4d0e79f413ea",
+        "sha256:6564df54a66e3e8d2953099ba7a91ae6541b234ef1753aa673bcfbc83b824cc1",
     ),
     (
         "redaction.js",
-        "sha256:4a7fae9180cbac5e05f60852380e101c88b33cf53ac8fffd8ff80740e8d801fa",
+        "sha256:b4af7febdc35de53bcc82f54343315cc7e9fe1f10a2a6e48eddbf850c7713f56",
     ),
     (
         "reviewedPrimeAdapter.js",
@@ -92,7 +92,7 @@ const PRODUCTION_RESOURCE_PINS: &[(&str, &str)] = &[
     ),
     (
         "studioHarnessOperations.js",
-        "sha256:1e09a75f13e30ff5cdcf8ec7e15fff1fe7331a984f51a9b235860489b5f5af27",
+        "sha256:c985b592ab583a0283c9d68e6ecccbdd3761096615b14a2a586a30dda19dd470",
     ),
     (
         "profiles/daemon-v7-schema13.js",
@@ -623,7 +623,12 @@ mod tests {
             .unwrap();
         assert_eq!(
             personal.1.project_id,
-            stable_id("project", &workspace.display().to_string().to_lowercase())
+            stable_id(
+                "project",
+                &canonical_workspace_identity(&workspace)
+                    .unwrap()
+                    .to_lowercase()
+            )
         );
         fs::remove_dir(workspace).unwrap();
     }

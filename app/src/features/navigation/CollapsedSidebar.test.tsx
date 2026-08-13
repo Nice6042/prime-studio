@@ -72,7 +72,7 @@ describe("CollapsedSidebar", () => {
     }
   });
 
-  it("uses one roving Tab stop and Arrow/Home/End order across all rail actions", async () => {
+  it("uses one roving Tab stop and Arrow, Home, and End order across all rail actions", async () => {
     setup();
     const actions = screen.getAllByRole("button");
     expect(actions.map((button) => button.tabIndex)).toEqual([0, -1, -1, -1, -1]);

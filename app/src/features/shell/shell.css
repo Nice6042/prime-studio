@@ -70,7 +70,7 @@
 .studio-window-controls > button:last-child:hover { background: #c42b1c; }
 .studio-command-trigger { inline-size:30px; block-size:28px; margin-inline-start:3px; border:0; border-radius:7px; background:transparent; color:inherit; }.studio-command-trigger:hover { background:rgb(255 255 255 / .06); }
 .studio-statusbar { gap: 12px; block-size: 24px; min-block-size: 24px; max-block-size: 24px; min-inline-size: 0; padding-inline: 10px; overflow: hidden; border-block-start: 1px solid rgb(255 255 255 / 6%); border-block-end: 0; color: #7a7a84; background: #0d0d10; font-size: 11px; line-height: 1; white-space: nowrap; }
-.studio-statusbar > span { flex: none; overflow: hidden; text-overflow: ellipsis; }
+.studio-statusbar > span { flex: 0 1 auto; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
 .studio-statusbar-spacer { flex: 1; }
 .studio-context-meter { display: inline-block; inline-size: 56px; block-size: 4px; margin-inline-start: 5px; overflow: hidden; border-radius: 3px; background: #24242a; vertical-align: middle; }
 .studio-context-meter b { display: block; block-size: 100%; background: #8e85f0; }
@@ -86,7 +86,7 @@
   .studio-window-controls { flex: none; margin-inline-start: auto; margin-inline-end: -8px; }
   .studio-window-controls > button { min-inline-size: 36px; }
   .studio-statusbar { gap: 8px; padding-inline: 8px; }
-  .studio-statusbar > * { flex: none; }
+  .studio-statusbar > * { flex: 0 1 auto; min-inline-size: 0; }
   .studio-statusbar-spacer { display: none; }
   .studio-statusbar-identity { max-inline-size: 30%; }
   .studio-statusbar-context { margin-inline-start: auto; }

@@ -819,7 +819,7 @@ test("inspector projects only explicit daemon context and output evidence", asyn
   const messages = [
     { role: "user", content: "one", timestamp: 1 },
     { role: "assistant", content: [
-      { type: "toolCall", id: "call-hostile", name: "shell", arguments: { command: "Bearer secret-token api_key=private-value C:\\Users\\Person\\Documents\\report.txt\nshow \u202Etxt.exe", path: "C:\\work\\report.md" } },
+      { type: "toolCall", id: "call-hostile", name: "shell", arguments: { command: "Bearer secret-token api_key=private-value C:\\Users\\operator\\Documents\\report.txt\nshow \u202Etxt.exe", path: "C:\\work\\report.md" } },
       { type: "toolCall", id: "call-safe", name: "shell", arguments: { command: "echo safe", path: "C:\\work\\other.md" } },
     ], timestamp: 2, stopReason: "stop", usage: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 3, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } },
     { id: "duplicate-result-id", role: "toolResult", toolCallId: "call-hostile", toolName: "shell", content: "done", timestamp: 3, durationMs: -1 },
@@ -873,20 +873,20 @@ test("inspector projects exact cursor-bound child facts without parent transcrip
   let children: ReadonlyArray<Readonly<Record<string, unknown>>> = [{
     id: "child-a", activeSessionId: "child-session-a", label: "Private task", status: "running",
     durationMs: 12_345, model: "openai-codex/gpt-5.6-sol", tokenCount: 6_400, recap: "Child recap",
-    sessionDir: "C:\\Users\\Person\\.prime\\agent\\sessions", workerPid: 41_002,
+    sessionDir: "C:\\Users\\operator\\.prime\\agent\\sessions", workerPid: 41_002,
   }, {
     id: "child-b", activeSessionId: "child-session-b", label: "Failed task", status: "error",
-    error: "worker PID 41002 failed at C:\\Users\\Person\\private.cmd",
+    error: "worker PID 41002 failed at C:\\Users\\operator\\private.cmd",
   }];
   const connection = {
     async getInitialSnapshot() { return { state, messages: [
       { role: "user", content: "parent-private-transcript", timestamp: 1 },
-      { role: "user", content: "hostile parent command: Bearer parent-secret C:\\Users\\Person\\private.cmd --cwd D:\\private-workspace", timestamp: 2 },
+      { role: "user", content: "hostile parent command: Bearer parent-secret C:\\Users\\operator\\private.cmd --cwd D:\\private-workspace", timestamp: 2 },
     ], children, lastEventCursor: { generation: "generation-1", sequence: 4 } }; },
     async getState() { return state; }, async getMessages() { return []; }, async getQueue() { return {}; }, async getSessionContext() { return {}; }, async getModelCatalog() {
       if (emitHostileChildUpdateDuringCatalog) {
         emitHostileChildUpdateDuringCatalog = false;
-        for (const listener of eventListeners) listener({ type: "rlm_child_update", child: { id: "child-a", error: "PID 41002 at C:\\Users\\Person\\private.cmd" } });
+        for (const listener of eventListeners) listener({ type: "rlm_child_update", child: { id: "child-a", error: "PID 41002 at C:\\Users\\operator\\private.cmd" } });
       }
       return { models: [{ provider: "openai-codex", id: "gpt-5.6-sol", contextWindow: 40_000 }] };
     }, async getResourceSnapshot() { return {}; }, async getSessionStats() { return { tokens: {} }; }, async getToolDefinition() { return undefined; },
