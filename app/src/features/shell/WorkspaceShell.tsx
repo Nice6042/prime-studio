@@ -35,7 +35,6 @@ export function WorkspaceShell({
   const sidebarAttached = layout.sidebar.mode !== "sheet";
   const inspectorAttached = layout.inspector.mode === "pane";
   const editorAttached = layout.editor.mode === "pane";
-  const narrow = viewport < layoutBounds.sheetBreakpoint;
   const columns = sidebarAttached ? [layout.sidebar.width, layoutBounds.handle, layout.centerWidth] : [layout.centerWidth];
   if (editorAttached) columns.push(layoutBounds.handle, layout.editor.width);
   if (inspectorAttached) columns.push(layoutBounds.handle, layout.inspector.width);
@@ -43,7 +42,13 @@ export function WorkspaceShell({
   return (
     <div className="studio-shell" style={{ gridTemplateColumns: columns.map((width) => `${width}px`).join(" ") }}>
       {layout.sidebar.mode !== "sheet" && (
-        <nav className="studio-sidebar" aria-label="Projects and chats" data-mode={layout.sidebar.mode}>
+        <nav
+          className="studio-sidebar"
+          aria-label="Projects and chats"
+          aria-hidden={layout.sidebar.mode === "rail" && activeSheet === "sidebar" ? "true" : undefined}
+          inert={layout.sidebar.mode === "rail" && activeSheet === "sidebar" ? true : undefined}
+          data-mode={layout.sidebar.mode}
+        >
           {layout.sidebar.mode === "rail" ? (sidebarRailContent ?? sidebarContent) : sidebarContent}
         </nav>
       )}
@@ -59,7 +64,7 @@ export function WorkspaceShell({
         {onInspectorPreferred ? <PaneSeparator label="Resize Harness inspector" value={layout.inspector.width} min={layoutBounds.inspector.minimum} max={layoutBounds.inspector.maximum} direction={-1} onChange={onInspectorPreferred} onReset={() => onInspectorPreferred(layoutBounds.inspector.default)} /> : <div className="studio-pane-divider" />}
         <aside className="studio-inspector" aria-label="Harness">{inspectorContent}</aside>
       </>}
-      {narrow && activeSheet === "sidebar" && <nav className="studio-sheet studio-sheet-left studio-sidebar-sheet" data-studio-sheet="sidebar" aria-label="Projects and chats">{sidebarContent}</nav>}
+      {layout.sidebar.mode === "rail" && activeSheet === "sidebar" && <nav className="studio-sheet studio-sheet-left studio-sidebar-sheet" data-studio-sheet="sidebar" aria-label="Projects and chats">{sidebarContent}</nav>}
       {layout.inspector.mode === "sheet" && activeSheet === "inspector" && <aside className="studio-sheet studio-sheet-right studio-harness-sheet" data-studio-sheet="inspector" aria-label="Harness">{inspectorContent}</aside>}
       {layout.editor.mode === "sheet" && activeSheet === "editor" && <section className="studio-sheet studio-sheet-right" data-studio-sheet="editor" aria-label="Editor">{editorContent}</section>}
     </div>

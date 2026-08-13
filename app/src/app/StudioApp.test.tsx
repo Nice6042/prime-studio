@@ -354,10 +354,61 @@ describe("Studio application state", () => {
     expect(screen.getByRole("navigation", { name: "Projects and chats" })).toHaveAttribute("data-mode", "rail");
     await userEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
     await waitFor(() => expect(document.querySelector("[data-studio-sheet='sidebar']")).not.toBeNull());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Collapse sidebar" })).toHaveFocus());
+    expect(document.querySelector('.studio-sidebar[data-mode="rail"]')).toHaveAttribute("inert");
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(document.querySelector("[data-studio-sheet='sidebar']")).toBeNull());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Expand sidebar" })).toHaveFocus());
 
     Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
     fireEvent(window, new Event("resize"));
-  });
+  }, 15_000);
+
+  it("opens the narrow sheet in one activation when the persisted pane preference is collapsed", async () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 320 });
+    const persisted = {
+      schemaVersion: 1 as const,
+      sidebarOpen: false,
+      sidebarWidth: 264,
+      inspectorOpen: true,
+      inspectorWidth: 384,
+      editorOpen: false,
+      editorWidth: 400,
+      expandedProjectIds: ["project:personal"],
+    };
+    const load = vi.spyOn(rpc, "getLayoutPreferences").mockResolvedValueOnce(persisted);
+    const save = vi.spyOn(rpc, "setLayoutPreferences").mockImplementation(async (next) => next);
+    const store = createStudioStore(initialStudioState({ chats: [chat] }));
+    store.dispatch({ type: "chat/open", chatId: chat.id });
+
+    render(<AppProviders store={store}><StudioApp /></AppProviders>);
+    await waitFor(() => expect(load).toHaveBeenCalled());
+    await act(async () => { await Promise.resolve(); });
+    await userEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
+    await waitFor(() => expect(document.querySelector("[data-studio-sheet='sidebar']")).not.toBeNull());
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ sidebarOpen: true }));
+
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+    fireEvent(window, new Event("resize"));
+  }, 15_000);
+
+  it("transfers focus between the wide pane collapse control and the replacement rail", async () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1280 });
+    const store = createStudioStore(initialStudioState({ chats: [chat] }));
+    store.dispatch({ type: "chat/open", chatId: chat.id });
+
+    render(<AppProviders store={store}><StudioApp /></AppProviders>);
+    const collapse = screen.getByRole("button", { name: "Collapse sidebar" });
+    await userEvent.click(collapse);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Expand sidebar" })).toHaveFocus());
+    await userEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Collapse sidebar" })).toHaveFocus());
+
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+    fireEvent(window, new Event("resize"));
+  }, 15_000);
 
   it("projects the durable project catalog into the real sidebar", () => {
     const created = transitionProjectChatState(createInitialProjectChatState(), {

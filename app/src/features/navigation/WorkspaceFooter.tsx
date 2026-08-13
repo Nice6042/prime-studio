@@ -24,13 +24,17 @@ function outcomeMessage(action: "workspace.switch" | "workspace.sign-out", outco
   return action === "workspace.switch" ? "Workspace switched." : "Signed out.";
 }
 
-export function WorkspaceFooter({ identity, variant, open, onExecute }: {
+export function WorkspaceFooter({ identity, variant, open, onExecute, railActionId, triggerTabIndex, onTriggerFocus }: {
   readonly identity: WorkspaceIdentityProjection;
   readonly variant: "expanded" | "rail";
   readonly open: boolean;
   readonly onExecute: ExecuteOperation;
+  readonly railActionId?: string;
+  readonly triggerTabIndex?: number;
+  readonly onTriggerFocus?: () => void;
 }) {
   const menuId = useId();
+  const railTooltipId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -73,7 +77,14 @@ export function WorkspaceFooter({ identity, variant, open, onExecute }: {
       const trigger = triggerRef.current;
       const surface = surfaceRef.current;
       const candidates = Array.from(document.querySelectorAll<HTMLElement>('a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'))
-        .filter((element) => !surface?.contains(element) && !element.closest("[inert]") && element.getAttribute("aria-hidden") !== "true");
+        .filter((element) => {
+          const style = window.getComputedStyle(element);
+          return !surface?.contains(element)
+            && !element.closest("[inert]")
+            && element.getAttribute("aria-hidden") !== "true"
+            && style.display !== "none"
+            && style.visibility !== "hidden";
+        });
       const triggerIndex = trigger ? candidates.indexOf(trigger) : -1;
       const offset = event.shiftKey ? -1 : 1;
       const target = triggerIndex >= 0 ? candidates[(triggerIndex + offset + candidates.length) % candidates.length] : null;
@@ -108,7 +119,10 @@ export function WorkspaceFooter({ identity, variant, open, onExecute }: {
       aria-haspopup="menu"
       aria-controls={open ? menuId : undefined}
       aria-expanded={open}
-      title={variant === "rail" ? `${label}: ${detail}` : undefined}
+      aria-describedby={variant === "rail" ? railTooltipId : undefined}
+      data-rail-action={variant === "rail" ? railActionId : undefined}
+      tabIndex={triggerTabIndex}
+      onFocus={onTriggerFocus}
       onClick={toggle}
     >
       <span className="workspace-avatar" aria-hidden="true">{initials}</span>
@@ -117,6 +131,7 @@ export function WorkspaceFooter({ identity, variant, open, onExecute }: {
         <span className="workspace-menu-chevron" aria-hidden="true"><FooterIcon kind="chevron" /></span>
       </>}
     </button>
+    {variant === "rail" && <span id={railTooltipId} role="tooltip" className="rail-tooltip">{`${label}: ${detail}`}</span>}
     {open && <div
       ref={surfaceRef}
       data-studio-overlay="menu"

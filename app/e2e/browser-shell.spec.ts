@@ -32,6 +32,52 @@ test("configured workspace footer owns a keyboard menu with explicit operation o
   await expect(shellPage.getByRole("main", { name: "Settings" })).toBeVisible();
 });
 
+test("collapsed rail preserves one dispatcher-owned keyboard action set and adaptive focus", async ({ shellPage }, testInfo) => {
+  await shellPage.getByRole("button", { name: "Collapse sidebar" }).click();
+  const rail = shellPage.getByRole("toolbar", { name: "Collapsed navigation" });
+  await expect(rail).toBeVisible();
+  const expected = [
+    ["rail-expand", "Expand sidebar", "Expand sidebar (Ctrl+B)"],
+    ["rail-new-chat", "New chat", /^New chat (?:\(Ctrl\+N\)|unavailable:)/],
+    ["rail-search", "Search", "Search (Ctrl+K)"],
+    ["rail-settings", "Settings", "Settings (Ctrl+,)"],
+    ["rail-workspace-menu", "Prime Studio workspace menu", "Prime Studio: D:\\fixture\\Prime Studio"],
+  ] as const;
+  for (const [controlId, label, description] of expected) {
+    const control = shellPage.locator(`[data-control-id="${controlId}"]`);
+    await expect(control).toHaveCount(1);
+    await expect(control).toHaveAccessibleName(label);
+    await expect(control).toHaveAccessibleDescription(description);
+  }
+  await expect(shellPage.locator('[data-control-id="rail-expand"]')).toBeFocused();
+  await shellPage.keyboard.press("ArrowDown");
+  await expect(shellPage.locator('[data-control-id="rail-new-chat"]')).toBeFocused();
+  await shellPage.keyboard.press("ArrowDown");
+  const search = shellPage.locator('[data-control-id="rail-search"]');
+  await expect(search).toBeFocused();
+  await expect(search.locator("xpath=following-sibling::*[@role='tooltip']")).toHaveCSS("opacity", "1");
+  await shellPage.keyboard.press("Enter");
+  await expect(shellPage.getByRole("dialog", { name: "Command palette" })).toBeVisible();
+  await shellPage.keyboard.press("Escape");
+  await expect(search).toBeFocused();
+  await shellPage.screenshot({ path: testInfo.outputPath("collapsed-rail-wide.png"), fullPage: true });
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "collapsed-rail-wide");
+
+  await shellPage.locator('[data-control-id="rail-expand"]').focus();
+  await shellPage.keyboard.press("Enter");
+  await expect(shellPage.locator('[data-control-id="sidebar-collapse"]')).toBeFocused();
+  await shellPage.setViewportSize({ width: 820, height: 640 });
+  await expect(shellPage.locator('[data-control-id="rail-expand"]')).toBeFocused();
+  await shellPage.keyboard.press("Enter");
+  const sheet = shellPage.locator('[data-studio-sheet="sidebar"]');
+  await expect(sheet.locator('[data-control-id="sidebar-collapse"]')).toBeFocused();
+  await expect(shellPage.locator('.studio-sidebar[data-mode="rail"]')).toHaveAttribute("inert", "");
+  await shellPage.setViewportSize({ width: 1280, height: 800 });
+  await expect(shellPage.locator('[data-control-id="sidebar-collapse"]')).toBeFocused();
+  await shellPage.keyboard.press("Enter");
+  await expect(shellPage.locator('[data-control-id="rail-expand"]')).toBeFocused();
+});
+
 test("sidebar reports admitted chat lifecycle without starting an inactive chat", async ({ shellPage }, testInfo) => {
   const working = shellPage.getByRole("button", { name: /Prime Harness architecture.*status: Working/i });
   await expect(working.first()).toHaveAttribute("data-session-status", "working");

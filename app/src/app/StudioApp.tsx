@@ -7,7 +7,7 @@ import type { Account, AppSettings, LayoutPreferencesV1 } from "../types";
 import { RuntimeStatusBar } from "../features/shell/RuntimeStatusBar";
 import { TitleBar } from "../features/shell/TitleBar";
 import { WorkspaceShell } from "../features/shell/WorkspaceShell";
-import { layoutBounds, solveLayout } from "../features/shell/layoutSolver";
+import { solveLayout } from "../features/shell/layoutSolver";
 import { CollapsedSidebar } from "../features/navigation/CollapsedSidebar";
 import { CreateProjectDialog, NavigationIcon, ProjectSidebar } from "../features/navigation/ProjectSidebar";
 import { selectNavigationProjects } from "../features/navigation/navigationSelectors";
@@ -114,11 +114,16 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const [accounts, setAccounts] = useState<readonly Account[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [workspaceMenuHost, setWorkspaceMenuHost] = useState<"pane" | "rail" | "sheet" | null>(null);
+  const workspaceMenuHostRef = useRef(workspaceMenuHost);
+  workspaceMenuHostRef.current = workspaceMenuHost;
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
   const [createProjectOpener, setCreateProjectOpener] = useState<HTMLElement | null>(null);
   const [paletteOpener, setPaletteOpener] = useState<HTMLElement | null>(null);
   const [activeSheet, setActiveSheet] = useState<"sidebar" | "inspector" | "editor" | null>(null);
   const sheetOpener = useRef<HTMLElement | null>(null);
+  const sidebarReplacementFocus = useRef<"rail-expand" | "sidebar-collapse" | null>(null);
+  const sidebarHadFocus = useRef(false);
+  const previousSidebarHost = useRef<"pane" | "rail" | "sheet" | null>(null);
   const [canvas, setCanvas] = useState<Readonly<{ chatId: string; messageId: string; displayRevision: number; content: string }> | null>(null);
   const [editorArtifact, setEditorArtifact] = useState<ArtifactDocument | null>(null);
   const [artifactDrafts, setArtifactDrafts] = useState<Readonly<Record<string, string>>>({});
@@ -167,6 +172,16 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       return { id: message.id, chatId: chat.id, project: project?.name ?? "Personal", excerpt, channel: "parent" as const };
     });
   }), [projectCatalog.projects, sessions]);
+
+  useEffect(() => {
+    const rememberSidebarFocus = (event: FocusEvent) => {
+      const target = event.target;
+      sidebarHadFocus.current = target instanceof HTMLElement
+        && Boolean(target.closest('.studio-sidebar, [data-studio-sheet="sidebar"]'));
+    };
+    document.addEventListener("focusin", rememberSidebarFocus, true);
+    return () => document.removeEventListener("focusin", rememberSidebarFocus, true);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -494,7 +509,27 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
 
   const rendererExecutor = async (operation: StudioOperation): Promise<StudioOperationOutcome> => {
     switch (operation.action) {
-      case "layout.sidebar.toggle": return changeLayout((current) => ({ ...current, sidebarOpen: !current.sidebarOpen }));
+      case "layout.sidebar.toggle": {
+        if (activeSheet === "sidebar" && solvedSidebarMode === "rail") {
+          setActiveSheet(null);
+          break;
+        }
+        const expandedMode = solveLayout({
+          viewport,
+          sidebar: { open: true, preferred: layout.sidebarWidth },
+          inspector: { open: layout.inspectorOpen, preferred: layout.inspectorWidth },
+          editor: { open: layout.editorOpen, preferred: layout.editorWidth },
+        }).sidebar.mode;
+        if (expandedMode === "rail") {
+          sheetOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+          setActiveSheet("sidebar");
+          return layout.sidebarOpen
+            ? { status: "updated", revision: JSON.stringify(layout) }
+            : changeLayout({ sidebarOpen: true });
+        }
+        sidebarReplacementFocus.current = layout.sidebarOpen ? "rail-expand" : "sidebar-collapse";
+        return changeLayout({ sidebarOpen: !layout.sidebarOpen });
+      }
       case "layout.sidebar.resize": return changeLayout({ sidebarWidth: operation.payload.width });
       case "layout.sidebar.reset": return changeLayout({ sidebarWidth: 264 });
       case "layout.inspector.toggle": return changeLayout((current) => ({ ...current, inspectorOpen: !current.inspectorOpen }));
@@ -721,13 +756,16 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     inspector: { open: layout.inspectorOpen, preferred: layout.inspectorWidth },
     editor: { open: layout.editorOpen, preferred: layout.editorWidth },
   }).sidebar.mode;
-  const workspaceFooterHost: "pane" | "rail" | "sheet" | null = viewport < layoutBounds.sheetBreakpoint && activeSheet === "sidebar"
+  const workspaceFooterHost: "pane" | "rail" | "sheet" | null = solvedSidebarMode === "rail" && activeSheet === "sidebar"
     ? "sheet"
     : solvedSidebarMode === "pane"
       ? "pane"
       : solvedSidebarMode === "rail"
-        ? "rail"
-        : null;
+      ? "rail"
+      : null;
+  useLayoutEffect(() => {
+    if (solvedSidebarMode !== "rail" && activeSheet === "sidebar") setActiveSheet(null);
+  }, [activeSheet, solvedSidebarMode]);
   useLayoutEffect(() => {
     if (workspaceMenuHost === null || workspaceMenuHost === workspaceFooterHost) return;
     setWorkspaceMenuHost(null);
@@ -740,6 +778,18 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       document.querySelector<HTMLButtonElement>(`[data-control-id="${replacementControlId}"]`)?.focus();
     }
   }, [workspaceFooterHost, workspaceMenuHost]);
+  useLayoutEffect(() => {
+    const hostChanged = previousSidebarHost.current !== workspaceFooterHost;
+    previousSidebarHost.current = workspaceFooterHost;
+    if (workspaceMenuHostRef.current === null) {
+      const controlId = sidebarReplacementFocus.current ?? (hostChanged && sidebarHadFocus.current
+        ? workspaceFooterHost === "rail" ? "rail-expand" : workspaceFooterHost === "pane" || workspaceFooterHost === "sheet" ? "sidebar-collapse" : null
+        : null);
+      const target = controlId ? document.querySelector<HTMLButtonElement>(`[data-control-id="${controlId}"]`) : null;
+      if (target) target.focus();
+    }
+    sidebarReplacementFocus.current = null;
+  }, [workspaceFooterHost]);
   const newChatDisabledReason = catalogOperation.phase === "pending" ? catalogOperation.label : residentCreationDisabledReason(settings) ?? undefined;
   const admissionConnected = Boolean(
     selectedSession
@@ -783,28 +833,18 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         onExecuteWorkspaceOperation={dispatchOperation}
       />
     : <CollapsedSidebar
-        onExpand={() => { if (!layout.sidebarOpen) void dispatchOperation({ action: "layout.sidebar.toggle", payload: {} }); }}
-        onNewChat={createChat}
+        selectedProjectId={projectCatalog.selectedProjectId}
         newChatDisabledReason={newChatDisabledReason}
-        onOpenSearch={openPalette}
-        onOpenSettings={openSettings}
         workspace={workspaceIdentity}
         workspaceMenuOpen={workspaceMenuHost === "rail" && workspaceFooterHost === "rail"}
-        onExecuteWorkspaceOperation={dispatchOperation}
+        onExecute={dispatchOperation}
       />;
   const sidebarRailContent = <CollapsedSidebar
-    onExpand={() => {
-      sheetOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-      if (!layout.sidebarOpen) void dispatchOperation({ action: "layout.sidebar.toggle", payload: {} });
-      if (viewport < 760) setActiveSheet("sidebar");
-    }}
-    onNewChat={createChat}
+    selectedProjectId={projectCatalog.selectedProjectId}
     newChatDisabledReason={newChatDisabledReason}
-    onOpenSearch={openPalette}
-    onOpenSettings={openSettings}
     workspace={workspaceIdentity}
     workspaceMenuOpen={workspaceMenuHost === "rail" && workspaceFooterHost === "rail"}
-    onExecuteWorkspaceOperation={dispatchOperation}
+    onExecute={dispatchOperation}
   />;
 
   if (navigation.route === "settings") {
@@ -936,7 +976,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   };
   return <div className="studio-application">
     <TitleBar title={title} onOperation={runTitleOperation} actions={<>
-      <button type="button" {...controlBinding("title-projects", "layout.sidebar.toggle")} className="studio-command-trigger" aria-label="Projects" aria-pressed={viewport < 760 ? activeSheet === "sidebar" : layout.sidebarOpen} onClick={(event) => { if (viewport < 760) { sheetOpener.current = event.currentTarget; if (!layout.sidebarOpen) void dispatchOperation({ action: "layout.sidebar.toggle", payload: {} }); setActiveSheet((value) => value === "sidebar" ? null : "sidebar"); } else void dispatchOperation({ action: "layout.sidebar.toggle", payload: {} }); }}><NavigationIcon kind="menu" /></button>
+      <button type="button" {...controlBinding("title-projects", "layout.sidebar.toggle")} className="studio-command-trigger" aria-label="Projects" aria-pressed={solvedSidebarMode === "rail" ? activeSheet === "sidebar" : layout.sidebarOpen} onClick={(event) => { sheetOpener.current = event.currentTarget; void dispatchOperation({ action: "layout.sidebar.toggle", payload: {} }); }}><NavigationIcon kind="menu" /></button>
       <button type="button" {...controlBinding("title-harness", "layout.inspector.toggle")} className="studio-command-trigger" aria-label="Harness" aria-pressed={viewport < 760 ? activeSheet === "inspector" : layout.inspectorOpen} onClick={(event) => { if (viewport < 760) { sheetOpener.current = event.currentTarget; if (!layout.inspectorOpen) void dispatchOperation({ action: "layout.inspector.toggle", payload: {} }); setActiveSheet((value) => value === "inspector" ? null : "inspector"); } else void dispatchOperation({ action: "layout.inspector.toggle", payload: {} }); }}><NavigationIcon kind="harness" /></button>
       <button type="button" {...controlBinding("title-editor", layout.editorOpen ? "layout.editor.close" : "layout.editor.toggle")} className="studio-command-trigger" aria-label={layout.editorOpen ? "Close editor" : "Open editor"} onClick={(event) => { if (!layout.editorOpen) sheetOpener.current = event.currentTarget; void dispatchOperation({ action: layout.editorOpen ? "layout.editor.close" : "layout.editor.toggle", payload: {} }); setActiveSheet(layout.editorOpen ? null : "editor"); }}><NavigationIcon kind="editor" /></button>
       <button type="button" {...controlBinding("title-command-palette", "palette.open")} className="studio-command-trigger" aria-label="Open command palette" onClick={() => { void dispatchOperation({ action: "palette.open", payload: {} }); }}><NavigationIcon kind="command" /></button>

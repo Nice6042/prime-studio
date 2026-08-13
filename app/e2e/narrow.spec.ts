@@ -33,6 +33,45 @@ test("compact workspace keeps the parent conversation and composer visible", asy
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-narrow-workspace");
 });
 
+test("320px at 2x keeps the complete rail unique, described, and sheet-safe", async ({ shellPage }, testInfo) => {
+  const rail = shellPage.getByRole("toolbar", { name: "Collapsed navigation" });
+  const controls = rail.getByRole("button");
+  await expect(controls).toHaveCount(5);
+  const expectedDescriptions = {
+    "rail-expand": "Expand sidebar (Ctrl+B)",
+    "rail-new-chat": /^New chat (?:\(Ctrl\+N\)|unavailable:)/,
+    "rail-search": "Search (Ctrl+K)",
+    "rail-settings": "Settings (Ctrl+,)",
+    "rail-workspace-menu": "Prime Studio: D:\\fixture\\Prime Studio",
+  } as const;
+  for (const [controlId, description] of Object.entries(expectedDescriptions)) {
+    const control = shellPage.locator(`[data-control-id="${controlId}"]`);
+    await expect(control).toHaveCount(1);
+    await expect(control).toBeVisible();
+    await expect(control).toHaveAccessibleDescription(description);
+    const box = await control.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.y).toBeGreaterThanOrEqual(40);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(320);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(176);
+  }
+  await shellPage.locator('[data-control-id="rail-expand"]').focus();
+  await shellPage.keyboard.press("End");
+  await expect(shellPage.locator('[data-control-id="rail-workspace-menu"]')).toBeFocused();
+  await shellPage.keyboard.press("Home");
+  await shellPage.keyboard.press("Enter");
+  const sheet = shellPage.locator('[data-studio-sheet="sidebar"]');
+  await expect(sheet.locator('[data-control-id="sidebar-collapse"]')).toBeFocused();
+  await expect(shellPage.locator('.studio-sidebar[data-mode="rail"]')).toHaveAttribute("inert", "");
+  await expect(shellPage.locator('[data-control-id="rail-expand"]')).not.toBeFocused();
+  await shellPage.keyboard.press("Escape");
+  await expect(shellPage.locator('[data-control-id="rail-expand"]')).toBeFocused();
+  await shellPage.screenshot({ path: testInfo.outputPath("collapsed-rail-320-2x.png"), fullPage: true });
+  await expectNoDocumentOverflow(shellPage);
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "collapsed-rail-320-2x");
+});
+
 test("projects, Harness, and editor become controlled sheets", async ({ shellPage }) => {
   await shellPage.getByRole("button", { name: "Projects" }).click();
   await expect(shellPage.locator('[data-studio-sheet="sidebar"]')).toBeVisible();
@@ -105,7 +144,7 @@ test("collapsed workspace footer keeps its menu in-view and restores keyboard fo
   await trigger.click();
   await shellPage.keyboard.press("Shift+Tab");
   await expect(shellPage.getByRole("menu", { name: "Workspace actions" })).toHaveCount(0);
-  await expect(shellPage.locator('.collapsed-sidebar [data-control-id="rail-settings"]')).toBeFocused();
+  await expect(shellPage.locator('[data-control-id="rail-settings"]')).toBeFocused();
 });
 
 test("settings and palette use compact responsive surfaces", async ({ shellPage }) => {
