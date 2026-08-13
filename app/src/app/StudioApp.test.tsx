@@ -741,13 +741,14 @@ describe("Studio application state", () => {
 
       await userEvent.click(screen.getByRole("tab", { name: "Edit" }));
 
-      expect(operations.filter((operation) => operation.action === "editor.mode.select")).toEqual([{
+      expect(operations.filter((operation) => operation.action === "editor.mode.select")).toEqual([expect.objectContaining({
         action: "editor.mode.select",
+        operationId: expect.any(String),
         payload: {
           documentId: JSON.stringify(["broker-1", rootSession.sessionId, "candidate-1", 7, document.identity]),
           mode: "edit",
         },
-      }]);
+      })]);
       expect(screen.getByRole("tab", { name: "Edit" })).toHaveAttribute("aria-selected", "true");
     } finally {
       dispatcherSpy.mockRestore();
