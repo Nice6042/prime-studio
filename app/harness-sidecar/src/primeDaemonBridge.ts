@@ -7,7 +7,7 @@ import type { FakeRootSessionSnapshot, ParentHistoryPage, ParentMessage, Scenari
 import { discoverRuntime, type RuntimeIdentity } from "./runtimeDiscovery.js";
 import { loadReviewedPrimeAdapter } from "./reviewedPrimeAdapter.js";
 import { parseStudioHarnessOperation, StudioHarnessOperationDispatcher, type StudioHarnessOperationOutcome } from "./studioHarnessOperations.js";
-import { sanitizeDiagnostic } from "./redaction.js";
+import { sanitizeActivityCommand, sanitizeDiagnostic } from "./redaction.js";
 import type { RuntimeClosureLock } from "./runtimeClosure.js";
 import { lockVerifiedRuntimeClosure } from "./runtimeClosure.js";
 
@@ -77,7 +77,7 @@ export interface PrimeHarnessInspectorDetails {
   readonly notices: readonly Readonly<{ id: string; kind: "info" | "warning" | "error"; title: string; detail: string; retryable: boolean; dismissible: boolean }>[];
   readonly activity: readonly Readonly<{
     id: string; occurredAtMs: number; group: string; kind: "agent" | "tool" | "file" | "system"; title: string; detail: string; childId?: string; filePath?: string;
-    tool?: Readonly<{ command: string; status: "pending" | "running" | "blocked" | "succeeded" | "failed"; durationMs: number | null; files: readonly string[] }>;
+    tool?: Readonly<{ command: string; redacted: boolean; status: "pending" | "running" | "blocked" | "succeeded" | "failed"; durationMs: number | null; files: readonly string[] }>;
   }>[];
   /** candidatePath is broker-private input and is stripped before details reach the renderer. */
   readonly outputs: readonly Readonly<{ id: string; label: string; candidatePath: string; kind: string }>[];
@@ -942,15 +942,16 @@ export class PrimeDaemonBridge {
     const capacityTokens = contextUsage ? optionalSafeInteger(contextUsage.contextWindow ?? contextUsage.capacityTokens) : null;
     const messages = Array.isArray(initial.messages) ? initial.messages : Array.isArray(context.messages) ? context.messages : [];
     const activity: Array<PrimeHarnessInspectorDetails["activity"][number]> = [];
-    const toolCalls = new Map<string, Readonly<{ command: string; files: readonly string[] }>>();
+    const toolCalls = new Map<string, Readonly<{ command: string; redacted: boolean; files: readonly string[] }>>();
     for (const raw of messages) {
       if (!plain(raw) || raw.role !== "assistant" || !Array.isArray(raw.content)) continue;
       for (const block of raw.content) {
         if (!plain(block) || block.type !== "toolCall" || typeof block.id !== "string") continue;
         const input = plain(block.arguments) ? block.arguments : plain(block.input) ? block.input : {};
-        const command = [input.command, input.cmd, block.name].find((value) => typeof value === "string") as string | undefined;
+        const rawCommand = [input.command, input.cmd, block.name].find((value) => typeof value === "string") as string | undefined;
+        const command = sanitizeActivityCommand(rawCommand ?? String(block.name ?? "Tool"));
         const candidateFiles = [input.path, input.filePath, input.filename].filter((value): value is string => typeof value === "string");
-        toolCalls.set(block.id, { command: boundedString(command ?? String(block.name ?? "Tool"), 32_768, true), files: candidateFiles.slice(0, 128).map((file) => boundedString(file, 4096)) });
+        toolCalls.set(block.id, { ...command, files: candidateFiles.slice(0, 128).map((file) => boundedString(file, 4096)) });
       }
     }
     for (const [index, raw] of messages.entries()) {
@@ -960,13 +961,15 @@ export class PrimeDaemonBridge {
         const detail = contentText(raw.content);
         const call = typeof raw.toolCallId === "string" ? toolCalls.get(raw.toolCallId) : undefined;
         const title = typeof raw.toolName === "string" ? boundedString(raw.toolName, 200) : "Tool";
+        const projectedCommand = call ?? { ...sanitizeActivityCommand(title), files: [] };
         activity.push({
-          id: messageId(raw, index), occurredAtMs, group: "Tools", kind: "tool", title, detail,
+          id: stableId("activity", `${messageId(raw, index)}:${String(raw.toolCallId ?? "unbound")}:${index}`), occurredAtMs, group: "Tools", kind: "tool", title, detail,
           tool: {
-            command: call?.command ?? title,
+            command: projectedCommand.command,
+            redacted: projectedCommand.redacted,
             status: raw.isError === true || raw.error === true ? "failed" : "succeeded",
-            durationMs: typeof raw.durationMs === "number" ? safeInteger(raw.durationMs) : null,
-            files: call?.files ?? [],
+            durationMs: typeof raw.durationMs === "number" && Number.isSafeInteger(raw.durationMs) && raw.durationMs >= 0 ? raw.durationMs : null,
+            files: projectedCommand.files,
           },
         });
       }

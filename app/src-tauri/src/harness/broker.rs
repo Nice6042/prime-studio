@@ -2246,7 +2246,7 @@ mod artifact_candidate_tests {
 
     #[test]
     fn inspector_paths_become_opaque_candidates_before_renderer_projection() {
-        let source = r#"{"observedAtMs":1,"startedAtMs":null,"context":null,"extensionUi":{"status":"unavailable","reason":"No verified request."},"contributions":[],"notices":[],"activity":[{"id":"a","occurredAtMs":1,"group":"Tools","kind":"tool","title":"read","detail":"done","tool":{"command":"read","status":"succeeded","durationMs":1,"files":["src/main.ts"]}}],"outputs":[{"id":"o","label":"Report","path":"reports/out.md","kind":"file"}],"sources":[{"id":"s","label":"Rules","detail":"context","kind":"file","candidatePath":"AGENTS.md"}],"children":{}}"#;
+        let source = r#"{"observedAtMs":1,"startedAtMs":null,"context":null,"extensionUi":{"status":"unavailable","reason":"No verified request."},"contributions":[],"notices":[],"activity":[{"id":"a","occurredAtMs":1,"group":"Tools","kind":"tool","title":"read","detail":"done","tool":{"command":"read","redacted":false,"status":"succeeded","durationMs":1,"files":["src/main.ts"]}},{"id":"b","occurredAtMs":2,"group":"Tools","kind":"tool","title":"read","detail":"done","tool":{"command":"read","redacted":false,"status":"succeeded","durationMs":1,"files":["src/main.ts"]}}],"outputs":[{"id":"o","label":"Report","path":"reports/out.md","kind":"file"}],"sources":[{"id":"s","label":"Rules","detail":"context","kind":"file","candidatePath":"AGENTS.md"}],"children":{}}"#;
         let cursor = HarnessCursor {
             runtime_generation: "generation-a".to_owned(),
             sequence: 1,
@@ -2255,7 +2255,13 @@ mod artifact_candidate_tests {
             sanitize_inspector_artifacts(source, "session-a", "project-a", &cursor).unwrap();
         let value: serde_json::Value = serde_json::from_str(&sanitized).unwrap();
         assert!(!contains_renderer_path_authority(&value));
-        assert_eq!(candidates.len(), 3);
+        assert_eq!(candidates.len(), 4);
+        let activity = value["activity"].as_array().unwrap();
+        assert_ne!(
+            activity[0]["tool"]["files"][0]["candidateId"],
+            activity[1]["tool"]["files"][0]["candidateId"],
+            "each activity/file pair must retain a distinct opaque identity"
+        );
         assert!(sanitized.contains("candidateId"));
         assert!(!sanitized.contains("reports/out.md"));
         let refreshed = source.replace("\"observedAtMs\":1", "\"observedAtMs\":2");

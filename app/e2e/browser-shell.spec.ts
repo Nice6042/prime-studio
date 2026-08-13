@@ -205,13 +205,30 @@ test("Harness keeps child work, activity, and current-chat usage out of the pare
   await expect(harness.getByRole("status", { name: "Child chat unavailable" })).toContainText("Deterministic fixtures do not supply authoritative child paging evidence.");
   await harness.getByRole("button", { name: "Back to Harness" }).click();
   await harness.getByRole("tab", { name: "Activity" }).click();
-  await expect(harness.getByText("No activity matches this filter.")).toBeVisible();
+  await expect(harness.getByRole("button", { name: /Redacted shell command/ })).toBeVisible();
   await expect(harness.getByText("Attention ledger unavailable.")).toHaveCount(0);
   await expect(harness.getByText("workspace.inspect")).toHaveCount(0);
   await harness.getByRole("tab", { name: "Usage" }).click();
   await expect(harness.getByText("Current chat", { exact: true })).toBeVisible();
   await expect(harness.getByText("2,400")).toBeVisible();
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-harness");
+});
+
+test("Activity exposes only the redacted command and opens its exact opaque artifact", async ({ shellPage }) => {
+  const harness = shellPage.getByRole("complementary", { name: "Harness" });
+  await harness.getByRole("tab", { name: "Activity" }).click();
+  await harness.getByRole("button", { name: /Redacted shell command/ }).click();
+  const command = "[escaped] curl [REDACTED_SECRET] [REDACTED_PROFILE_PATH] \\n \\u{202E}";
+  await expect(harness.getByTitle(command)).toContainText(command);
+  await expect(harness.getByText("Redacted", { exact: true })).toBeVisible();
+  await expect(harness.getByText("Unavailable", { exact: true })).toBeVisible();
+  await harness.getByRole("button", { name: "Copy command" }).click();
+  await expect(harness.getByText("Command copied.", { exact: true })).toHaveAttribute("role", "status");
+  await expect.poll(() => shellPage.evaluate(() => (window as typeof window & { __PRIME_STUDIO_CLIPBOARD__?: string[] }).__PRIME_STUDIO_CLIPBOARD__)).toEqual([command]);
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-activity-redacted-wide");
+  await harness.getByRole("button", { name: "Open activity-report.md" }).click();
+  await expect(shellPage.getByRole("region", { name: "Editor" })).toContainText("activity-report.md");
+  await expect(shellPage.locator("body")).not.toContainText("secret-token");
 });
 
 test("composer admits a cursor-bound command and replaces the live projection", async ({ shellPage }) => {

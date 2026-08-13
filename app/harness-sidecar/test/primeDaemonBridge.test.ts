@@ -800,8 +800,17 @@ test("inspector projects only explicit daemon context and output evidence", asyn
   };
   let statsResult: Record<string, unknown> = { contextUsage: { tokens: 25, capacityTokens: 100, turns: 1, samples: [5, 15, 25] }, tokens: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, total: 3 } };
   let resourceResult: Record<string, unknown> = { outputs: [{ name: "Report", path: "C:\\work\\report.md", kind: "markdown" }, { name: "Unbound" }] };
+  const messages = [
+    { role: "user", content: "one", timestamp: 1 },
+    { role: "assistant", content: [
+      { type: "toolCall", id: "call-hostile", name: "shell", arguments: { command: "Bearer secret-token api_key=private-value C:\\Users\\Person\\Documents\\report.txt\nshow \u202Etxt.exe", path: "C:\\work\\report.md" } },
+      { type: "toolCall", id: "call-safe", name: "shell", arguments: { command: "echo safe", path: "C:\\work\\other.md" } },
+    ], timestamp: 2, stopReason: "stop", usage: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 3, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } },
+    { id: "duplicate-result-id", role: "toolResult", toolCallId: "call-hostile", toolName: "shell", content: "done", timestamp: 3, durationMs: -1 },
+    { id: "duplicate-result-id", role: "toolResult", toolCallId: "call-safe", toolName: "shell", content: "done", timestamp: 5, durationMs: 5 },
+  ];
   const connection = {
-    async getInitialSnapshot() { return { state, startedAtMs: 1_000, messages: [{ role: "user", content: "one", timestamp: 1 }, { role: "assistant", content: [], timestamp: 2, stopReason: "stop", usage: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 3, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } }], children: [], lastEventCursor: { generation: "generation-1", sequence: 1 } }; },
+    async getInitialSnapshot() { return { state, startedAtMs: 1_000, messages, children: [], lastEventCursor: { generation: "generation-1", sequence: 1 } }; },
     async getState() { return state; }, async getMessages() { return []; }, async getQueue() { return {}; },
     async getSessionContext() { return {}; },
     async getModelCatalog() { return { models: [] }; },
@@ -821,6 +830,16 @@ test("inspector projects only explicit daemon context and output evidence", asyn
   assert.deepEqual(details.context, { usedTokens: 25, capacityTokens: 100, turns: 1, samples: [5, 15, 25] });
   assert.equal(details.outputs.length, 1);
   assert.equal(details.outputs[0]?.candidatePath, "C:\\work\\report.md");
+  assert.equal(details.activity.length, 2);
+  assert.notEqual(details.activity[0]?.id, details.activity[1]?.id);
+  assert.equal(details.activity[0]?.tool?.redacted, true);
+  assert.equal(details.activity[0]?.tool?.durationMs, null);
+  const serialized = JSON.stringify(details);
+  assert.equal(serialized.includes("secret-token"), false);
+  assert.equal(serialized.includes("private-value"), false);
+  assert.equal(serialized.includes("Person"), false);
+  assert.equal(serialized.includes("\\u202e"), false);
+  assert.match(details.activity[0]?.tool?.command ?? "", /\\u\{202E\}/u);
 
   statsResult = { tokens: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, total: 3 } };
   resourceResult = {};

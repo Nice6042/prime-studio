@@ -39,7 +39,7 @@ const details: HarnessPanelDetails = {
   sources: [{ id: "source", label: "Prime Harness snapshot", detail: "Verified runtime projection", kind: "runtime" }],
   activity: [
     { id: "a1", occurredAtMs: now - 360_000, group: "Today", kind: "agent", title: "Interface fidelity review spawned", detail: "rlm() child", childId: "fidelity" },
-    { id: "a2", occurredAtMs: now - 240_000, group: "Today", kind: "tool", title: "Workspace source scan", detail: "Completed", tool: { command: "rg --files app/src", status: "succeeded", durationMs: 840, files: [{ candidateId: "candidate-tool", label: "HarnessInspector.tsx" }] } },
+    { id: "a2", occurredAtMs: now - 240_000, group: "Today", kind: "tool", title: "Workspace source scan", detail: "Completed", tool: { command: "rg --files app/src", redacted: false, status: "succeeded", durationMs: 840, files: [{ candidateId: "candidate-tool", label: "HarnessInspector.tsx" }] } },
     { id: "a3", occurredAtMs: now - 120_000, group: "Today", kind: "file", title: "Harness panel updated", detail: "HarnessInspector.tsx", artifactCandidateId: "candidate-activity" },
   ],
   children: {

@@ -48,6 +48,7 @@ export const test = base.extend<ShellFixtures>({
       const global = window as typeof window & {
         __PRIME_STUDIO_BROWSER_INVOKES__?: string[];
         __PRIME_STUDIO_BROWSER_REQUESTS__?: Array<{ command: string; args: Record<string, unknown> }>;
+        __PRIME_STUDIO_CLIPBOARD__?: string[];
         __TAURI_INTERNALS__?: TauriInternals;
         __TAURI_EVENT_PLUGIN_INTERNALS__?: {
           unregisterListener: (event: string, id: number) => void;
@@ -56,6 +57,11 @@ export const test = base.extend<ShellFixtures>({
       const callbacks = new Map<number, Callback>();
       global.__PRIME_STUDIO_BROWSER_INVOKES__ = [];
       global.__PRIME_STUDIO_BROWSER_REQUESTS__ = [];
+      global.__PRIME_STUDIO_CLIPBOARD__ = [];
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { writeText: async (text: string) => { global.__PRIME_STUDIO_CLIPBOARD__?.push(text); } },
+      });
       const listeners = new Map<string, number[]>();
       let nextCallback = 1;
       let projectedHarnessSessions = scenario.sessions.map((session) => ({
@@ -399,7 +405,8 @@ export const test = base.extend<ShellFixtures>({
                   { turn: 3, occurredAtMs: 1_775_995_219_000, input: 440, output: 170, cacheRead: 240, cacheWrite: 30, totalTokens: 880 },
                 ],
               },
-              contributions: [], notices: [{ id: "overload-browser", kind: "warning", title: "Runtime busy", detail: "server_is_overloaded", retryable: true, dismissible: true }], activity: [],
+              contributions: [], notices: [{ id: "overload-browser", kind: "warning", title: "Runtime busy", detail: "server_is_overloaded", retryable: true, dismissible: true }],
+              activity: [{ id: "activity-browser", occurredAtMs: 1_775_995_218_000, group: "Tools", kind: "tool", title: "Redacted shell command", detail: "Completed", tool: { command: "[escaped] curl [REDACTED_SECRET] [REDACTED_PROFILE_PATH] \\n \\u{202E}", redacted: true, status: "succeeded", durationMs: null, files: [{ candidateId: "candidate-browser-activity", label: "activity-report.md" }] } }],
               outputs: [{ id: "output-browser", label: "Harness report", candidateId: "candidate-browser-output", kind: "file" }],
               sources: [{ id: "source-browser", label: "Harness contract", detail: "Verified fixture source", candidateId: "candidate-browser-source", kind: "file" }],
               children: {},
@@ -422,11 +429,11 @@ export const test = base.extend<ShellFixtures>({
           }
           case "harness_artifact_open": {
             const request = args.request as { sessionId?: string; candidateId?: string } | undefined;
-            if (request?.sessionId !== "session-e2e" || !["candidate-browser-output", "candidate-browser-source"].includes(request?.candidateId ?? "")) {
+            if (request?.sessionId !== "session-e2e" || !["candidate-browser-output", "candidate-browser-source", "candidate-browser-activity"].includes(request?.candidateId ?? "")) {
               return { kind: "unsupported", reason: "The artifact candidate is forged, stale, or belongs to another Harness session." };
             }
             return { kind: "opened", document: {
-              label: request.candidateId === "candidate-browser-output" ? "harness-report.md" : "harness-contract.md",
+              label: request.candidateId === "candidate-browser-output" ? "harness-report.md" : request.candidateId === "candidate-browser-activity" ? "activity-report.md" : "harness-contract.md",
               ref: { brokerId: "browser-broker", rootSessionId: "session-e2e", artifactId: request.candidateId, revision: artifactRevision },
               identity: artifactIdentity, content: artifactContent, writable: true, diff: [],
             } };

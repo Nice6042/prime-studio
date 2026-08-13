@@ -404,6 +404,7 @@ describe("Harness IPC client", () => {
           detail: "package.json",
           tool: {
             command: "read",
+            redacted: false,
             status: "succeeded",
             durationMs: 2,
             files: [{ candidateId: "candidate-tool", label: "package.json" }],
@@ -458,6 +459,22 @@ describe("Harness IPC client", () => {
     await expect(loadHarnessInspector("root")).rejects.toThrow("Harness projection unavailable");
 
     mocks.invoke.mockResolvedValueOnce(JSON.stringify({ ...details, extensionUi: { status: "available", requests: [{ ...details.extensionUi.requests[0], method: "approval" }] } }));
+    await expect(loadHarnessInspector("root")).rejects.toThrow("Harness projection unavailable");
+
+    const activity = details.activity[0];
+    mocks.invoke.mockResolvedValueOnce(JSON.stringify({ ...details, activity: [{ ...activity, tool: { ...activity.tool, redacted: "yes" } }] }));
+    await expect(loadHarnessInspector("root")).rejects.toThrow("Harness projection unavailable");
+
+    mocks.invoke.mockResolvedValueOnce(JSON.stringify({ ...details, activity: [{ ...activity, tool: { ...activity.tool, durationMs: -1 } }] }));
+    await expect(loadHarnessInspector("root")).rejects.toThrow("Harness projection unavailable");
+
+    mocks.invoke.mockResolvedValueOnce(JSON.stringify({ ...details, activity: [{ ...activity, tool: { ...activity.tool, command: "show \u202Etxt.exe" } }] }));
+    await expect(loadHarnessInspector("root")).rejects.toThrow("Harness projection unavailable");
+
+    mocks.invoke.mockResolvedValueOnce(JSON.stringify({ ...details, activity: [activity, { ...activity }] }));
+    await expect(loadHarnessInspector("root")).rejects.toThrow("Harness projection unavailable");
+
+    mocks.invoke.mockResolvedValueOnce(JSON.stringify({ ...details, activity: [activity, { ...activity, id: "activity-2", tool: { ...activity.tool, files: [...activity.tool.files] } }] }));
     await expect(loadHarnessInspector("root")).rejects.toThrow("Harness projection unavailable");
 
     expect(() => decodeHarnessInspectorDetails({ ...details, extensionUi: { status: "available", requests: [{ ...details.extensionUi.requests[0], cursor: { ...session.cursor, sequence: 2 } }] } }, session.cursor)).toThrow("Harness projection unavailable");

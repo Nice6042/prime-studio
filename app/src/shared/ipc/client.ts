@@ -101,6 +101,14 @@ function bounded(value: unknown, maximum: number, allowEmpty = false): string {
   return value;
 }
 
+const UNSAFE_ACTIVITY_COMMAND_CHARACTER = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/u;
+
+function activityCommand(value: unknown): string {
+  const command = bounded(value, 2_048, true);
+  if (UNSAFE_ACTIVITY_COMMAND_CHARACTER.test(command)) fail();
+  return command;
+}
+
 function providerId(value: unknown): string {
   const candidate = bounded(value, 128);
   if (!/^[A-Za-z0-9_.:@+-]+$/u.test(candidate)) fail();
@@ -640,6 +648,7 @@ export interface HarnessInspectorDetails {
     artifactCandidateId?: string;
     tool?: Readonly<{
       command: string;
+      redacted: boolean;
       status: "pending" | "running" | "blocked" | "succeeded" | "failed";
       durationMs: number | null;
       files: readonly Readonly<{ candidateId: string; label: string }>[];
@@ -843,6 +852,8 @@ export function decodeHarnessInspectorDetails(value: unknown, expectedCursor?: R
     }
     turnUsage = { totalTurns, omittedTurns, rows };
   }
+  const activityIds = new Set<string>();
+  const activityFileCandidateIds = new Set<string>();
   const result: HarnessInspectorDetails = {
     observedAtMs: safeInteger(source.observedAtMs),
     startedAtMs: nullableSafeInteger(source.startedAtMs),
@@ -869,12 +880,15 @@ export function decodeHarnessInspectorDetails(value: unknown, expectedCursor?: R
     }),
     activity: array(source.activity, 4_096).map((entry) => {
       const item = recordWithOptional(entry, ["id", "occurredAtMs", "group", "kind", "title", "detail"], ["childId", "artifactCandidateId", "tool"]);
+      const activityId = id(item.id);
+      if (activityIds.has(activityId)) fail();
+      activityIds.add(activityId);
       const activity: HarnessInspectorDetails["activity"][number] & {
         childId?: string;
         artifactCandidateId?: string;
         tool?: HarnessInspectorDetails["activity"][number]["tool"];
       } = {
-        id: id(item.id),
+        id: activityId,
         occurredAtMs: safeInteger(item.occurredAtMs),
         group: bounded(item.group, 256),
         kind: oneOf(item.kind, new Set(["agent", "tool", "file", "system"] as const)),
@@ -884,14 +898,18 @@ export function decodeHarnessInspectorDetails(value: unknown, expectedCursor?: R
       if (item.childId !== undefined) activity.childId = id(item.childId);
       if (item.artifactCandidateId !== undefined) activity.artifactCandidateId = id(item.artifactCandidateId);
       if (item.tool !== undefined) {
-        const tool = record(item.tool, ["command", "status", "durationMs", "files"]);
+        const tool = record(item.tool, ["command", "redacted", "status", "durationMs", "files"]);
         activity.tool = {
-          command: bounded(tool.command, 32_768, true),
+          command: activityCommand(tool.command),
+          redacted: boolean(tool.redacted),
           status: oneOf(tool.status, new Set(["pending", "running", "blocked", "succeeded", "failed"] as const)),
           durationMs: nullableSafeInteger(tool.durationMs),
           files: array(tool.files, 1_024).map((file) => {
             const candidate = record(file, ["candidateId", "label"]);
-            return { candidateId: id(candidate.candidateId), label: bounded(candidate.label, 8_192) };
+            const candidateId = id(candidate.candidateId);
+            if (activityFileCandidateIds.has(candidateId)) fail();
+            activityFileCandidateIds.add(candidateId);
+            return { candidateId, label: bounded(candidate.label, 8_192) };
           }),
         };
       }

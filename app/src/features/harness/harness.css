@@ -243,7 +243,7 @@
 .activity-item[data-seen="false"] .activity-row strong { color: var(--hi-fg); font-weight: 600; }
 .activity-row { display: grid; grid-template-columns: 47px 7px minmax(0, 1fr) auto; gap: 8px; align-items: start; inline-size: 100%; padding: 7px 8px; border: 0; border-radius: 8px; background: transparent; text-align: start; }
 .activity-row:hover { background: var(--hi-raised); }
-.activity-row time { padding-block-start: 2px; color: var(--hi-faint); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.activity-row time { padding-block-start: 2px; color: var(--hi-muted); font-size: 10.5px; font-variant-numeric: tabular-nums; }
 .activity-kind { inline-size: 7px; block-size: 7px; margin-block-start: 5px; border-radius: 50%; background: var(--hi-faint); }
 .activity-kind[data-kind="agent"] { background: var(--hi-success); }
 .activity-kind[data-kind="tool"] { background: #6aa2f7; }
@@ -259,10 +259,14 @@
 .activity-tool-detail { display: grid; gap: 7px; margin: 2px 7px 8px 64px; padding: 9px; border: 1px solid var(--hi-line); border-radius: 9px; background: #0e0e12; }
 .activity-detail-row { display: grid; grid-template-columns: 54px minmax(0, 1fr) auto auto; gap: 7px; align-items: center; color: var(--hi-muted); font-size: 10.75px; }
 .activity-detail-row code { overflow: hidden; padding: 4px 6px; border-radius: 5px; background: var(--hi-raised); color: var(--hi-soft); font: 10.5px/1.4 Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.activity-command-redacted { color: var(--hi-warning); font-size: 9.75px; font-weight: 650; text-transform: uppercase; letter-spacing: .04em; }
+.activity-copy-feedback { margin: 0; color: var(--hi-muted); font-size: 10.5px; }
+.activity-copy-feedback[role="alert"] { color: var(--hi-danger); }
 .activity-detail-row button { min-block-size: 24px; border: 0; border-radius: 5px; background: transparent; color: var(--hi-muted); font-size: 10.5px; }
 .activity-detail-row strong[data-status="succeeded"] { color: var(--hi-success); }
 .activity-files { display: grid; gap: 4px; }
 .activity-files > span { color: var(--hi-muted); font-size: 10.75px; }
+.activity-files small { color: var(--hi-muted); font-size: 10.5px; }
 .activity-files button { overflow: hidden; padding: 5px 7px; border: 0; border-radius: 5px; background: var(--hi-raised); color: var(--hi-soft); font: 10.5px/1.4 Consolas, monospace; text-align: start; text-overflow: ellipsis; white-space: nowrap; }
 
 .child-detail { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-block-size: 100%; }

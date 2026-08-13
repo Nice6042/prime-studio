@@ -640,6 +640,33 @@ describe("Studio application state", () => {
     }
   });
 
+  it("copies only the sanitized activity command through the native clipboard boundary", async () => {
+    const writeText = vi.fn(async () => undefined);
+    const priorClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const sanitized = "[escaped] run [REDACTED_SECRET] \\u{202E}";
+    const adapter = conversationAdapter([]);
+    adapter.load = async () => ({
+      observedAtMs: Date.UTC(2026, 7, 13, 12), startedAtMs: null, context: null,
+      extensionUi: { status: "available", requests: [] }, contributions: [], notices: [], outputs: [], sources: [], children: {},
+      activity: [{ id: "activity-safe", occurredAtMs: Date.UTC(2026, 7, 13, 11), group: "Tools", kind: "tool", title: "Shell", detail: "Done", tool: { command: sanitized, redacted: true, status: "succeeded", durationMs: null, files: [] } }],
+    });
+    const store = createStudioStore(initialStudioState({ projectCatalog: catalogBoundToRootSession(), sessions: [rootSession] }));
+    try {
+      render(<AppProviders store={store}><StudioApp harnessAdapter={adapter} /></AppProviders>);
+      await userEvent.click(await screen.findByRole("tab", { name: "Activity" }));
+      await userEvent.click(await screen.findByRole("button", { name: /Shell/ }));
+      await userEvent.click(screen.getByRole("button", { name: "Copy command" }));
+
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith(sanitized));
+      expect(writeText).toHaveBeenCalledTimes(1);
+      expect(await screen.findByText("Command copied.")).toHaveAttribute("role", "status");
+    } finally {
+      if (priorClipboard) Object.defineProperty(navigator, "clipboard", priorClipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
   it("hydrates an opaque Harness candidate through the centralized dispatcher and opens the editor", async () => {
     const openArtifact = vi.fn(async () => ({
       kind: "opened" as const,

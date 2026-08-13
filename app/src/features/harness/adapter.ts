@@ -75,6 +75,7 @@ export interface HarnessActivityItem {
   readonly artifactCandidateId?: string;
   readonly tool?: Readonly<{
     command: string;
+    redacted: boolean;
     status: "pending" | "running" | "blocked" | "succeeded" | "failed";
     durationMs: number | null;
     files: readonly HarnessArtifactCandidate[];

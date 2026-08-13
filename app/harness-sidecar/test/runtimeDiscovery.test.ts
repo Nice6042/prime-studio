@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { createHash } from "node:crypto";
 import { decodeFrame, encodeFrame, parseClosedJson } from "../src/framing.js";
-import { sanitizeDiagnostic } from "../src/redaction.js";
+import { sanitizeActivityCommand, sanitizeDiagnostic } from "../src/redaction.js";
 import { RuntimeDiscoveryError, discoverRuntime } from "../src/runtimeDiscovery.js";
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "test", "fixtures");
@@ -128,6 +128,29 @@ test("diagnostics redact secrets and local profile paths", () => {
   assert.equal(diagnostic.includes("private-value"), false);
   assert.equal(diagnostic.includes("Person"), false);
   assert.match(diagnostic, /\[REDACTED/);
+});
+
+test("activity commands redact credentials and profile identity before visualizing hostile controls", () => {
+  const raw = "OPENAI_API_KEY=private-value GITHUB_TOKEN='github secret' AWS_SECRET_ACCESS_KEY=aws-secret " +
+    "curl -H 'Bearer secret-token' --api_key=another-private-value --password 'quoted secret' \"C:" +
+    "\\Users\\John Doe\\Documents\\report.txt\"\nshow \u202Etxt.exe";
+
+  const sanitized = sanitizeActivityCommand(raw);
+
+  assert.equal(sanitized.redacted, true);
+  assert.equal(sanitized.command.includes("secret-token"), false);
+  assert.equal(sanitized.command.includes("private-value"), false);
+  assert.equal(sanitized.command.includes("github secret"), false);
+  assert.equal(sanitized.command.includes("aws-secret"), false);
+  assert.equal(sanitized.command.includes("quoted secret"), false);
+  assert.equal(sanitized.command.includes("John Doe"), false);
+  assert.equal(sanitized.command.includes("\n"), false);
+  assert.equal(sanitized.command.includes("\u202E"), false);
+  assert.match(sanitized.command, /\[REDACTED_SECRET\]/u);
+  assert.match(sanitized.command, /\[REDACTED_PROFILE_PATH\]/u);
+  assert.match(sanitized.command, /\\n/u);
+  assert.match(sanitized.command, /\\u\{202E\}/u);
+  assert.ok([...sanitized.command].length <= 2_048);
 });
 
 test("the compiled credential-free sidecar is declared as a Tauri resource", async () => {

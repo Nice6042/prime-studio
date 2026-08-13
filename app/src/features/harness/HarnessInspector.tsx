@@ -200,27 +200,31 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
 
   const runAction = async (operation: StudioOperation, key: string, quiet = false) => {
     const actionScope = sessionScope;
-    if (!actionScope) return;
+    if (!actionScope) return { status: "unavailable", reason: "Harness session identity is unavailable." } as const;
     const attemptScope = operation.action === "harness.child.stop"
       ? childPendingScope(actionScope, operation.payload.childId)
       : actionScope;
-    if (pendingAttempts.current.has(attemptScope)) return;
+    if (pendingAttempts.current.has(attemptScope)) return { status: "rejected", reason: "Another Harness action is still pending.", retryable: true } as const;
     pendingAttempts.current.set(attemptScope, key);
     setPendingByScope(new Map(pendingAttempts.current));
-    if (!quiet) setFeedback(null);
+    const ownsLocalFeedback = operation.action === "activity.command.copy";
+    if (!quiet && !ownsLocalFeedback) setFeedback(null);
     try {
       const outcome = await (onExecute ?? adapter.execute)(operation);
-      if (currentSessionScope.current !== actionScope) return;
+      if (currentSessionScope.current !== actionScope) return { status: "unavailable", reason: "Harness session changed before the action settled." } as const;
       const next = operation.action === "harness.child.stop" && outcome.status === "updated"
         ? { kind: "status" as const, text: "Child cancellation confirmed." }
         : outcomeMessage(outcome);
-      if (!quiet || next.kind === "alert") setFeedback(next);
+      if (!ownsLocalFeedback && (!quiet || next.kind === "alert")) setFeedback(next);
       if (outcome.status !== "unavailable" && outcome.status !== "rejected" && outcome.status !== "unknown_outcome") {
         if (operation.action === "harness.overload.dismiss") setHiddenNoticeIds((current) => new Set([...current, operation.payload.errorId]));
         if (operation.action !== "activity.command.copy" && operation.action !== "harness.tab.select" && !operation.action.endsWith("open") && !operation.action.endsWith("toggle") && operation.action !== "harness.child.tab-select" && operation.action !== "harness.child.back") await loadDetails();
       }
+      return outcome;
     } catch (error) {
-      if (currentSessionScope.current === actionScope) setFeedback({ kind: "alert", text: error instanceof Error ? error.message : "Harness action failed." });
+      const reason = error instanceof Error ? error.message : "Harness action failed.";
+      if (currentSessionScope.current === actionScope && !ownsLocalFeedback) setFeedback({ kind: "alert", text: reason });
+      return { status: "rejected", reason, retryable: true } as const;
     } finally {
       if (pendingAttempts.current.get(attemptScope) === key) pendingAttempts.current.delete(attemptScope);
       setPendingByScope(new Map(pendingAttempts.current));

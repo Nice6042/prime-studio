@@ -49,7 +49,7 @@ const details: HarnessPanelDetails = {
   notices: [{ id: "overload", kind: "warning", title: "Auto-compaction failed", detail: "server_is_overloaded", retryable: true, dismissible: true }],
   activity: [
     { id: "act-agent", occurredAtMs: 1_725_700_100_000, group: "Today", kind: "agent", title: "Review protocol spawned", detail: "rlm() child", childId: "child-1" },
-    { id: "act-tool", occurredAtMs: 1_725_700_200_000, group: "Today", kind: "tool", title: "Workspace inspection", detail: "Completed", tool: { command: "rg --files", status: "succeeded", durationMs: 820, files: [{ candidateId: "candidate-tool-file", label: "src/protocol.ts" }] } },
+    { id: "act-tool", occurredAtMs: 1_725_700_200_000, group: "Today", kind: "tool", title: "Workspace inspection", detail: "Completed", tool: { command: "rg --files", redacted: false, status: "succeeded", durationMs: 820, files: [{ candidateId: "candidate-tool-file", label: "src/protocol.ts" }] } },
     { id: "act-system", occurredAtMs: 1_725_700_250_000, group: "Today", kind: "system", title: "Snapshot synchronized", detail: "Harness projection refreshed" },
     { id: "act-file", occurredAtMs: 1_725_700_300_000, group: "Yesterday", kind: "file", title: "Protocol updated", detail: "src/protocol.ts", artifactCandidateId: "candidate-activity-file" },
   ],

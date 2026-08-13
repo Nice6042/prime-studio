@@ -99,6 +99,21 @@ test("projects, Harness, and editor become controlled sheets", async ({ shellPag
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-narrow-sheets");
 });
 
+test("redacted Activity detail remains usable and contained in the narrow Harness sheet", async ({ shellPage }) => {
+  await shellPage.setViewportSize({ width: 320, height: 600 });
+  await shellPage.getByRole("button", { name: "Harness" }).click();
+  const harness = shellPage.getByRole("complementary", { name: "Harness" });
+  await harness.getByRole("tab", { name: "Activity" }).click();
+  await harness.getByRole("button", { name: /Redacted shell command/ }).click();
+  await expect(harness.getByText("Redacted", { exact: true })).toBeVisible();
+  await expect(harness.getByText("Unavailable", { exact: true })).toBeVisible();
+  await harness.getByRole("button", { name: "Copy command" }).click();
+  await expect(harness.getByText("Command copied.", { exact: true })).toHaveAttribute("role", "status");
+  await expectWithinViewport(harness.getByRole("button", { name: "Open activity-report.md" }), shellPage);
+  await expectNoDocumentOverflow(shellPage);
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-activity-redacted-narrow");
+});
+
 test("200 percent project sheet preserves keyboard expansion and grouping", async ({ shellPage }, testInfo) => {
   await shellPage.setViewportSize({ width: 320, height: 600 });
   await shellPage.getByRole("button", { name: "Projects" }).click();

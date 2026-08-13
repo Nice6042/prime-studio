@@ -154,11 +154,11 @@ test("Harness overview, usage, and activity expose every truthful fixture projec
   await expect(harness.getByText("Parent and child attribution is unavailable. Totals are not guessed.")).toBeVisible();
   await tabs.getByRole("tab", { name: "Usage" }).press("ArrowRight");
   await expect(tabs.getByRole("tab", { name: "Activity" })).toBeFocused();
-  await expect(harness.getByText("No activity matches this filter.")).toBeVisible();
+  await expect(harness.getByRole("button", { name: /Redacted shell command/ })).toBeVisible();
   await expect(harness.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
   await activateWithKeyboard(harness.getByRole("button", { name: "Tools" }));
   await expect(harness.getByRole("button", { name: "Tools" })).toHaveAttribute("aria-pressed", "true");
-  await expect(harness.getByText("No activity matches this filter.")).toBeVisible();
+  await expect(harness.getByRole("button", { name: /Redacted shell command/ })).toBeVisible();
   await tabs.getByRole("tab", { name: "Activity" }).press("Home");
   await expect(tabs.getByRole("tab", { name: "Harness" })).toBeFocused();
   await expect(harness.getByRole("region", { name: "Main agent" })).toBeVisible();
