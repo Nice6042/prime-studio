@@ -24,7 +24,7 @@ import { deriveComposerState, deriveSlashCommands, type SlashCommand } from "../
 import { projectConversationPresentations } from "../features/conversation/conversationDisplay";
 import { routeSlashCommand } from "../features/conversation/conversationRouting";
 import { HarnessInspector } from "../features/harness/HarnessInspector";
-import { unavailableHarnessInspectorAdapter, type HarnessComposerProjection, type HarnessInspectorAdapter } from "../features/harness/adapter";
+import { unavailableHarnessInspectorAdapter, type HarnessComposerProjection, type HarnessInspectorAdapter, type HarnessRuntimeStatusProjection } from "../features/harness/adapter";
 import { SettingsShell } from "../features/settings/SettingsShell";
 import { ArchivedCatalogSettings } from "../features/settings/ArchivedCatalogSettings";
 import { CommandPalette } from "../features/command-palette/CommandPalette";
@@ -40,6 +40,7 @@ import { hasOpenStudioOverlay } from "../surfaceEscape";
 import { chatAttentionEvidence, deriveUnreadChatIds } from "../attention/attentionLedger";
 import { loadAttentionSnapshot, markAttentionSeen } from "../attention/attentionClient";
 import { LayoutPersistenceCoordinator } from "./layoutPersistence";
+import type { RootSessionProjection } from "../entities/harness/types";
 
 let bootstrapPromise: ReturnType<typeof rpc.bootstrapHarness> | null = null;
 let catalogPromise: ReturnType<typeof loadProjectCatalog> | null = null;
@@ -144,8 +145,9 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   }
   const [catalogOperation, setCatalogOperation] = useState<WorkspaceOperationState>({ phase: "idle" });
   const [operationFeedback, setOperationFeedback] = useState<string | null>(null);
-  const [loadedComposer, setLoadedComposer] = useState<Readonly<{ sessionId: string; projection: HarnessComposerProjection }> | null>(null);
+  const [loadedComposer, setLoadedComposer] = useState<Readonly<{ sessionId: string; cursor: RootSessionProjection["cursor"]; projection: HarnessComposerProjection }> | null>(null);
   const [composerUnavailableReason, setComposerUnavailableReason] = useState<string | null>(null);
+  const [runtimeInspector, setRuntimeInspector] = useState<HarnessRuntimeStatusProjection | null>(null);
   const [residentBindingFailure, setResidentBindingFailure] = useState<Readonly<{ projectId: string; chatId: string; reason: string }> | null>(null);
   const workerRecoveryAttempts = useRef<Set<string>>(new Set());
 
@@ -260,8 +262,9 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       return () => { active = false; };
     }
     setComposerUnavailableReason(null);
-    void harnessAdapter.loadComposer(selectedSession.sessionId).then((projection) => {
-      if (active) setLoadedComposer({ sessionId: selectedSession.sessionId, projection });
+    const requestedSession = selectedSession;
+    void harnessAdapter.loadComposer(requestedSession.sessionId).then((projection) => {
+      if (active) setLoadedComposer({ sessionId: requestedSession.sessionId, cursor: requestedSession.cursor, projection });
     }).catch((error) => {
       if (!active) return;
       setLoadedComposer(null);
@@ -269,6 +272,10 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     });
     return () => { active = false; };
   }, [adapterConnected, compatibility, harnessAdapter, selectedSession?.cursor.runtimeGeneration, selectedSession?.cursor.sequence, selectedSession?.sessionId]);
+
+  useEffect(() => {
+    setRuntimeInspector(null);
+  }, [adapterConnected, compatibility.status, selectedSession?.sessionId, selectedSession?.cursor.runtimeGeneration, selectedSession?.cursor.sequence]);
 
   useEffect(() => {
     setAdmissionPhase("idle");
@@ -818,8 +825,14 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const writeToolSetting = adapterConnected && harnessAdapter.settings?.toolPolicy ? (key: keyof AppSettings, value: string | null) => {
     executeSettingOperation({ action: "settings.tool.set-enabled", payload: { toolId: "configurable-tools", enabled: value === "enabled" } }, key, value);
   } : undefined;
+  const exactLoadedComposer = loadedComposer && selectedSession
+    && loadedComposer.sessionId === selectedSession.sessionId
+    && loadedComposer.cursor.runtimeGeneration === selectedSession.cursor.runtimeGeneration
+    && loadedComposer.cursor.sequence === selectedSession.cursor.sequence
+    ? loadedComposer
+    : null;
   const composerProjection = adapterConnected && hasCapability("model_catalog")
-    ? loadedComposer && loadedComposer.sessionId === selectedSession?.sessionId ? loadedComposer.projection : harnessAdapter.composer
+    ? exactLoadedComposer?.projection ?? harnessAdapter.composer
     : undefined;
   const sidebarContent = layout.sidebarOpen
     ? <ProjectSidebar
@@ -1105,6 +1118,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         routeRequest={inspectorRouteRequest}
         onCollapse={() => { if (layout.inspectorOpen) void dispatchOperation({ action: "layout.inspector.toggle", payload: {} }); setActiveSheet(null); }}
         onOpenAccountUsage={() => { void dispatchOperation({ action: "usage.account.open", payload: {} }); }}
+        onRuntimeStatus={setRuntimeInspector}
       />}
       editorContent={<EditorPane
         onClose={() => { void dispatchOperation({ action: "layout.editor.close", payload: {} }); }}
@@ -1146,8 +1160,13 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     />
     <RuntimeStatusBar
       session={selectedSession}
-      model={composerProjection?.selectedModel ?? undefined}
-      thinking={composerProjection?.selectedThinking ?? undefined}
+      composer={exactLoadedComposer ? {
+        sessionId: exactLoadedComposer.sessionId,
+        cursor: exactLoadedComposer.cursor,
+        model: exactLoadedComposer.projection.selectedModel,
+        thinking: exactLoadedComposer.projection.selectedThinking,
+      } : null}
+      inspector={adapterConnected && (compatibility.status === "ready" || compatibility.status === "degraded") ? runtimeInspector : null}
     />
     {paletteOpen && <CommandPalette admissionConnected={admissionConnected} onRun={runCommand} onClose={() => { void dispatchOperation({ action: "palette.close", payload: {} }); }} restoreFocusTo={paletteOpener} chats={paletteChats} messages={paletteMessages} onOpenChat={openCatalogChat} onOpenMessage={(chatId) => openCatalogChat(chatId)} />}
     {createProjectOpen && <CreateProjectDialog restoreFocusTo={createProjectOpener} onCancel={() => { void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} onCreate={(name, folderPath) => { createProject(name, folderPath); void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} />}

@@ -41,11 +41,11 @@ const session: RootSessionProjection = {
 
 describe("production renderer text integrity", () => {
   it("renders status delimiters as middle dots without mojibake", () => {
-    render(<RuntimeStatusBar session={session} model="gpt-5.6-sol" thinking="high" />);
+    render(<RuntimeStatusBar session={session} composer={{ sessionId: session.sessionId, cursor: session.cursor, model: "gpt-5.6-sol", thinking: "high" }} />);
 
-    const status = screen.getByRole("status", { name: "Runtime status" });
+    const status = screen.getByRole("status", { name: /Runtime status/ });
     expect(status).toHaveTextContent("openai-codex \u00b7 gpt-5.6-sol \u00b7 thinking high");
-    expect(status).toHaveTextContent("working \u00b7 live");
+    expect(status).toHaveTextContent("working \u00b7 connected");
     expectEncodingClean(status);
   });
 

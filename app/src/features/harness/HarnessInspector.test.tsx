@@ -107,6 +107,47 @@ afterEach(() => {
 });
 
 describe("HarnessInspector", () => {
+  it("publishes status evidence only after the exact inspector request is admitted", async () => {
+    const onRuntimeStatus = vi.fn();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={adapter()} onRuntimeStatus={onRuntimeStatus} />);
+    await waitFor(() => expect(onRuntimeStatus).toHaveBeenCalledWith({ status: "available", sessionId: session.sessionId, cursor: session.cursor, context: details.context, overload: "server_is_overloaded" }));
+  });
+
+  it("does not publish stale inspector evidence after the displayed request identity changes", async () => {
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    const source = adapter();
+    source.load = vi.fn(async (sessionId) => {
+      if (sessionId === session.sessionId) await pending;
+      return { ...details, context: { usedTokens: sessionId === session.sessionId ? 1 : 2, capacityTokens: 40_000 } };
+    });
+    const onRuntimeStatus = vi.fn();
+    const replacement = { ...session, sessionId: "root-b", chatId: "chat-b", cursor: { runtimeGeneration: "g2", sequence: 1 } };
+    const view = render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={source} onRuntimeStatus={onRuntimeStatus} />);
+    view.rerender(<HarnessInspector chatId="chat-b" session={replacement} compatibility={compatibility} adapter={source} onRuntimeStatus={onRuntimeStatus} />);
+    await waitFor(() => expect(onRuntimeStatus).toHaveBeenCalledWith(expect.objectContaining({ status: "available", sessionId: "root-b", cursor: replacement.cursor })));
+    release();
+    await act(async () => { await pending; });
+    expect(onRuntimeStatus).not.toHaveBeenCalledWith(expect.objectContaining({ status: "available", sessionId: session.sessionId }));
+  });
+
+  it("publishes explicit unavailable status when inspector authority is unavailable", async () => {
+    const onRuntimeStatus = vi.fn();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={{ ...adapter(), availability: { status: "unavailable", reason: "Broker not live." } }} onRuntimeStatus={onRuntimeStatus} />);
+    await waitFor(() => expect(onRuntimeStatus).toHaveBeenCalledWith({ status: "unavailable", sessionId: session.sessionId, cursor: session.cursor, reason: "Broker not live." }));
+  });
+
+  it("invalidates published runtime status when the inspector surface unmounts", async () => {
+    const onRuntimeStatus = vi.fn();
+    const view = render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={adapter()} onRuntimeStatus={onRuntimeStatus} />);
+    await waitFor(() => expect(onRuntimeStatus).toHaveBeenCalledWith(expect.objectContaining({ status: "available", sessionId: session.sessionId })));
+    view.unmount();
+    expect(onRuntimeStatus).toHaveBeenLastCalledWith({
+      status: "unavailable", sessionId: session.sessionId, cursor: session.cursor,
+      reason: "Harness inspector evidence is unavailable while its surface is not mounted.",
+    });
+  });
+
   it("renders typed runtime extension prompts and submits or cancels each request exactly once", async () => {
     const promptDetails: HarnessPanelDetails = {
       ...details,

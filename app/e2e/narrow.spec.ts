@@ -3,6 +3,20 @@ import { activateWithKeyboard, expectMinimumTarget, expectNoDocumentOverflow, ex
 
 test("compact workspace keeps the parent conversation and composer visible", async ({ shellPage }, testInfo) => {
   expect(shellPage.viewportSize()).toEqual({ width: 320, height: 200 });
+  const runtimeStatus = shellPage.locator(".studio-statusbar");
+  await expect(runtimeStatus).toBeVisible();
+  await expect(runtimeStatus).toHaveAccessibleName(/Runtime status:.*gpt-5\.6-sol.*ctx unavailable.*142ms first token.*18\.4 tok\/s/i);
+  const statusGeometry = await runtimeStatus.evaluate((element) => ({ height: element.getBoundingClientRect().height, width: element.getBoundingClientRect().width, scrollWidth: element.scrollWidth }));
+  expect(statusGeometry.height).toBe(24);
+  expect(statusGeometry.scrollWidth).toBeLessThanOrEqual(statusGeometry.width + 1);
+  await runtimeStatus.focus();
+  await expect(runtimeStatus).toBeFocused();
+  await shellPage.getByRole("button", { name: "Harness" }).click();
+  await expect(runtimeStatus).toHaveAccessibleName(/ctx 38%.*server_is_overloaded/i);
+  const loadedStatusGeometry = await runtimeStatus.evaluate((element) => ({ width: element.getBoundingClientRect().width, scrollWidth: element.scrollWidth }));
+  expect(loadedStatusGeometry.scrollWidth).toBeLessThanOrEqual(loadedStatusGeometry.width + 1);
+  await shellPage.keyboard.press("Escape");
+  await expect(runtimeStatus).toHaveAccessibleName(/ctx unavailable.*overload unavailable/i);
   await expect(shellPage.getByRole("main", { name: "Prime Harness architecture" })).toBeVisible();
   await expect(shellPage.getByPlaceholder("Message Prime Studio — try / for commands")).toBeVisible();
   const pinTarget = shellPage.locator('[data-control-id="chat-pin-toggle"]');

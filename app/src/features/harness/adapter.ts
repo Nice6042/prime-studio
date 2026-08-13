@@ -133,6 +133,36 @@ export interface HarnessComposerProjection {
   readonly supportedCommands: readonly ("model" | "effort" | "compact" | "fork" | "export")[];
 }
 
+export type HarnessRuntimeStatusProjection =
+  | Readonly<{
+      status: "available";
+      sessionId: string;
+      cursor: RootSessionProjection["cursor"];
+      context: HarnessContextWindow | null;
+      overload: "server_is_overloaded" | null;
+    }>
+  | Readonly<{
+      status: "unavailable";
+      sessionId: string;
+      cursor: RootSessionProjection["cursor"];
+      reason: string;
+    }>;
+
+export function projectHarnessRuntimeStatus(
+  session: RootSessionProjection,
+  details: HarnessPanelDetails,
+): HarnessRuntimeStatusProjection {
+  return Object.freeze({
+    status: "available",
+    sessionId: session.sessionId,
+    cursor: Object.freeze({ ...session.cursor }),
+    context: details.context ? Object.freeze({ ...details.context }) : null,
+    overload: details.notices.some((notice) => notice.detail === "server_is_overloaded")
+      ? "server_is_overloaded"
+      : null,
+  });
+}
+
 export interface HarnessInspectorAdapter {
   readonly availability:
     | Readonly<{ status: "available" }>

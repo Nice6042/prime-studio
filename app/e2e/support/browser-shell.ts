@@ -67,10 +67,13 @@ export const test = base.extend<ShellFixtures>({
           detail: null,
         },
         performance: {
-          status: "unavailable",
+          status: "available",
           sessionId: session.sessionId,
           cursor: { ...session.cursor },
-          reason: "event_chronology_unavailable",
+          firstTokenLatencyMs: 142,
+          outputTokens: 368,
+          generationDurationMs: 20_000,
+          tokensPerSecond: 18.4,
         },
       }));
       let layoutPreferences = {
@@ -294,7 +297,7 @@ export const test = base.extend<ShellFixtures>({
             const current = projectedHarnessSessions.find((session) => session.sessionId === request?.sessionId) as { cursor?: { runtimeGeneration?: string; sequence?: number } } | undefined;
             if (!current?.cursor?.runtimeGeneration || !Number.isSafeInteger(current.cursor.sequence)) throw new Error("Harness inspector unavailable");
             return JSON.stringify({
-              observedAtMs: 1_775_995_220_000, startedAtMs: null, context: null,
+              observedAtMs: 1_775_995_220_000, startedAtMs: null, context: { usedTokens: 15_200, capacityTokens: 40_000 },
               extensionUi: { status: "available", requests: [
                 ...(!settledExtensionRequests.has("editor-browser") ? [{ id: "editor-browser", method: "editor", title: "Extension instructions", prefill: "Private runtime prompt", cursor: current.cursor }] : []),
                 ...(!settledExtensionRequests.has("input-browser") ? [{ id: "input-browser", method: "input", title: "Extension note", placeholder: "Private follow-up", cursor: current.cursor }] : []),
@@ -307,10 +310,20 @@ export const test = base.extend<ShellFixtures>({
                   { turn: 3, occurredAtMs: 1_775_995_219_000, input: 440, output: 170, cacheRead: 240, cacheWrite: 30, totalTokens: 880 },
                 ],
               },
-              contributions: [], notices: [], activity: [],
+              contributions: [], notices: [{ id: "overload-browser", kind: "warning", title: "Runtime busy", detail: "server_is_overloaded", retryable: true, dismissible: true }], activity: [],
               outputs: [{ id: "output-browser", label: "Harness report", candidateId: "candidate-browser-output", kind: "file" }],
               sources: [{ id: "source-browser", label: "Harness contract", detail: "Verified fixture source", candidateId: "candidate-browser-source", kind: "file" }],
               children: {},
+            });
+          }
+          case "harness_composer_projection": {
+            const request = args.request as { sessionId?: string } | undefined;
+            if (!projectedHarnessSessions.some((session) => session.sessionId === request?.sessionId)) throw new Error("Harness composer projection unavailable");
+            return JSON.stringify({
+              models: [{ id: "gpt-5.6-sol", label: "GPT-5.6 Sol", shortLabel: "Sol", enabled: true }],
+              selectedModel: "gpt-5.6-sol",
+              thinkingLevels: ["high"], selectedThinking: "high",
+              supportedCommands: ["model", "effort", "compact", "fork", "export"],
             });
           }
           case "harness_child_data_page": {

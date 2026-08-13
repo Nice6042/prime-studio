@@ -5,7 +5,7 @@ import { activityAttentionForChat, type AttentionEvidence, type AttentionState }
 import type { RootSessionProjection } from "../../entities/harness/types";
 import type { HarnessCompatibility } from "../../shared/ipc/harness.generated";
 import { ActivityFeed } from "./ActivityFeed";
-import { type HarnessInspectorAdapter, type HarnessPanelDetails, unavailableHarnessInspectorAdapter } from "./adapter";
+import { projectHarnessRuntimeStatus, type HarnessInspectorAdapter, type HarnessPanelDetails, type HarnessRuntimeStatusProjection, unavailableHarnessInspectorAdapter } from "./adapter";
 import { ChatUsage } from "./ChatUsage";
 import { ChildDetail } from "./ChildDetail";
 import { HarnessOverview } from "./HarnessOverview";
@@ -43,7 +43,7 @@ function outcomeMessage(outcome: StudioOperationOutcome): { kind: "status" | "al
   return { kind: "alert", text: outcome.reason };
 }
 
-export function HarnessInspector({ chatId, session, compatibility, adapter = unavailableHarnessInspectorAdapter, onExecute, onOpenAccountUsage, onCollapse, routeRequest, attention = { status: "loading" } }: {
+export function HarnessInspector({ chatId, session, compatibility, adapter = unavailableHarnessInspectorAdapter, onExecute, onOpenAccountUsage, onCollapse, routeRequest, attention = { status: "loading" }, onRuntimeStatus }: {
   readonly chatId: string | null;
   readonly session: RootSessionProjection | null;
   readonly compatibility: HarnessCompatibility;
@@ -53,6 +53,7 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
   readonly onCollapse?: () => void;
   readonly routeRequest?: Readonly<{ id: number; route: "overview" | "usage" | "activity" }>;
   readonly attention?: AttentionState;
+  readonly onRuntimeStatus?: (projection: HarnessRuntimeStatusProjection) => void;
 }) {
   const sessionScope = session ? JSON.stringify([chatId, session.chatId, session.sessionId, session.cursor.runtimeGeneration]) : null;
   const requestIdentity = session ? JSON.stringify([sessionScope, session.cursor.sequence]) : null;
@@ -110,6 +111,7 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
       setDetailsSnapshot(null);
       setActivityEvidenceSnapshot(null);
       setLoadPhase("unavailable");
+      onRuntimeStatus?.({ status: "unavailable", sessionId: requestedSession.sessionId, cursor: requestedSession.cursor, reason: availability.reason });
       return;
     }
     if (availabilityStatus.current === "unavailable") requestEpoch.current += 1;
@@ -130,16 +132,30 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
       setDetailsSnapshot({ scope: requestedScope, value: nextDetails });
       setActivityEvidenceSnapshot({ scope: requestedScope, value: nextActivityEvidence });
       setLoadPhase("ready");
+      onRuntimeStatus?.(projectHarnessRuntimeStatus(requestedSession, nextDetails));
     } catch (error) {
       if (currentRequestIdentity.current !== requestedIdentity || requestEpoch.current !== epoch) return;
       setLoadPhase("error");
-      setFeedback({ kind: "alert", text: error instanceof Error ? error.message : "Harness details could not be loaded." });
+      const reason = error instanceof Error ? error.message : "Harness details could not be loaded.";
+      setFeedback({ kind: "alert", text: reason });
+      onRuntimeStatus?.({ status: "unavailable", sessionId: requestedSession.sessionId, cursor: requestedSession.cursor, reason });
     } finally {
       detailsLoadsInFlight.current.delete(epoch);
     }
   };
 
   useEffect(() => { void loadDetails(); }, [requestIdentity, adapter]);
+  useEffect(() => {
+    const mountedSession = session;
+    return () => {
+      if (mountedSession) onRuntimeStatus?.({
+        status: "unavailable",
+        sessionId: mountedSession.sessionId,
+        cursor: mountedSession.cursor,
+        reason: "Harness inspector evidence is unavailable while its surface is not mounted.",
+      });
+    };
+  }, [requestIdentity, onRuntimeStatus]);
   useEffect(() => {
     if (!session || session.state !== "idle" || session.freshness !== "live") return;
     const timer = window.setInterval(() => { void loadDetails("background"); }, 5_000);

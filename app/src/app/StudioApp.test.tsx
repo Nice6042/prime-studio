@@ -262,7 +262,7 @@ describe("Studio application state", () => {
     }
   });
 
-  it("projects verified composer identity into the current-chat runtime status", () => {
+  it("does not project an unbound adapter-wide composer default into current-chat runtime status", () => {
     const store = createStudioStore(initialStudioState({
       projectCatalog: catalogBoundToRootSession(),
       sessions: [rootSession],
@@ -272,7 +272,9 @@ describe("Studio application state", () => {
 
     render(<AppProviders store={store}><StudioApp harnessAdapter={conversationAdapter([])} /></AppProviders>);
 
-    expect(screen.getByText(/account-1 · verified-model · thinking low/)).toBeVisible();
+    const status = screen.getByRole("status", { name: /Runtime status/ });
+    expect(status).toHaveTextContent(/account-1 · model unavailable · thinking unavailable/);
+    expect(status).not.toHaveTextContent("verified-model");
   });
 
   it("mounts load-older through the exact native paging authority and never reports a rejected call as success", async () => {
@@ -315,7 +317,7 @@ describe("Studio application state", () => {
     const adapter: HarnessInspectorAdapter = {
       availability: { status: "available" },
       loadComposer,
-      load: async () => ({ observedAtMs: 1, startedAtMs: null, context: null, extensionUi: { status: "available", requests: [] }, contributions: [], notices: [], activity: [], outputs: [], sources: [], children: {} }),
+      load: async () => ({ observedAtMs: 1, startedAtMs: null, context: { usedTokens: 10_000, capacityTokens: 40_000 }, extensionUi: { status: "available", requests: [] }, contributions: [], notices: [{ id: "overload-1", kind: "warning", title: "Busy", detail: "server_is_overloaded", retryable: true, dismissible: true }], activity: [], outputs: [], sources: [], children: {} }),
       execute: async () => ({ status: "accepted", commandId: "command-1" }),
     };
 
@@ -324,6 +326,51 @@ describe("Studio application state", () => {
     expect(await screen.findByRole("button", { name: "Use GPT Live" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Thinking high" })).toBeVisible();
     expect(loadComposer).toHaveBeenCalledWith(rootSession.sessionId);
+    const runtimeStatus = await screen.findByRole("status", { name: /Runtime status:.*openai\/gpt-live.*ctx 25%.*server_is_overloaded/i });
+    expect(runtimeStatus).toHaveTextContent("10k / 40k");
+  });
+
+  it("never leaks an earlier cursor's deferred composer result into runtime status", async () => {
+    const store = createStudioStore(initialStudioState({
+      projectCatalog: catalogBoundToRootSession(), sessions: [rootSession],
+      compatibility: { status: "ready", profile: "verified", capabilities: ["model_catalog"] },
+    }));
+    type ComposerProjection = Awaited<ReturnType<NonNullable<HarnessInspectorAdapter["loadComposer"]>>>;
+    const resolvers: ((projection: ComposerProjection) => void)[] = [];
+    const loadComposer = vi.fn(() => new Promise<ComposerProjection>((resolve) => resolvers.push(resolve)));
+    const adapter: HarnessInspectorAdapter = {
+      availability: { status: "available" }, loadComposer,
+      load: async () => ({ observedAtMs: 1, startedAtMs: null, context: null, extensionUi: { status: "available", requests: [] }, contributions: [], notices: [], activity: [], outputs: [], sources: [], children: {} }),
+      execute: async () => ({ status: "accepted", commandId: "command-1" }),
+    };
+    render(<AppProviders store={store}><StudioApp harnessAdapter={adapter} /></AppProviders>);
+    await waitFor(() => expect(loadComposer).toHaveBeenCalledTimes(1));
+    const nextCursor = { ...rootSession.cursor, sequence: 3 };
+    const nextSession = { ...rootSession, cursor: nextCursor, performance: { ...rootSession.performance, cursor: nextCursor } } as RootSessionProjection;
+    act(() => store.dispatch({ type: "harness/session-projected", session: nextSession }));
+    await waitFor(() => expect(loadComposer).toHaveBeenCalledTimes(2));
+    await act(async () => resolvers[0]?.({ models: [], selectedModel: "stale-model", thinkingLevels: [], selectedThinking: "max", supportedCommands: [] }));
+    expect(screen.getByRole("status", { name: /Runtime status/ })).not.toHaveTextContent("stale-model");
+    await act(async () => resolvers[1]?.({ models: [], selectedModel: "current-model", thinkingLevels: [], selectedThinking: "high", supportedCommands: [] }));
+    expect(await screen.findByRole("status", { name: /Runtime status:.*current-model.*thinking high/i })).toBeVisible();
+  });
+
+  it("clears mounted inspector facts when compatibility authority is lost", async () => {
+    const store = createStudioStore(initialStudioState({
+      projectCatalog: catalogBoundToRootSession(), sessions: [rootSession],
+      compatibility: { status: "ready", profile: "verified", capabilities: ["model_catalog"] },
+    }));
+    const adapter: HarnessInspectorAdapter = {
+      availability: { status: "available" },
+      load: async () => ({ observedAtMs: 1, startedAtMs: null, context: { usedTokens: 10_000, capacityTokens: 40_000 }, extensionUi: { status: "available", requests: [] }, contributions: [], notices: [{ id: "overload", kind: "warning", title: "Busy", detail: "server_is_overloaded", retryable: true, dismissible: true }], activity: [], outputs: [], sources: [], children: {} }),
+      execute: async () => ({ status: "accepted", commandId: "command-1" }),
+    };
+    render(<AppProviders store={store}><StudioApp harnessAdapter={adapter} /></AppProviders>);
+    expect(await screen.findByRole("status", { name: /Runtime status:.*ctx 25%.*server_is_overloaded/i })).toBeVisible();
+    act(() => store.dispatch({ type: "harness/bootstrap-loaded", projection: { compatibility: { status: "unavailable", reason: "security_verification_failed" }, sessions: [rootSession] } }));
+    await waitFor(() => expect(screen.getByRole("status", { name: /Runtime status/ })).toHaveTextContent("ctx unavailable"));
+    expect(screen.getByRole("status", { name: /Runtime status/ })).toHaveTextContent("overload unavailable");
+    expect(screen.getByRole("status", { name: /Runtime status/ })).not.toHaveTextContent("server_is_overloaded");
   });
 
   it("moves focus into the narrow Harness drawer and restores its opener on Escape", async () => {

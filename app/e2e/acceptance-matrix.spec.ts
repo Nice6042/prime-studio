@@ -197,6 +197,16 @@ test("820 and 640 compact layouts preserve keyboard surfaces without page overfl
 
   await shellPage.setViewportSize({ width: 640, height: 400 });
   await expect(shellPage.getByRole("navigation", { name: "Projects and chats" })).toHaveAttribute("data-mode", "rail");
+  const runtimeStatus = shellPage.locator(".studio-statusbar");
+  await expect(runtimeStatus).toBeVisible();
+  await expect(runtimeStatus).toHaveAccessibleName(/Runtime status:.*gpt-5\.6-sol.*ctx unavailable.*142ms first token.*18\.4 tok\/s/i);
+  const statusGeometry = await runtimeStatus.evaluate((element) => ({
+    height: element.getBoundingClientRect().height,
+    width: element.getBoundingClientRect().width,
+    scrollWidth: element.scrollWidth,
+  }));
+  expect(statusGeometry.height).toBe(24);
+  expect(statusGeometry.scrollWidth).toBeLessThanOrEqual(statusGeometry.width + 1);
   const harnessButton = shellPage.getByRole("button", { name: "Harness" });
   await activateWithKeyboard(harnessButton);
   const sheet = shellPage.locator('[data-studio-sheet="inspector"]');
