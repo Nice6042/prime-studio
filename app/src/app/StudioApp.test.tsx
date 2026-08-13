@@ -21,7 +21,7 @@ const chat = {
 } as const;
 
 const rootSession: RootSessionProjection = {
-  sessionId: "session-1", accountId: "account-1", projectId: "daemon-project-1", chatId: "daemon-chat-1",
+  sessionId: "session-1", accountId: "account-1", provider: "openai-codex", projectId: "daemon-project-1", chatId: "daemon-chat-1",
   cursor: { runtimeGeneration: "g1", sequence: 2 }, state: "idle", freshness: "live",
   parentMessages: [
     { channel: "parent", kind: "user", id: "u1", text: "Original prompt", emittedAtMs: 1 },
@@ -274,7 +274,7 @@ describe("Studio application state", () => {
     render(<AppProviders store={store}><StudioApp harnessAdapter={conversationAdapter([])} /></AppProviders>);
 
     const status = screen.getByRole("status", { name: /Runtime status/ });
-    expect(status).toHaveTextContent(/account-1 · model unavailable · thinking unavailable/);
+    expect(status).toHaveTextContent(/openai-codex · model unavailable · thinking unavailable/);
     expect(status).not.toHaveTextContent("verified-model");
   });
 

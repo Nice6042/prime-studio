@@ -614,6 +614,10 @@ pub(crate) fn validate_root_snapshot(snapshot: &RootSessionSnapshot) -> bool {
             .account_id
             .as_ref()
             .is_none_or(|value| valid_id(value))
+        && snapshot
+            .provider
+            .as_ref()
+            .is_none_or(|value| valid_provider(value))
         && valid_id(&snapshot.project_id)
         && valid_id(&snapshot.chat_id)
         && valid_id(&snapshot.cursor.runtime_generation)
@@ -674,6 +678,14 @@ pub(crate) fn validate_root_snapshot(snapshot: &RootSessionSnapshot) -> bool {
                 snapshot.worker_recovery.closure_reason.is_some()
             }
         }
+}
+
+fn valid_provider(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b':' | b'@' | b'+' | b'-')
+        })
 }
 
 fn valid_turn_performance(snapshot: &RootSessionSnapshot) -> bool {

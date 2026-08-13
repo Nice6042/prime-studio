@@ -67,6 +67,8 @@ export function RuntimeStatusBar({ session, composer = null, inspector = null }:
     ? exactInspector.reason
     : exactInspector ? null : "Inspector evidence does not match this session snapshot.";
   const detail = [performanceReason, composerReason, inspectorReason, contextReason, overloadReason].filter(Boolean).join(" ");
+  const providerIsCurrent = session.freshness === "live" && session.state !== "disconnected" && session.state !== "failed" && session.state !== "stopped";
+  const providerText = providerIsCurrent ? session.provider ?? "provider unavailable" : "provider unavailable";
   const modelText = exactComposer?.model ?? "model unavailable";
   const thinkingText = exactComposer?.thinking ? `thinking ${exactComposer.thinking}` : "thinking unavailable";
   const contextText = validContext ? `ctx ${contextPercent}%` : "ctx unavailable";
@@ -82,10 +84,10 @@ export function RuntimeStatusBar({ session, composer = null, inspector = null }:
   const overloadText = exactInspector?.status === "available"
     ? exactInspector.overload
     : "overload unavailable";
-  const accessibleText = [session.accountId ?? "local", modelText, thinkingText, contextText, contextDetail, latencyText, throughputText, runtimeText, overloadText].filter(Boolean).join(" · ");
+  const accessibleText = [providerText, modelText, thinkingText, contextText, contextDetail, latencyText, throughputText, runtimeText, overloadText].filter(Boolean).join(" · ");
 
   return <div className="studio-statusbar" role="status" aria-label={`Runtime status: ${accessibleText}`} aria-describedby={detail ? detailId : undefined} tabIndex={0}>
-    <span className="studio-statusbar-identity" title={composerReason ?? undefined}>{session.accountId ?? "local"}{" · "}{modelText}{" · "}{thinkingText}</span>
+    <span className="studio-statusbar-identity" title={composerReason ?? undefined}>{providerText}{" · "}{modelText}{" · "}{thinkingText}</span>
     <span className="studio-statusbar-spacer" />
     <span className="studio-statusbar-context" data-compact={contextText} title={contextReason ?? [contextText, contextDetail].filter(Boolean).join(" · ")}>{contextText}{contextDetail ? ` · ${contextDetail}` : null}{validContext && <i className="studio-context-meter" aria-hidden="true"><b style={{ inlineSize: `${contextPercent}%` }} /></i>}</span>
     <span className="studio-statusbar-latency" title={performanceReason ?? latencyText}>{latencyText}</span>

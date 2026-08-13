@@ -15,6 +15,7 @@ function expectEncodingClean(element: HTMLElement) {
 const session: RootSessionProjection = {
   sessionId: "session-1",
   accountId: "openai-codex",
+  provider: "openai-codex",
   projectId: "project:personal",
   chatId: "chat-1",
   cursor: { runtimeGeneration: "generation-1", sequence: 1 },

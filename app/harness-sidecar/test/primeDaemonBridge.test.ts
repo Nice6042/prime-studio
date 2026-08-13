@@ -97,6 +97,8 @@ test("bootstrap and prompt use real daemon state with generation and cursor bind
   const boot = await bridge.bootstrap();
   assert.equal(boot.type, "bootstrap_result");
   assert.equal(boot.type === "bootstrap_result" ? boot.sessions[0]?.cursor.sequence : -1, 4);
+  assert.equal(boot.type === "bootstrap_result" ? boot.sessions[0]?.provider : null, "openai");
+  assert.equal(boot.type === "bootstrap_result" ? boot.sessions[0]?.accountId : null, null);
   const result = await bridge.handle({ type: "session_command", sessionId: "active-root", commandId: "command-1", expectedCursor: { runtimeGeneration: "generation-1", sequence: 4 }, kind: "prompt", text: "do work" });
   assert.equal(prompt, "do work");
   assert.equal(result.type, "command_result");
@@ -356,7 +358,7 @@ test("fails turn performance closed for malformed chronology, regressing clocks,
 
 test("each published snapshot advances exactly one Studio revision even without an upstream event", async () => {
   const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
-  const state = { activeSessionId: "root", cwd: "C:\\work", thinkingLevel: "high", serviceTier: "auto", availableThinkingLevels: [], isStreaming: false, isCompacting: false, isBashRunning: false, retryAttempt: 0, steeringMode: "all", followUpMode: "all", sessionId: "chat", leafId: null, autoCompactionEnabled: true, messageCount: 0, sessionActions: {}, compactionCount: 0, goal: {}, scopedModels: [], activeToolNames: [] };
+  const state = { activeSessionId: "root", cwd: "C:\\work", model: { provider: "openai-codex", id: "gpt-5.6-sol" }, thinkingLevel: "high", serviceTier: "auto", availableThinkingLevels: [], isStreaming: false, isCompacting: false, isBashRunning: false, retryAttempt: 0, steeringMode: "all", followUpMode: "all", sessionId: "chat", leafId: null, autoCompactionEnabled: true, messageCount: 0, sessionActions: {}, compactionCount: 0, goal: {}, scopedModels: [], activeToolNames: [] };
   const connection = { async getInitialSnapshot() { return { state, messages: [], children: [], lastEventCursor: { generation: "generation-1", sequence: 9 } }; }, async getState() { return state; }, async getMessages() { return []; }, async getQueue() { return {}; }, async getResourceSnapshot() { return {}; }, async getSessionStats() { return { tokens: {}, cost: 0 }; }, async getToolDefinition() { return undefined; }, async prompt() {}, async steer() {}, async followUp() {}, async abort() {}, async dispose() {} };
   const bridge = new PrimeDaemonBridge({
     identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
@@ -529,7 +531,7 @@ test("worker recovery is armed only by an observed healthy-to-recovering transit
   let attachCalls = 0;
   let extensionResponses = 0;
   const extensionListeners = new Set<(event: unknown) => void>();
-  const state = { activeSessionId: "root", cwd: "C:\\work", thinkingLevel: "high", serviceTier: "auto", availableThinkingLevels: [], isStreaming: false, isCompacting: false, isBashRunning: false, retryAttempt: 0, steeringMode: "all", followUpMode: "all", sessionId: "chat", leafId: null, autoCompactionEnabled: true, messageCount: 0, sessionActions: {}, compactionCount: 0, goal: {}, scopedModels: [], activeToolNames: [] };
+  const state = { activeSessionId: "root", cwd: "C:\\work", model: { provider: "openai-codex", id: "gpt-5.6-sol" }, thinkingLevel: "high", serviceTier: "auto", availableThinkingLevels: [], isStreaming: false, isCompacting: false, isBashRunning: false, retryAttempt: 0, steeringMode: "all", followUpMode: "all", sessionId: "chat", leafId: null, autoCompactionEnabled: true, messageCount: 0, sessionActions: {}, compactionCount: 0, goal: {}, scopedModels: [], activeToolNames: [] };
   const connection = () => ({
     async getInitialSnapshot() {
       if (workerState !== "ready") throw new Error(`Session worker is ${workerState}`);
@@ -572,6 +574,7 @@ test("worker recovery is armed only by an observed healthy-to-recovering transit
   assert.equal(recovering.type, "snapshot_result");
   const recoveringSnapshot = recovering.type === "snapshot_result" ? recovering.snapshot : healthy;
   assert.equal(recoveringSnapshot.state, "failed");
+  assert.equal(recoveringSnapshot.provider, null, "recovery cursors must not inherit provider evidence from the closed worker");
   assert.equal(recoveringSnapshot.workerRecovery.status, "recovering");
   assert.equal(recoveringSnapshot.workerRecovery.closureReason, "unexpected_worker_disconnect");
   assert.match(recoveringSnapshot.workerRecovery.observationId ?? "", /^worker-recovery-[a-f0-9]{24}$/u);
@@ -584,6 +587,7 @@ test("worker recovery is armed only by an observed healthy-to-recovering transit
   const failed = await bridge.handle({ type: "refresh_session", sessionId: "root", knownCursor: recoveringSnapshot.cursor });
   assert.equal(failed.type, "snapshot_result");
   const failedSnapshot = failed.type === "snapshot_result" ? failed.snapshot : recoveringSnapshot;
+  assert.equal(failedSnapshot.provider, null, "failure cursors must not inherit provider evidence from the closed worker");
   assert.equal(failedSnapshot.workerRecovery.status, "retryable_failure");
   const observationId = failedSnapshot.workerRecovery.observationId!;
 
@@ -592,6 +596,7 @@ test("worker recovery is armed only by an observed healthy-to-recovering transit
   assert.equal(retried.type === "worker_retry_result" ? retried.outcome : "", "recovered");
   assert.equal(retried.type === "worker_retry_result" ? retried.snapshot.workerRecovery.status : "", "recovered");
   assert.equal(retried.type === "worker_retry_result" ? retried.snapshot.workerRecovery.automaticRetryCount : 0, 1);
+  assert.equal(retried.type === "worker_retry_result" ? retried.snapshot.provider : null, "openai-codex", "the recovered worker must freshly re-observe provider evidence");
   assert.equal(retryCalls, 1);
   assert.equal(attachCalls, 6, "the stale-response barrier and recovered worker each use a fresh verified attachment");
 

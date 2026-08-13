@@ -182,6 +182,7 @@ export type TurnPerformanceProjection =
 export interface RootSessionSnapshot {
   sessionId: string;
   accountId: string | null;
+  provider: string | null;
   projectId: string;
   chatId: string;
   cursor: HarnessCursor;
@@ -265,6 +266,14 @@ use std::fmt;
 
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
+
+fn deserialize_required_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
+}
 
 pub const STUDIO_HARNESS_PROTOCOL: u8 = 1;
 pub const HARNESS_FRAME_MAX_BYTES: usize = 4 * 1024 * 1024;
@@ -425,7 +434,7 @@ pub enum TurnPerformanceUnavailableReason { EventChronologyUnavailable, EventChr
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct RootSessionSnapshot {
-    pub session_id: String, pub account_id: Option<String>, pub project_id: String, pub chat_id: String,
+    pub session_id: String, pub account_id: Option<String>, #[serde(deserialize_with = "deserialize_required_nullable")] pub provider: Option<String>, pub project_id: String, pub chat_id: String,
     pub cursor: HarnessCursor, pub state: RootSessionState, pub parent_messages: Vec<ParentMessage>,
     pub children: Vec<ChildAgentSummary>, pub queue: Vec<QueueItem>, pub tools: Vec<ToolDefinition>,
     pub resources: Vec<ContextSource>, pub usage: CurrentChatUsage,

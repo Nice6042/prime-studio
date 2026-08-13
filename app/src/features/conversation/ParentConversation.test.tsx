@@ -8,6 +8,7 @@ import { ParentConversation } from "./ParentConversation";
 const session: RootSessionProjection = {
   sessionId: "session-1",
   accountId: null,
+  provider: "openai-codex",
   projectId: "project:personal",
   chatId: "chat-1",
   cursor: { runtimeGeneration: "g1", sequence: 4 },

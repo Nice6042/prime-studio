@@ -25,6 +25,7 @@ const readyCapabilities = ["attach_snapshot", "event_sequence", "resident_sessio
 const session = {
   sessionId: "root",
   accountId: "account",
+  provider: "openai-codex",
   projectId: "project",
   chatId: "chat",
   cursor: { runtimeGeneration: "generation", sequence: 1 },
@@ -110,6 +111,13 @@ describe("Harness IPC client", () => {
       mocks.invoke.mockResolvedValueOnce(hostile);
       await expect(pageHarnessConversationHistory("root", session.cursor, null)).rejects.toThrow("Harness projection unavailable");
     }
+  });
+
+  it("decodes provider independently from the opaque account identity", () => {
+    const projected = decodeRootSessionProjection(session);
+    expect(projected.provider).toBe("openai-codex");
+    expect(projected.accountId).toBe("account");
+    expect(() => decodeRootSessionProjection({ ...session, provider: "provider with spaces" })).toThrow("Harness projection unavailable");
   });
 
   it("strictly decodes and deeply freezes an unavailable bootstrap", async () => {

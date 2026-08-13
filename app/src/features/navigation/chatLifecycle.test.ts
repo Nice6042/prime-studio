@@ -12,7 +12,7 @@ const bound: ProjectChat = {
   binding: { kind: "prime-session", accountId: "account-a", sessionId: "session-a", sessionFile: "a.jsonl", agentId: "agent-a" },
 };
 const session = (overrides: Partial<RootSessionProjection> = {}): RootSessionProjection => ({
-  sessionId: "session-a", accountId: "account-a", projectId: "project-a", chatId: "agent-a",
+  sessionId: "session-a", accountId: "account-a", provider: "openai-codex", projectId: "project-a", chatId: "agent-a",
   cursor: { runtimeGeneration: "generation-a", sequence: 4 }, state: "idle", freshness: "live",
   parentMessages: [], children: [], queue: [], tools: [], resources: [],
   usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: null },

@@ -14,7 +14,7 @@ import { ChildDetail } from "./ChildDetail";
 import { createInspectorState, reduceInspector } from "./inspectorStore";
 
 const session: RootSessionProjection = {
-  sessionId: "root-a", accountId: "account-a", projectId: "project-a", chatId: "chat-a",
+  sessionId: "root-a", accountId: "account-a", provider: "openai-codex", projectId: "project-a", chatId: "chat-a",
   cursor: { runtimeGeneration: "g1", sequence: 10 }, state: "working", freshness: "live",
   parentMessages: [{
     channel: "parent", kind: "assistant", id: "a1", streaming: true, emittedAtMs: 1_725_700_500_000,

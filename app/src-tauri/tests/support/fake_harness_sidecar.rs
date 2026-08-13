@@ -56,7 +56,7 @@ fn unavailable_performance(session_id: &str, generation: &str, sequence: u64) ->
 fn quarantine_snapshot(session_id: &str, sequence: u64) -> Value {
     let suffix = session_id.strip_prefix("root-").unwrap();
     json!({
-        "sessionId":session_id,"accountId":"account",
+        "sessionId":session_id,"accountId":"account","provider":"openai-codex",
         "projectId":format!("project-{suffix}"),"chatId":format!("chat-{suffix}"),
         "cursor":{"runtimeGeneration":"generation","sequence":sequence},"state":"idle",
         "parentMessages":[],"children":[],"queue":[],"tools":[],"resources":[],
@@ -140,10 +140,29 @@ fn main() {
                     "type":"bootstrap_result",
                     "compatibility":{"status":"unavailable","reason":"not_installed"},
                     "sessions":[{
-                        "sessionId":"session","accountId":null,"projectId":"project","chatId":"chat",
+                        "sessionId":"session","accountId":null,"provider":"openai-codex","projectId":"project","chatId":"chat",
                         "cursor":{"runtimeGeneration":"generation","sequence":0},"state":"idle",
                         "parentMessages":[],"children":[],"queue":[],"tools":[],"resources":[],
                         "usage":{"input":9007199254740992_u64,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null},
+                        "workerRecovery":{"status":"ready","closureReason":null,"observationId":null,"automaticRetryCount":0,"detail":null},
+                        "performance":unavailable_performance("session", "generation", 0)
+                    }]
+                }
+            }));
+        }
+        "missing-provider" => {
+            let request = read_frame();
+            write_frame(&json!({
+                "studioProtocol": 1,
+                "requestId": request["requestId"],
+                "payload": {
+                    "type":"bootstrap_result",
+                    "compatibility":{"status":"unavailable","reason":"not_installed"},
+                    "sessions":[{
+                        "sessionId":"session","accountId":null,"projectId":"project","chatId":"chat",
+                        "cursor":{"runtimeGeneration":"generation","sequence":0},"state":"idle",
+                        "parentMessages":[],"children":[],"queue":[],"tools":[],"resources":[],
+                        "usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null},
                         "workerRecovery":{"status":"ready","closureReason":null,"observationId":null,"automaticRetryCount":0,"detail":null},
                         "performance":unavailable_performance("session", "generation", 0)
                     }]
@@ -186,7 +205,7 @@ fn main() {
                     "type":"bootstrap_result",
                     "compatibility":broker_compatibility(profile),
                     "sessions":[{
-                        "sessionId":"root","accountId":"account","projectId":"project","chatId":"chat",
+                        "sessionId":"root","accountId":"account","provider":"openai-codex","projectId":"project","chatId":"chat",
                         "cursor":{"runtimeGeneration":"generation","sequence":1},"state":"idle",
                         "parentMessages":[],"children":[],"queue":[],"tools":[],"resources":[],
                         "usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null},
@@ -220,7 +239,7 @@ fn main() {
                         "type":"bootstrap_result",
                         "compatibility":broker_compatibility("prime-agent-daemon-v7-schema13-816309b1cd50"),
                         "sessions":[{
-                            "sessionId":"root","accountId":"account","projectId":"project","chatId":"chat",
+                            "sessionId":"root","accountId":"account","provider":"openai-codex","projectId":"project","chatId":"chat",
                             "cursor":{"runtimeGeneration":"generation-b","sequence":1},"state":"idle",
                             "parentMessages":[],"children":[],"queue":[],"tools":[],"resources":[],
                             "usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null},
@@ -267,7 +286,7 @@ fn main() {
                 "payload": {
                     "type":"resident_created", "creationId":create["payload"]["creationId"],
                     "snapshot": {
-                        "sessionId":"resident-root", "accountId":null, "projectId":project_id, "chatId":"resident-chat",
+                        "sessionId":"resident-root", "accountId":null, "provider":"openai-codex", "projectId":project_id, "chatId":"resident-chat",
                         "cursor":{"runtimeGeneration":"generation","sequence":1}, "state":"idle",
                         "parentMessages":[], "children":children, "queue":[], "tools":[], "resources":[],
                         "usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null},
@@ -287,7 +306,7 @@ fn main() {
             write_frame(&json!({
                 "studioProtocol": 1, "requestId": bootstrap["requestId"],
                 "payload": { "type":"bootstrap_result", "compatibility":broker_compatibility("prime-agent-daemon-v7-schema13-816309b1cd50"), "sessions":[{
-                    "sessionId":"root","accountId":"account","projectId":"project","chatId":"chat",
+                    "sessionId":"root","accountId":"account","provider":"openai-codex","projectId":"project","chatId":"chat",
                     "cursor":{"runtimeGeneration":"generation-source","sequence":1},"state":"idle",
                     "parentMessages":[{"channel":"parent","kind":"user","id":"message-1","text":"Branch here","emittedAtMs":1}],
                     "children":[],"queue":[],"tools":[],"resources":[],
@@ -306,7 +325,7 @@ fn main() {
                 "payload": {
                     "type":"resident_branched","creationId":"studio-branch-1","sourceSessionId":"root","entryId":"message-1",
                     "snapshot": {
-                        "sessionId":"branch-root","accountId":"account","projectId":"project","chatId":"branch-chat",
+                        "sessionId":"branch-root","accountId":"account","provider":"openai-codex","projectId":"project","chatId":"branch-chat",
                         "cursor":{"runtimeGeneration":"generation-branch","sequence":1},"state":"idle",
                         "parentMessages":[{"channel":"parent","kind":"user","id":"message-1","text":"Branch here","emittedAtMs":1}],
                         "children":[],"queue":[],"tools":[],"resources":[],
@@ -327,7 +346,7 @@ fn main() {
             assert_eq!(attach["payload"]["type"], "attach_session");
             assert_eq!(attach["payload"]["sessionId"], "root");
             write_frame(
-                &json!({"studioProtocol":1,"requestId":attach["requestId"],"payload":{"type":"snapshot_result","snapshot":{"sessionId":"root","accountId":"account","projectId":"project","chatId":"chat","cursor":{"runtimeGeneration":"generation","sequence":1},"state":"idle","parentMessages":[],"children":[],"queue":[],"tools":[],"resources":[],"usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null},"workerRecovery":{"status":"ready","closureReason":null,"observationId":null,"automaticRetryCount":0,"detail":null},"performance":unavailable_performance("root", "generation", 1)}}}),
+                &json!({"studioProtocol":1,"requestId":attach["requestId"],"payload":{"type":"snapshot_result","snapshot":{"sessionId":"root","accountId":"account","provider":"openai-codex","projectId":"project","chatId":"chat","cursor":{"runtimeGeneration":"generation","sequence":1},"state":"idle","parentMessages":[],"children":[],"queue":[],"tools":[],"resources":[],"usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null},"workerRecovery":{"status":"ready","closureReason":null,"observationId":null,"automaticRetryCount":0,"detail":null},"performance":unavailable_performance("root", "generation", 1)}}}),
             );
         }
         "broker-worker-recovery" => {
@@ -340,7 +359,7 @@ fn main() {
             let observation_id = "worker-recovery-0123456789abcdef012345";
             write_frame(
                 &json!({"studioProtocol":1,"requestId":attach["requestId"],"payload":{"type":"snapshot_result","snapshot":{
-                    "sessionId":"root","accountId":"account","projectId":"project","chatId":"chat",
+                    "sessionId":"root","accountId":"account","provider":"openai-codex","projectId":"project","chatId":"chat",
                     "cursor":{"runtimeGeneration":"generation","sequence":1},"state":"failed",
                     "parentMessages":[],"children":[],"queue":[],"tools":[],"resources":[],
                     "usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null},
@@ -354,7 +373,7 @@ fn main() {
             assert_eq!(retry["payload"]["observationId"], observation_id);
             write_frame(
                 &json!({"studioProtocol":1,"requestId":retry["requestId"],"payload":{"type":"worker_retry_result","observationId":observation_id,"outcome":"recovered","snapshot":{
-                    "sessionId":"root","accountId":"account","projectId":"project","chatId":"chat",
+                    "sessionId":"root","accountId":"account","provider":"openai-codex","projectId":"project","chatId":"chat",
                     "cursor":{"runtimeGeneration":"generation","sequence":2},"state":"idle",
                     "parentMessages":[],"children":[],"queue":[],"tools":[],"resources":[],
                     "usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":null},

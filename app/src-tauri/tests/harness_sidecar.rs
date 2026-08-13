@@ -60,6 +60,7 @@ fn silent_invalid_and_flooding_children_fail_within_the_deadline() {
         ("flood", "protocol"),
         ("oversized-valid", "protocol"),
         ("unsafe-integer", "protocol"),
+        ("missing-provider", "protocol"),
         ("duplicate-capability", "protocol"),
     ] {
         let handle = SidecarSupervisor::start(spec(mode)).unwrap();

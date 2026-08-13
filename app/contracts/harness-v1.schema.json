@@ -285,10 +285,11 @@
     "RootSessionSnapshot": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["sessionId", "accountId", "projectId", "chatId", "cursor", "state", "parentMessages", "children", "queue", "tools", "resources", "usage", "workerRecovery", "performance"],
+      "required": ["sessionId", "accountId", "provider", "projectId", "chatId", "cursor", "state", "parentMessages", "children", "queue", "tools", "resources", "usage", "workerRecovery", "performance"],
       "properties": {
         "sessionId": { "$ref": "#/$defs/Id" },
         "accountId": { "oneOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] },
+        "provider": { "oneOf": [{ "type": "string", "pattern": "^[A-Za-z0-9_.:@+-]{1,128}$" }, { "type": "null" }] },
         "projectId": { "$ref": "#/$defs/Id" }, "chatId": { "$ref": "#/$defs/Id" },
         "cursor": { "$ref": "#/$defs/HarnessCursor" },
         "state": { "type": "string", "enum": ["idle", "working", "blocked", "failed", "disconnected", "stopped"] },

@@ -59,6 +59,12 @@ test("scenario transport rejects duplicate fields, unknown fields, and impossibl
   const impossiblePath = join(root, "impossible.json");
   await writeFile(impossiblePath, JSON.stringify(impossible));
   await assert.rejects(loadFakeDaemonScenario(impossiblePath), /scenario is invalid/);
+
+  const hostileProvider = JSON.parse(source) as { sessions: Array<{ provider: string }> };
+  hostileProvider.sessions[0]!.provider = "provider/child";
+  const hostileProviderPath = join(root, "hostile-provider.json");
+  await writeFile(hostileProviderPath, JSON.stringify(hostileProvider));
+  await assert.rejects(loadFakeDaemonScenario(hostileProviderPath), /scenario is invalid/);
 });
 
 test("compiled sidecar serves discovery and bootstrap from the deterministic fake daemon", async (context) => {

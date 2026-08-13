@@ -112,7 +112,7 @@ describe("project catalog client", () => {
         },
       },
       session: {
-        sessionId: "daemon-active-1", accountId: null, projectId: "daemon-project-1", chatId: "daemon-chat-1",
+        sessionId: "daemon-active-1", accountId: null, provider: "openai-codex", projectId: "daemon-project-1", chatId: "daemon-chat-1",
         cursor: { runtimeGeneration: "generation-1", sequence: 0 }, state: "idle", freshness: "live",
         parentMessages: [], children: [], queue: [], tools: [], resources: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: null },
         workerRecovery: { status: "ready", closureReason: null, observationId: null, automaticRetryCount: 0, detail: null },
@@ -145,7 +145,7 @@ describe("project catalog client", () => {
         },
       },
       session: {
-        sessionId: "daemon-active-branch", accountId: null, projectId: "daemon-project-1", chatId: "daemon-chat-branch",
+        sessionId: "daemon-active-branch", accountId: null, provider: "openai-codex", projectId: "daemon-project-1", chatId: "daemon-chat-branch",
         cursor: { runtimeGeneration: "generation-branch", sequence: 1 }, state: "idle", freshness: "live",
         parentMessages: [{ channel: "parent", kind: "user", id: "message-1", text: "Branch here", emittedAtMs: 1 }],
         children: [], queue: [], tools: [], resources: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: null },
@@ -198,7 +198,7 @@ describe("project catalog client", () => {
         },
       },
       session: {
-        sessionId: "daemon-active-branch", accountId: null, projectId: "daemon-project-1", chatId: "daemon-chat-branch",
+        sessionId: "daemon-active-branch", accountId: null, provider: "openai-codex", projectId: "daemon-project-1", chatId: "daemon-chat-branch",
         cursor: { runtimeGeneration: "generation-branch", sequence: 1 }, state: "idle", freshness: "live",
         parentMessages: [], children: [], queue: [], tools: [], resources: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: null },
         workerRecovery: { status: "ready", closureReason: null, observationId: null, automaticRetryCount: 0, detail: null },

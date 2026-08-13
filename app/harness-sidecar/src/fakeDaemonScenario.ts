@@ -27,6 +27,7 @@ export type TurnPerformanceProjection =
 export interface FakeRootSessionSnapshot {
   readonly sessionId: string;
   readonly accountId: string | null;
+  readonly provider: string | null;
   readonly projectId: string;
   readonly chatId: string;
   readonly cursor: Readonly<{ runtimeGeneration: string; sequence: number }>;
@@ -124,6 +125,11 @@ function id(value: unknown): string {
   return value;
 }
 
+function providerId(value: unknown): string {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_.:@+-]{1,128}$/u.test(value)) invalid();
+  return value;
+}
+
 function text(value: unknown, maximum: number, empty = false): string {
   if (typeof value !== "string" || (!empty && value.length === 0) || [...value].length > maximum) invalid();
   return value;
@@ -203,7 +209,7 @@ function message(value: unknown): ParentMessage {
 }
 
 function snapshot(value: unknown): FakeRootSessionSnapshot {
-  const source = record(value, ["sessionId", "accountId", "projectId", "chatId", "cursor", "state", "parentMessages", "children", "queue", "tools", "resources", "usage"]);
+  const source = record(value, ["sessionId", "accountId", "provider", "projectId", "chatId", "cursor", "state", "parentMessages", "children", "queue", "tools", "resources", "usage"]);
   const cursorSource = record(source.cursor, ["runtimeGeneration", "sequence"]);
   const usageSource = record(source.usage, ["input", "output", "cacheRead", "cacheWrite", "totalTokens", "cost"]);
   const input = integer(usageSource.input);
@@ -238,6 +244,7 @@ function snapshot(value: unknown): FakeRootSessionSnapshot {
   return {
     sessionId,
     accountId: source.accountId === null ? null : id(source.accountId),
+    provider: source.provider === null ? null : providerId(source.provider),
     projectId: id(source.projectId),
     chatId: id(source.chatId),
     cursor: { runtimeGeneration: id(cursorSource.runtimeGeneration), sequence: integer(cursorSource.sequence) },

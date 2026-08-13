@@ -2157,6 +2157,7 @@ mod artifact_candidate_tests {
         RootSessionSnapshot {
             session_id: session_id.to_owned(),
             account_id: None,
+            provider: Some("openai-codex".to_owned()),
             project_id: project_id.to_owned(),
             chat_id: format!("chat-{session_id}"),
             cursor: HarnessCursor {

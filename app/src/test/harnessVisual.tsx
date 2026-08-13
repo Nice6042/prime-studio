@@ -7,7 +7,7 @@ import { HarnessInspector } from "../features/harness/HarnessInspector";
 
 const now = Date.now();
 const session: RootSessionProjection = {
-  sessionId: "visual-session", accountId: null, projectId: "prime-studio", chatId: "visual-chat",
+  sessionId: "visual-session", accountId: null, provider: "openai-codex", projectId: "prime-studio", chatId: "visual-chat",
   cursor: { runtimeGeneration: "visual", sequence: 24 }, state: "working", freshness: "live",
   parentMessages: [],
   children: [

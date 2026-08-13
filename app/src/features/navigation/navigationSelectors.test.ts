@@ -5,7 +5,7 @@ import type { RootSessionProjection } from "../../entities/harness/types";
 import { selectNavigationProjects } from "./navigationSelectors";
 
 const session: RootSessionProjection = {
-  sessionId: "session-recent", accountId: "account-a", projectId: "project-a", chatId: "agent-recent",
+  sessionId: "session-recent", accountId: "account-a", provider: "openai-codex", projectId: "project-a", chatId: "agent-recent",
   cursor: { runtimeGeneration: "generation-a", sequence: 2 }, state: "working", freshness: "live",
   parentMessages: [], children: [], queue: [], tools: [], resources: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: null },
   workerRecovery: { status: "ready", closureReason: null, observationId: null, automaticRetryCount: 0, detail: null },

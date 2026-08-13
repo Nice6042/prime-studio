@@ -28,7 +28,7 @@ function catalog() {
 }
 
 const session = (sessionId: string, sequence: number, runtimeGeneration = "generation-1"): RootSessionProjection => ({
-  sessionId, accountId: null, projectId: "daemon-project", chatId: sessionId,
+  sessionId, accountId: null, provider: "openai-codex", projectId: "daemon-project", chatId: sessionId,
   cursor: { runtimeGeneration, sequence }, state: "idle", freshness: "live",
   parentMessages: [], children: [], queue: [], tools: [], resources: [],
   usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: null },

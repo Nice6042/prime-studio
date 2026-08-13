@@ -5,7 +5,7 @@ import type { RootSessionProjection } from "../../entities/harness/types";
 import { RuntimeStatusBar } from "./RuntimeStatusBar";
 
 const session: RootSessionProjection = {
-  sessionId: "session-1", accountId: "openai-codex", projectId: "p", chatId: "c",
+  sessionId: "session-1", accountId: "account-private-42", provider: "openai-codex", projectId: "p", chatId: "c",
   cursor: { runtimeGeneration: "g", sequence: 1 }, state: "working", parentMessages: [], children: [], queue: [], tools: [], resources: [],
   usage: { input: 1200, output: 340, cacheRead: 20, cacheWrite: 0, totalTokens: 1560, cost: null },
   workerRecovery: { status: "ready", closureReason: null, observationId: null, automaticRetryCount: 0, detail: null }, freshness: "live",
@@ -25,6 +25,7 @@ describe("RuntimeStatusBar", () => {
     expect(screen.getByText(/142ms first token/)).toBeVisible();
     expect(screen.getByText(/18.4 tok\/s/)).toBeVisible();
     expect(screen.getByText(/working · connected/)).toBeVisible();
+    expect(screen.getByRole("status")).not.toHaveTextContent("account-private-42");
   });
 
   it("states unavailable instead of fabricating telemetry", () => {
@@ -90,11 +91,38 @@ describe("RuntimeStatusBar", () => {
     expect(status).toHaveAccessibleDescription(/context evidence is invalid/i);
   });
 
+  it("withholds provider identity when the replacement snapshot cannot verify it", () => {
+    const view = render(<RuntimeStatusBar
+      session={session}
+      composer={{ sessionId: session.sessionId, cursor: session.cursor, model: "gpt-5.6-sol", thinking: "high" }}
+    />);
+    expect(screen.getByRole("status")).toHaveAccessibleName(/openai-codex .* gpt-5\.6-sol .* thinking high/i);
+
+    const replacementCursor = { runtimeGeneration: "g-reconnected", sequence: 1 };
+    view.rerender(<RuntimeStatusBar
+      session={{
+        ...session,
+        provider: null,
+        cursor: replacementCursor,
+        performance: { status: "unavailable", sessionId: session.sessionId, cursor: replacementCursor, reason: "generation_changed" },
+      }}
+      composer={{ sessionId: session.sessionId, cursor: replacementCursor, model: "gpt-5.6-sol", thinking: "high" }}
+    />);
+    const status = screen.getByRole("status");
+    expect(status).toHaveAccessibleName(/provider unavailable .* gpt-5\.6-sol .* thinking high/i);
+    expect(status).not.toHaveTextContent("openai-codex");
+    expect(status).not.toHaveTextContent("account-private-42");
+  });
+
   it("keeps stale and unknown-outcome connection truth distinct", () => {
     const view = render(<RuntimeStatusBar session={{ ...session, freshness: "stale" }} />);
     expect(screen.getByRole("status")).toHaveTextContent("working · stale");
+    expect(screen.getByRole("status")).toHaveTextContent("provider unavailable");
+    expect(screen.getByRole("status")).not.toHaveTextContent("openai-codex");
     view.rerender(<RuntimeStatusBar session={{ ...session, freshness: "unknown_outcome" }} />);
     expect(screen.getByRole("status")).toHaveTextContent("working · outcome unknown");
+    expect(screen.getByRole("status")).toHaveTextContent("provider unavailable");
+    expect(screen.getByRole("status")).not.toHaveTextContent("openai-codex");
     expect(screen.getByRole("status")).not.toHaveTextContent("working · stale");
   });
 

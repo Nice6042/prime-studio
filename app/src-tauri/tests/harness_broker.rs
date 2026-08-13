@@ -54,6 +54,7 @@ fn snapshot(
     RootSessionSnapshot {
         session_id: session.to_owned(),
         account_id: Some("account".to_owned()),
+        provider: Some("openai-codex".to_owned()),
         project_id: project.to_owned(),
         chat_id: chat.to_owned(),
         cursor: HarnessCursor {
@@ -134,6 +135,8 @@ fn production_bootstrap_attaches_only_catalog_owned_sessions() {
     assert_eq!(broker.state(), BrokerState::Live);
     assert_eq!(boot.sessions.len(), 1);
     assert_eq!(boot.sessions[0].session_id, "root");
+    assert_eq!(boot.sessions[0].provider.as_deref(), Some("openai-codex"));
+    assert_eq!(boot.sessions[0].account_id.as_deref(), Some("account"));
 }
 
 #[test]

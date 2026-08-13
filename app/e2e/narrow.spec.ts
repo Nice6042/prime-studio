@@ -5,7 +5,8 @@ test("compact workspace keeps the parent conversation and composer visible", asy
   expect(shellPage.viewportSize()).toEqual({ width: 320, height: 200 });
   const runtimeStatus = shellPage.locator(".studio-statusbar");
   await expect(runtimeStatus).toBeVisible();
-  await expect(runtimeStatus).toHaveAccessibleName(/Runtime status:.*gpt-5\.6-sol.*ctx unavailable.*142ms first token.*18\.4 tok\/s/i);
+  await expect(runtimeStatus).toHaveAccessibleName(/Runtime status:.*openai-codex.*gpt-5\.6-sol.*thinking high.*ctx unavailable.*142ms first token.*18\.4 tok\/s/i);
+  await expect(runtimeStatus).not.toHaveAccessibleName(/account-e2e/i);
   const statusGeometry = await runtimeStatus.evaluate((element) => ({ height: element.getBoundingClientRect().height, width: element.getBoundingClientRect().width, scrollWidth: element.scrollWidth }));
   expect(statusGeometry.height).toBe(24);
   expect(statusGeometry.scrollWidth).toBeLessThanOrEqual(statusGeometry.width + 1);

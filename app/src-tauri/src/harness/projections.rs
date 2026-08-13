@@ -20,6 +20,7 @@ pub enum ProjectionFreshness {
 pub struct RootSessionProjection {
     pub session_id: String,
     pub account_id: Option<String>,
+    pub provider: Option<String>,
     pub project_id: String,
     pub chat_id: String,
     pub cursor: HarnessCursor,
@@ -42,6 +43,7 @@ impl RootSessionProjection {
         Self {
             session_id: snapshot.session_id.clone(),
             account_id: snapshot.account_id.clone(),
+            provider: snapshot.provider.clone(),
             project_id: snapshot.project_id.clone(),
             chat_id: snapshot.chat_id.clone(),
             cursor: snapshot.cursor.clone(),

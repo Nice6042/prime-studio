@@ -101,6 +101,12 @@ function bounded(value: unknown, maximum: number, allowEmpty = false): string {
   return value;
 }
 
+function providerId(value: unknown): string {
+  const candidate = bounded(value, 128);
+  if (!/^[A-Za-z0-9_.:@+-]+$/u.test(candidate)) fail();
+  return candidate;
+}
+
 function safeInteger(value: unknown): number {
   if (!Number.isSafeInteger(value) || (value as number) < 0 || (value as number) > MAX_SAFE) fail();
   return value as number;
@@ -370,7 +376,7 @@ function turnPerformance(value: unknown, sessionId: string, snapshotCursor: Harn
 }
 
 function session(value: unknown): RootSessionProjection {
-  const source = record(value, ["sessionId", "accountId", "projectId", "chatId", "cursor", "state", "freshness", "parentMessages", "children", "queue", "tools", "resources", "usage", "workerRecovery", "performance"]);
+  const source = record(value, ["sessionId", "accountId", "provider", "projectId", "chatId", "cursor", "state", "freshness", "parentMessages", "children", "queue", "tools", "resources", "usage", "workerRecovery", "performance"]);
   const sessionId = id(source.sessionId);
   const snapshotCursor = cursor(source.cursor);
   const children = array(source.children, 256).map(child);
@@ -382,6 +388,7 @@ function session(value: unknown): RootSessionProjection {
   return {
     sessionId,
     accountId: source.accountId === null ? null : id(source.accountId),
+    provider: source.provider === null ? null : providerId(source.provider),
     projectId: id(source.projectId),
     chatId: id(source.chatId),
     cursor: snapshotCursor,

@@ -1381,9 +1381,11 @@ export class PrimeDaemonBridge {
     if (!Number.isSafeInteger(totalTokens)) throw new TypeError("daemon token usage is invalid");
     const cwd = boundedString(state.cwd, 4096);
     const chatId = typeof state.sessionId === "string" ? boundedString(state.sessionId, 128) : activeSessionId;
+    const currentModel = plain(state.model) ? state.model : {};
+    const provider = typeof currentModel.provider === "string" ? boundedString(currentModel.provider, 128) : null;
     const cursor = { runtimeGeneration: observedCursor.generation, sequence: nextSequence };
     const snapshot = Object.freeze({
-      sessionId: activeSessionId, accountId: null, projectId: projectId(cwd), chatId,
+      sessionId: activeSessionId, accountId: null, provider, projectId: projectId(cwd), chatId,
       cursor, state: rootState(state),
       parentMessages: messages, children, queue, tools, resources: resources.slice(0, 512),
       usage: { input, output, cacheRead, cacheWrite, totalTokens, cost: typeof stats.cost === "number" && Number.isFinite(stats.cost) && stats.cost >= 0 ? stats.cost : null },
@@ -1466,6 +1468,7 @@ export class PrimeDaemonBridge {
     const cursor = { runtimeGeneration: bound.studioGeneration, sequence };
     const snapshot = Object.freeze({
       ...prior,
+      provider: null,
       cursor,
       state: "failed" as const,
       workerRecovery: Object.freeze({ ...recovery }),

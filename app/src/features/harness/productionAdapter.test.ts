@@ -5,7 +5,7 @@ import type { RootSessionProjection } from "../../entities/harness/types";
 import { createProductionHarnessInspectorAdapter } from "./productionAdapter";
 
 const session: RootSessionProjection = {
-  sessionId: "daemon-active-1", accountId: null, projectId: "daemon-project-hash", chatId: "daemon-session-1",
+  sessionId: "daemon-active-1", accountId: null, provider: "openai-codex", projectId: "daemon-project-hash", chatId: "daemon-session-1",
   cursor: { runtimeGeneration: "generation-1", sequence: 7 }, state: "idle", freshness: "live",
   parentMessages: [], children: [], queue: [], tools: [], resources: [],
   usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: null },

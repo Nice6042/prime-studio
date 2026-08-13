@@ -1,4 +1,4 @@
-// Generated from harness-v1.schema.json; SHA-256: ddbdf87b1e4dda91742f964d86f0597b33adfe1510b96ebb25db0deda9711aec
+// Generated from harness-v1.schema.json; SHA-256: 46e390312243a1f33be938cbc8e02148426e8bc746e6a8c73ea94c0f2ef3dfa9
 // Do not edit by hand. Run npm run generate:harness-contract.
 
 export const STUDIO_HARNESS_PROTOCOL = 1 as const;
@@ -106,6 +106,7 @@ export type TurnPerformanceProjection =
 export interface RootSessionSnapshot {
   sessionId: string;
   accountId: string | null;
+  provider: string | null;
   projectId: string;
   chatId: string;
   cursor: HarnessCursor;
