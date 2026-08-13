@@ -448,6 +448,24 @@ export const test = base.extend<ShellFixtures>({
             artifactContent = request.content;
             return { kind: "saved", revision: artifactRevision, identity: artifactIdentity };
           }
+          case "editor_artifact_reload": {
+            const request = args.request as { artifactRef?: { brokerId?: string; rootSessionId?: string; artifactId?: string } } | undefined;
+            if (request?.artifactRef?.brokerId !== "browser-broker" || request.artifactRef.rootSessionId !== "session-e2e" || !["candidate-browser-output", "candidate-browser-source"].includes(request.artifactRef.artifactId ?? "")) {
+              return { kind: "unsupported", reason: "The artifact reload identity is stale or unavailable." };
+            }
+            return { kind: "opened", document: {
+              label: request.artifactRef.artifactId === "candidate-browser-output" ? "harness-report.md" : "harness-contract.md",
+              ref: { brokerId: "browser-broker", rootSessionId: "session-e2e", artifactId: request.artifactRef.artifactId, revision: artifactRevision },
+              identity: artifactIdentity, content: artifactContent, writable: true, diff: [],
+            } };
+          }
+          case "editor_artifact_save_copy": {
+            const request = args.request as { ref?: { brokerId?: string; rootSessionId?: string; artifactId?: string; revision?: number }; content?: string } | undefined;
+            if (!request || request.ref?.brokerId !== "browser-broker" || request.ref.rootSessionId !== "session-e2e" || request.ref.revision !== artifactRevision || typeof request.content !== "string") {
+              return { kind: "error", message: "The save-copy identity is stale or unavailable." };
+            }
+            return { kind: "saved_copy", label: "harness-report.prime-copy.md" };
+          }
           case "get_layout_preferences":
             return { ...layoutPreferences };
           case "set_layout_preferences":

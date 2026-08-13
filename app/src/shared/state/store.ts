@@ -36,6 +36,7 @@ export interface StudioAppState {
   readonly drafts: Readonly<Record<string, string>>;
   readonly attachments: Readonly<Record<string, readonly DraftAttachment[]>>;
   readonly conversationDisplay: Readonly<Record<string, ConversationDisplay>>;
+  readonly canvasRevisions: Readonly<Record<string, Readonly<Record<string, Readonly<{ revision: number; content: string }>>>>>;
   readonly conversationHistory: Readonly<Record<string, ParentHistoryState>>;
   readonly async: Readonly<Record<string, AsyncState>>;
   readonly attention: AttentionState;
@@ -106,6 +107,7 @@ export type StudioIntent =
   | Readonly<{ type: "attachments/change"; chatId: string; attachments: readonly DraftAttachment[] }>
   | Readonly<{ type: "conversation/version-appended"; chatId: string; messageId: string; kind: DisplayMessageKind; text: string }>
   | Readonly<{ type: "conversation/version-selected"; chatId: string; messageId: string; kind: DisplayMessageKind; version: number }>
+  | Readonly<{ type: "conversation/canvas-applied"; chatId: string; messageId: string; expectedRevision: number; content: string }>
   | Readonly<{ type: "conversation/history-requested"; chatId: string; sessionId: string; expectedCursor: HarnessCursor; before: string | null }>
   | Readonly<{ type: "conversation/history-page-loaded"; chatId: string; before: string | null; page: ParentHistoryPage }>
   | Readonly<{ type: "conversation/history-unavailable"; chatId: string; sessionId: string; expectedCursor: HarnessCursor; before: string | null; reason: string }>
@@ -154,6 +156,7 @@ export function initialStudioState(input: {
     drafts: Object.freeze({}),
     attachments: Object.freeze({}),
     conversationDisplay,
+    canvasRevisions: Object.freeze({}),
     conversationHistory: Object.freeze({}),
     async: Object.freeze({}),
     attention: { status: "loading" },
@@ -188,6 +191,7 @@ export function reduceStudio(state: StudioAppState, intent: StudioIntent): Studi
       const drafts = Object.freeze(Object.fromEntries(Object.entries(state.drafts).filter(([chatId]) => Boolean(chats[chatId]))));
       const attachments = Object.freeze(Object.fromEntries(Object.entries(state.attachments).filter(([chatId]) => Boolean(chats[chatId]))));
       const conversationDisplay = Object.freeze(Object.fromEntries(Object.entries(state.conversationDisplay).filter(([chatId]) => Boolean(chats[chatId]))));
+      const canvasRevisions = Object.freeze(Object.fromEntries(Object.entries(state.canvasRevisions).filter(([chatId]) => Boolean(chats[chatId]))));
       const conversationHistory = Object.freeze(Object.fromEntries(Object.entries(state.conversationHistory).filter(([chatId]) => Boolean(chats[chatId]))));
       return {
         ...state,
@@ -196,6 +200,7 @@ export function reduceStudio(state: StudioAppState, intent: StudioIntent): Studi
         drafts,
         attachments,
         conversationDisplay,
+        canvasRevisions,
         conversationHistory,
         navigation: { route: "workspace", settingsSection: null, selectedChatId },
       };
@@ -232,6 +237,24 @@ export function reduceStudio(state: StudioAppState, intent: StudioIntent): Studi
       const next = selectDisplayVersion(current, intent.messageId, intent.kind, intent.version);
       if (next === current) return state;
       return { ...state, conversationDisplay: Object.freeze({ ...state.conversationDisplay, [intent.chatId]: next }) };
+    }
+    case "conversation/canvas-applied": {
+      if (!state.chats[intent.chatId] || !intent.messageId || !Number.isSafeInteger(intent.expectedRevision) || intent.expectedRevision < 1) return state;
+      const current = state.canvasRevisions[intent.chatId]?.[intent.messageId];
+      const revision = current?.revision ?? 1;
+      if (revision !== intent.expectedRevision) return state;
+      const bounded = Array.from(intent.content).slice(0, 128 * 1024).join("");
+      if (!bounded) return state;
+      return {
+        ...state,
+        canvasRevisions: Object.freeze({
+          ...state.canvasRevisions,
+          [intent.chatId]: Object.freeze({
+            ...(state.canvasRevisions[intent.chatId] ?? {}),
+            [intent.messageId]: Object.freeze({ revision: revision + 1, content: bounded }),
+          }),
+        }),
+      };
     }
     case "conversation/history-requested": {
       const session = sessionForStudioChat(state, intent.chatId);

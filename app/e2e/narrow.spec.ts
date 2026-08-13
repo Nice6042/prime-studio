@@ -114,6 +114,20 @@ test("redacted Activity detail remains usable and contained in the narrow Harnes
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-activity-redacted-narrow");
 });
 
+test("Canvas operation authority stays identity-bound and accessible in the narrow editor sheet", async ({ shellPage }) => {
+  await shellPage.setViewportSize({ width: 320, height: 600 });
+  await activateWithKeyboard(shellPage.getByRole("button", { name: "Edit answer in Canvas" }));
+  const editor = shellPage.getByRole("region", { name: "Editor" });
+  await expect(editor).toBeVisible();
+  const canvas = editor.getByRole("textbox", { name: "Canvas content" });
+  await canvas.fill("Narrow display revision.");
+  await activateWithKeyboard(editor.getByRole("button", { name: "Apply display revision" }));
+  await expect(editor.getByText("Display revision 2", { exact: true })).toBeVisible();
+  await expect(editor.getByText(/does not rewrite Harness history/)).toBeVisible();
+  await expectWithinViewport(editor, shellPage);
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-narrow-canvas-authority");
+});
+
 test("200 percent project sheet preserves keyboard expansion and grouping", async ({ shellPage }, testInfo) => {
   await shellPage.setViewportSize({ width: 320, height: 600 });
   await shellPage.getByRole("button", { name: "Projects" }).click();

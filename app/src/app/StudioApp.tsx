@@ -116,6 +116,25 @@ function artifactModeDocumentId(document: ArtifactDocument): string {
   ]);
 }
 
+function ownsArtifactRevision(
+  document: ArtifactDocument | null,
+  documentId: string,
+  ref: ArtifactDocument["ref"],
+  expectedRevision: number,
+  expectedIdentity: string,
+): document is ArtifactDocument {
+  return Boolean(
+    document
+    && artifactModeDocumentId(document) === documentId
+    && ref.revision === expectedRevision
+    && document.ref.brokerId === ref.brokerId
+    && document.ref.rootSessionId === ref.rootSessionId
+    && document.ref.artifactId === ref.artifactId
+    && document.ref.revision === expectedRevision
+    && document.identity === expectedIdentity,
+  );
+}
+
 function canvasModeDocumentId(document: Readonly<{ chatId: string; messageId: string; displayRevision: number }>): string {
   return JSON.stringify(["canvas", document.chatId, document.messageId, document.displayRevision]);
 }
@@ -135,6 +154,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const drafts = useStudioSelector((state) => state.drafts);
   const attachments = useStudioSelector((state) => state.attachments);
   const conversationDisplay = useStudioSelector((state) => state.conversationDisplay);
+  const displayRevisions = useStudioSelector((state) => state.canvasRevisions);
   const conversationHistory = useStudioSelector((state) => state.conversationHistory);
   const attention = useStudioSelector((state) => state.attention);
   const viewport = useViewportWidth();
@@ -173,10 +193,20 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const sidebarHadFocus = useRef(false);
   const previousSidebarHost = useRef<"pane" | "rail" | "sheet" | null>(null);
   const [canvas, setCanvas] = useState<Readonly<{ chatId: string; messageId: string; displayRevision: number; content: string }> | null>(null);
+  const canvasRef = useRef(canvas);
+  canvasRef.current = canvas;
   const [editorArtifact, setEditorArtifact] = useState<ArtifactDocument | null>(null);
+  const [editorAdmissionRevision, setEditorAdmissionRevision] = useState(0);
+  const editorArtifactRef = useRef(editorArtifact);
+  editorArtifactRef.current = editorArtifact;
+  const artifactOpenGeneration = useRef(0);
+  const editorOpenAdmission = useRef(0);
   const [editorMode, setEditorMode] = useState<EditorMode>("edit");
   const [artifactDrafts, setArtifactDrafts] = useState<Readonly<Record<string, string>>>({});
-  const [displayRevisions, setDisplayRevisions] = useState<Readonly<Record<string, Readonly<Record<string, Readonly<{ revision: number; content: string }>>>>>>({});
+  const navigationRef = useRef(navigation);
+  navigationRef.current = navigation;
+  const selectedSessionRef = useRef(selectedSession);
+  selectedSessionRef.current = selectedSession;
   const [inspectorRouteRequest, setInspectorRouteRequest] = useState<Readonly<{ id: number; route: "overview" | "usage" | "activity" }> | undefined>();
   const [admissionPhase, setAdmissionPhase] = useState<"idle" | "submitting" | "aborting">("idle");
   const [admissionMessage, setAdmissionMessage] = useState("");
@@ -389,6 +419,8 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   useEffect(() => {
     setAdmissionPhase("idle");
     setAdmissionMessage("");
+    artifactOpenGeneration.current += 1;
+    editorArtifactRef.current = null;
     setEditorArtifact(null);
     setEditorMode("edit");
   }, [navigation.selectedChatId]);
@@ -612,6 +644,34 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       case "conversation.assistant-version.select":
         store.dispatch({ type: "conversation/version-selected", chatId: operation.payload.chatId, messageId: operation.payload.messageId, kind: operation.action === "conversation.user-version.select" ? "user" : "assistant", version: operation.payload.version });
         return { status: "updated", revision: operation.payload.version };
+      case "editor.canvas.apply": {
+        const { chatId, messageId, expectedRevision, content } = operation.payload;
+        const activeCanvas = canvasRef.current;
+        const current = store.getSnapshot().canvasRevisions[chatId]?.[messageId];
+        const currentRevision = current?.revision ?? (activeCanvas?.chatId === chatId && activeCanvas.messageId === messageId ? activeCanvas.displayRevision : 1);
+        const currentContent = current?.content ?? (activeCanvas?.chatId === chatId && activeCanvas.messageId === messageId ? activeCanvas.content : null);
+        if (currentRevision === expectedRevision + 1 && currentContent === content) {
+          return { status: "updated", revision: currentRevision };
+        }
+        if (
+          navigationRef.current.selectedChatId !== chatId
+          || !activeCanvas
+          || activeCanvas.chatId !== chatId
+          || activeCanvas.messageId !== messageId
+          || activeCanvas.displayRevision !== expectedRevision
+          || currentRevision !== expectedRevision
+        ) return { status: "rejected", reason: "The Canvas display revision changed before Apply completed.", retryable: false };
+        store.dispatch({ type: "conversation/canvas-applied", chatId, messageId, expectedRevision, content });
+        const committed = store.getSnapshot().canvasRevisions[chatId]?.[messageId];
+        if (!committed || committed.revision !== expectedRevision + 1 || committed.content !== content) {
+          return { status: "rejected", reason: "The Canvas display revision changed before Apply completed.", retryable: false };
+        }
+        const revision = committed.revision;
+        const nextCanvas = Object.freeze({ ...activeCanvas, displayRevision: revision, content });
+        canvasRef.current = nextCanvas;
+        setCanvas(nextCanvas);
+        return { status: "updated", revision };
+      }
       case "workspace.switch":
         return { status: "unavailable", reason: "Workspace switching is unavailable because no workspace catalog authority is configured." };
       case "workspace.sign-out":
@@ -714,6 +774,36 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       case "surface.accordion.toggle":
       case "overlay.topmost.close":
       case "toast.dismiss": break;
+      case "conversation.canvas.open": {
+        const { chatId, messageId, expectedRevision, content } = operation.payload;
+        const stillExact = () => {
+          if (navigationRef.current.selectedChatId !== chatId) return false;
+          const message = selectedSessionRef.current?.parentMessages.find((candidate) => candidate.kind === "assistant" && candidate.id === messageId);
+          if (!message || message.kind !== "assistant" || message.streaming) return false;
+          const displayed = store.getSnapshot().canvasRevisions[chatId]?.[messageId];
+          const source = message.blocks.filter((block) => block.kind === "text").map((block) => block.text).join("\n\n");
+          return (displayed?.revision ?? 1) === expectedRevision && (displayed?.content ?? source) === content;
+        };
+        if (!stillExact()) return { status: "rejected", reason: "The selected response changed before Canvas could open.", retryable: false };
+        const admittedOpen = ++editorOpenAdmission.current;
+        const editorWasOpen = layoutCoordinator.current!.snapshot().editorOpen;
+        if (!editorWasOpen) {
+          const opened = await changeLayout({ editorOpen: true });
+          if (opened.status !== "updated") return opened;
+        }
+        if (editorOpenAdmission.current !== admittedOpen || !stillExact()) {
+          if (!editorWasOpen && editorOpenAdmission.current === admittedOpen) await changeLayout({ editorOpen: false });
+          return { status: "rejected", reason: "The selected response changed before Canvas could open.", retryable: false };
+        }
+        editorArtifactRef.current = null;
+        setEditorArtifact(null);
+        setEditorMode("edit");
+        const nextCanvas = Object.freeze({ chatId, messageId, displayRevision: expectedRevision, content });
+        canvasRef.current = nextCanvas;
+        setCanvas(nextCanvas);
+        setActiveSheet("editor");
+        return { status: "updated", revision: expectedRevision };
+      }
       case "editor.mode.select": {
         const visibleCanvas = canvas?.chatId === navigation.selectedChatId ? canvas : null;
         const activeDocumentId = editorArtifact
@@ -752,6 +842,61 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       case "route.external-docs.open": await openUrl(operation.payload.document === "support" ? "https://github.com/Nice6042/prime-studio/blob/main/SUPPORT.md" : "https://www.npmjs.com/package/prime-agent"); break;
       case "conversation.response.copy": await navigator.clipboard.writeText(operation.payload.text); break;
       case "activity.command.copy": await navigator.clipboard.writeText(operation.payload.command); break;
+      case "editor.file.save": {
+        const { documentId, ref, expectedRevision, expectedIdentity, content } = operation.payload;
+        const active = editorArtifactRef.current;
+        if (!ownsArtifactRevision(active, documentId, ref, expectedRevision, expectedIdentity)) return { status: "rejected", reason: "The artifact identity changed before Save started.", retryable: false };
+        const result = await rpc.saveEditorArtifact({ ref, expectedRevision, expectedIdentity, content });
+        const latest = editorArtifactRef.current;
+        if (!ownsArtifactRevision(latest, documentId, ref, expectedRevision, expectedIdentity)) return { status: "rejected", reason: "The artifact identity changed before Save completed.", retryable: false };
+        if (result.kind !== "saved") return result.kind === "unsupported"
+          ? { status: "unavailable", reason: result.message }
+          : { status: "rejected", reason: result.message, retryable: result.kind === "conflict" || result.kind === "error" };
+        const savedDocument = Object.freeze({ ...latest, ref: Object.freeze({ ...latest.ref, revision: result.revision }), identity: result.identity, content });
+        editorArtifactRef.current = savedDocument;
+        setEditorArtifact(savedDocument);
+        setEditorAdmissionRevision((revision) => revision + 1);
+        setArtifactDrafts((current) => { const next = { ...current }; delete next[artifactDraftKey(latest)]; return Object.freeze(next); });
+        return { status: "updated", revision: result.revision, identity: result.identity };
+      }
+      case "editor.conflict.reload": {
+        const { documentId, ref, expectedRevision, expectedIdentity } = operation.payload;
+        const active = editorArtifactRef.current;
+        if (!ownsArtifactRevision(active, documentId, ref, expectedRevision, expectedIdentity)) {
+          return { status: "rejected", reason: "The artifact identity changed before Reload started.", retryable: false };
+        }
+        const result = await rpc.reloadEditorArtifact(ref);
+        if (result.kind === "unsupported") return { status: "unavailable", reason: result.reason };
+        const latest = editorArtifactRef.current;
+        if (!ownsArtifactRevision(latest, documentId, ref, expectedRevision, expectedIdentity)) return { status: "rejected", reason: "The artifact identity changed before Reload completed.", retryable: false };
+        if (result.document.ref.brokerId !== ref.brokerId || result.document.ref.rootSessionId !== ref.rootSessionId || result.document.ref.artifactId !== ref.artifactId) {
+          return { status: "rejected", reason: "Native Reload returned a different artifact identity.", retryable: false };
+        }
+        editorArtifactRef.current = result.document;
+        setEditorArtifact(result.document);
+        setEditorAdmissionRevision((revision) => revision + 1);
+        setArtifactDrafts((current) => { const next = { ...current }; delete next[artifactDraftKey(latest)]; return Object.freeze(next); });
+        return { status: "updated", revision: result.document.ref.revision, identity: result.document.identity };
+      }
+      case "editor.conflict.save-copy": {
+        const { documentId, ref, expectedRevision, expectedIdentity, content } = operation.payload;
+        const active = editorArtifactRef.current;
+        if (!ownsArtifactRevision(active, documentId, ref, expectedRevision, expectedIdentity)) {
+          return { status: "rejected", reason: "The artifact identity changed before Save-copy started.", retryable: false };
+        }
+        let result: Awaited<ReturnType<typeof rpc.saveEditorArtifactCopy>>;
+        try {
+          result = await rpc.saveEditorArtifactCopy({ ref, content });
+        } catch {
+          return { status: "rejected", reason: "The Save-copy outcome could not be verified, so it will not be retried automatically.", retryable: false };
+        }
+        if (!ownsArtifactRevision(editorArtifactRef.current, documentId, ref, expectedRevision, expectedIdentity)) {
+          return { status: "rejected", reason: "The artifact identity changed before Save-copy completed.", retryable: false };
+        }
+        if (result.kind === "saved_copy") return { status: "updated", revision: result.label };
+        if (result.kind === "cancelled") return { status: "cancelled", commandId: null };
+        return result.kind === "unsupported" ? { status: "unavailable", reason: result.message } : { status: "rejected", reason: result.message, retryable: true };
+      }
       case "history.undo": if (!document.execCommand("undo")) return { status: "rejected", reason: "Undo is unavailable in the active surface.", retryable: false }; break;
       case "history.redo": if (!document.execCommand("redo")) return { status: "rejected", reason: "Redo is unavailable in the active surface.", retryable: false }; break;
       default: return { status: "unavailable", reason: `${operation.action} has no registered native implementation.` };
@@ -814,12 +959,34 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       if (!harnessAdapter.openArtifact) return { status: "unavailable", reason: "The native identity-bound artifact resolver is unavailable." };
       const sessionId = operation.payload.sessionId;
       const candidateId = operation.action === "editor.artifact.open" ? operation.payload.artifactId : operation.action === "activity.file.open" ? operation.payload.fileId : operation.payload.sourceId;
+      const admittedChatId = navigationRef.current.selectedChatId;
+      const admittedGeneration = ++artifactOpenGeneration.current;
+      const admittedOpen = ++editorOpenAdmission.current;
+      if (!admittedChatId || selectedSessionRef.current?.sessionId !== sessionId) return { status: "rejected", reason: "The artifact owner changed before Open started.", retryable: false };
       const result = await harnessAdapter.openArtifact(sessionId, candidateId);
       if (result.kind === "unsupported") return { status: "unavailable", reason: result.reason };
+      const stillOwnsOpen = () => artifactOpenGeneration.current === admittedGeneration
+        && editorOpenAdmission.current === admittedOpen
+        && navigationRef.current.selectedChatId === admittedChatId
+        && selectedSessionRef.current?.sessionId === sessionId;
+      if (!stillOwnsOpen()) {
+        return { status: "rejected", reason: "The artifact owner changed before Open completed.", retryable: false };
+      }
+      const editorWasOpen = layoutCoordinator.current!.snapshot().editorOpen;
+      if (!editorWasOpen) {
+        const opened = await changeLayout({ editorOpen: true });
+        if (opened.status !== "updated") return opened;
+      }
+      if (!stillOwnsOpen()) {
+        if (!editorWasOpen && editorOpenAdmission.current === admittedOpen) await changeLayout({ editorOpen: false });
+        return { status: "rejected", reason: "The artifact owner changed before Open completed.", retryable: false };
+      }
+      editorArtifactRef.current = result.document;
       setEditorArtifact(result.document);
+      setEditorAdmissionRevision((revision) => revision + 1);
       setEditorMode("diff");
+      canvasRef.current = null;
       setCanvas(null);
-      await changeLayout({ editorOpen: true });
       if (viewport <= 900) setActiveSheet("editor");
       return { status: "updated", revision: result.document.ref.revision };
     }
@@ -1218,20 +1385,13 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
           title={title}
           session={selectedSession}
           archived={archived}
+          canvasChatId={navigation.selectedChatId ?? undefined}
           displayRevisions={navigation.selectedChatId ? displayRevisions[navigation.selectedChatId] : undefined}
           presentations={navigation.selectedChatId && conversationDisplay[navigation.selectedChatId] ? projectConversationPresentations(conversationDisplay[navigation.selectedChatId]!) : undefined}
           history={selectedSession ? conversationHistory[navigation.selectedChatId ?? ""] ?? {
             status: "idle", sessionId: selectedSession.sessionId, snapshotCursor: selectedSession.cursor, messages: [],
           } : undefined}
           onLoadOlder={selectedSession ? () => { void loadOlderHistory(); } : undefined}
-          onOpenCanvas={navigation.selectedChatId ? (messageId, content) => {
-            const existing = displayRevisions[navigation.selectedChatId!]?.[messageId];
-            setEditorArtifact(null);
-            setEditorMode("edit");
-            setCanvas({ chatId: navigation.selectedChatId!, messageId, displayRevision: existing?.revision ?? 1, content });
-            if (!layout.editorOpen) void dispatchOperation({ action: "layout.editor.toggle", payload: {} });
-            setActiveSheet("editor");
-          } : undefined}
           onExecuteOperation={dispatchOperation}
           onSuggestionFill={navigation.selectedChatId ? (text) => { void dispatchOperation({ action: "conversation.suggestion.fill", payload: { chatId: navigation.selectedChatId!, text } }); } : undefined}
           onSelectUserVersion={navigation.selectedChatId ? (messageId, version) => { void dispatchOperation({ action: "conversation.user-version.select", payload: { chatId: navigation.selectedChatId!, messageId, version } }); } : undefined}
@@ -1301,39 +1461,14 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         mode={editorArtifact || canvas?.chatId === navigation.selectedChatId ? editorMode : "edit"}
         onExecute={dispatchOperation}
         artifact={editorArtifact}
+        admissionRevision={editorAdmissionRevision}
         draftContent={editorArtifact ? artifactDrafts[artifactDraftKey(editorArtifact)] : undefined}
         onDraftChange={editorArtifact ? (content) => {
           const key = artifactDraftKey(editorArtifact);
           setArtifactDrafts((current) => Object.freeze({ ...current, [key]: content }));
         } : undefined}
-        onArtifactSave={rpc.saveEditorArtifact}
-        onArtifactReload={(document) => rpc.reloadEditorArtifact(document.ref)}
-        onArtifactSaveCopy={rpc.saveEditorArtifactCopy}
-        onArtifactReloaded={(document) => {
-          const key = artifactDraftKey(editorArtifact ?? document);
-          setEditorArtifact(document);
-          setArtifactDrafts((current) => {
-            const next = { ...current };
-            delete next[key];
-            return Object.freeze(next);
-          });
-        }}
-        onArtifactSaved={(document) => {
-          const key = artifactDraftKey(editorArtifact ?? document);
-          setEditorArtifact(document);
-          setArtifactDrafts((current) => {
-            const next = { ...current };
-            delete next[key];
-            return Object.freeze(next);
-          });
-        }}
         unsupportedReason="Open an identity-bound candidate from Harness Outputs, Sources, Activity, or a subagent file list."
         canvas={canvas?.chatId === navigation.selectedChatId ? canvas : null}
-        onCanvasApply={canvas ? (content) => {
-          const revision = canvas.displayRevision + 1;
-          setDisplayRevisions((current) => Object.freeze({ ...current, [canvas.chatId]: Object.freeze({ ...(current[canvas.chatId] ?? {}), [canvas.messageId]: Object.freeze({ revision, content }) }) }));
-          setCanvas({ ...canvas, displayRevision: revision, content });
-        } : undefined}
       />}
     />
     <RuntimeStatusBar

@@ -11,11 +11,12 @@ function copyStatus(outcome: StudioOperationOutcome): string {
   return outcome.reason;
 }
 
-export function MessageActions({ messageId, text, executeOperation, onOpenCanvas }: {
+export function MessageActions({ chatId, messageId, displayRevision, text, executeOperation }: {
+  readonly chatId?: string;
   readonly messageId: string;
+  readonly displayRevision: number;
   readonly text: string;
   readonly executeOperation?: ExecuteOperation;
-  readonly onOpenCanvas?: () => void;
 }) {
   const [status, setStatus] = useState("");
   const copy = async () => {
@@ -26,9 +27,18 @@ export function MessageActions({ messageId, text, executeOperation, onOpenCanvas
       setStatus("Copy result is unavailable because no verified operation outcome was returned.");
     }
   };
+  const openCanvas = async () => {
+    if (!executeOperation || !chatId) return;
+    try {
+      const outcome = await executeOperation({ action: "conversation.canvas.open", payload: { chatId, messageId, expectedRevision: displayRevision, content: text } });
+      if (outcome.status !== "updated") setStatus(outcome.status === "accepted" || outcome.status === "queued" || outcome.status === "cancelled" ? "Canvas did not open." : outcome.reason);
+    } catch {
+      setStatus("Canvas did not open because no verified operation outcome was returned.");
+    }
+  };
   return <div className="parent-message-actions">
     <button type="button" {...controlBinding(`conversation-copy-${messageId}`, "conversation.response.copy")} disabled={!executeOperation} onClick={() => { void copy(); }}>Copy</button>
-    {onOpenCanvas && <button type="button" {...controlBinding(`conversation-canvas-${messageId}`, "conversation.canvas.open")} aria-label="Edit answer in Canvas" onClick={onOpenCanvas}>Canvas</button>}
+    {chatId && <button type="button" {...controlBinding(`conversation-canvas-${messageId}`, "conversation.canvas.open")} aria-label="Edit answer in Canvas" disabled={!executeOperation} onClick={() => { void openCanvas(); }}>Canvas</button>}
     <span className="sr-only" role="status">{status}</span>
   </div>;
 }

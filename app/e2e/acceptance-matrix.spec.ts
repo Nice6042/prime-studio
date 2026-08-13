@@ -307,6 +307,12 @@ test("identity-bound Harness artifact opens Diff/Edit and reconciles save confli
   await content.fill("external conflict");
   await activateWithKeyboard(editor.getByRole("button", { name: "Save" }));
   await expect(editor.getByRole("alert")).toContainText("changed on disk");
+  await activateWithKeyboard(editor.getByRole("button", { name: "Save a copy" }));
+  await expect(editor.getByText("Saved copy as harness-report.prime-copy.md")).toBeVisible();
+  await activateWithKeyboard(editor.getByRole("button", { name: "Reload from disk" }));
+  await expect(content).toHaveValue("saved through authority");
+  await expect(editor.getByText("Revision 2", { exact: true })).toBeVisible();
+  await expect(shellPage.getByRole("main", { name: "Prime Harness architecture" }).getByText(/The parent conversation stays focused on decisions and final results/)).toBeVisible();
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-editor-identity-bound-mode");
 });
 

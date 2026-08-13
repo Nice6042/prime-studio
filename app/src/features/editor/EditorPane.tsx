@@ -1,14 +1,7 @@
-import { useEffect, useMemo, useState, type ButtonHTMLAttributes } from "react";
+import { useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes } from "react";
 
 import { createControlBinding, type StudioOperation, type StudioOperationOutcome } from "../../contracts/studioOperations";
-import type {
-  ArtifactDocument,
-  ArtifactOpenResult,
-  ArtifactSaveCopyRequest,
-  ArtifactSaveCopyResult,
-  ArtifactSaveRequest,
-  ArtifactSaveResult,
-} from "../../entities/editor/types";
+import type { ArtifactDocument } from "../../entities/editor/types";
 import "./editor.css";
 
 export interface CanvasDocument {
@@ -42,15 +35,10 @@ export function EditorPane({
   mode,
   onExecute,
   artifact,
-  onArtifactSave,
-  onArtifactReload,
-  onArtifactSaveCopy,
-  onArtifactReloaded,
-  onArtifactSaved,
+  admissionRevision = 0,
   draftContent,
   onDraftChange,
   canvas,
-  onCanvasApply,
   unsupportedReason,
 }: {
   readonly onClose: () => void;
@@ -58,15 +46,10 @@ export function EditorPane({
   readonly mode: EditorMode;
   readonly onExecute: (operation: StudioOperation) => Promise<StudioOperationOutcome>;
   readonly artifact?: ArtifactDocument | null;
-  readonly onArtifactSave?: (request: ArtifactSaveRequest) => Promise<ArtifactSaveResult>;
-  readonly onArtifactReload?: (document: ArtifactDocument) => Promise<ArtifactOpenResult>;
-  readonly onArtifactSaveCopy?: (request: ArtifactSaveCopyRequest) => Promise<ArtifactSaveCopyResult>;
-  readonly onArtifactReloaded?: (document: ArtifactDocument) => void;
-  readonly onArtifactSaved?: (document: ArtifactDocument) => void;
+  readonly admissionRevision?: number;
   readonly draftContent?: string;
   readonly onDraftChange?: (content: string) => void;
   readonly canvas?: CanvasDocument | null;
-  readonly onCanvasApply?: (content: string) => void;
   readonly unsupportedReason?: string;
 }) {
   const [displayArtifact, setDisplayArtifact] = useState<ArtifactDocument | null>(artifact ?? null);
@@ -79,15 +62,24 @@ export function EditorPane({
   const [savedRevision, setSavedRevision] = useState(artifact?.ref.revision ?? 0);
   const [savedIdentity, setSavedIdentity] = useState(artifact?.identity ?? "");
   const [baseline, setBaseline] = useState(artifact?.content ?? canvas?.content ?? "");
+  const activeDocumentIdRef = useRef(documentId);
+  activeDocumentIdRef.current = documentId;
+  const activeArtifactRef = useRef(artifact ?? null);
+  activeArtifactRef.current = artifact ?? null;
+  const activeCanvasRef = useRef(canvas ?? null);
+  activeCanvasRef.current = canvas ?? null;
+
+  const isExactArtifactSuccessor = (outcome: StudioOperationOutcome) => {
+    const current = activeArtifactRef.current;
+    return outcome.status === "updated" && typeof outcome.revision === "number" && Boolean(outcome.identity) && Boolean(current)
+      && current!.ref.brokerId === displayArtifact?.ref.brokerId
+      && current!.ref.rootSessionId === displayArtifact?.ref.rootSessionId
+      && current!.ref.artifactId === displayArtifact?.ref.artifactId
+      && current!.ref.revision === outcome.revision
+      && current!.identity === outcome.identity;
+  };
 
   useEffect(() => {
-    const parentEchoesLocalArtifact = Boolean(artifact && displayArtifact
-      && artifact.ref.brokerId === displayArtifact.ref.brokerId
-      && artifact.ref.rootSessionId === displayArtifact.ref.rootSessionId
-      && artifact.ref.artifactId === displayArtifact.ref.artifactId
-      && artifact.ref.revision === displayArtifact.ref.revision
-      && artifact.identity === displayArtifact.identity);
-    if (parentEchoesLocalArtifact) return;
     setDisplayArtifact(artifact ?? null);
     setContent(artifact ? (draftContent ?? artifact.content) : (canvas?.content ?? ""));
     setSaving(false);
@@ -97,7 +89,7 @@ export function EditorPane({
     setSavedRevision(artifact?.ref.revision ?? 0);
     setSavedIdentity(artifact?.identity ?? "");
     setBaseline(artifact?.content ?? canvas?.content ?? "");
-  }, [artifact?.ref.brokerId, artifact?.ref.rootSessionId, artifact?.ref.artifactId, artifact?.ref.revision, artifact?.identity, canvas?.chatId, canvas?.messageId, canvas?.displayRevision]);
+  }, [admissionRevision, artifact?.ref.brokerId, artifact?.ref.rootSessionId, artifact?.ref.artifactId, artifact?.ref.revision, artifact?.identity, artifact?.content, canvas?.chatId, canvas?.messageId, canvas?.displayRevision]);
 
   const dirty = Boolean(document && content !== baseline);
   const counts = useMemo(() => displayArtifact?.diff.reduce(
@@ -106,77 +98,83 @@ export function EditorPane({
   ) ?? { add: 0, delete: 0 }, [displayArtifact]);
 
   const saveArtifact = async () => {
-    if (!displayArtifact || !dirty || !displayArtifact.writable || !onArtifactSave || saving) return;
+    if (!displayArtifact || !documentId || !dirty || !displayArtifact.writable || saving) return;
+    const requestedDocumentId = documentId;
     setSaving(true);
     setNotice(null);
     try {
-      const result = await onArtifactSave({
+      const outcome = await onExecute({ action: "editor.file.save", payload: {
+        documentId: requestedDocumentId,
         ref: { ...displayArtifact.ref, revision: savedRevision },
         expectedRevision: savedRevision,
         expectedIdentity: savedIdentity,
         content,
-      });
-      if (result.kind === "saved") {
-        const savedDocument = {
-          ...displayArtifact,
-          ref: { ...displayArtifact.ref, revision: result.revision },
-          identity: result.identity,
-          content,
-        };
-        setSavedRevision(result.revision);
-        setSavedIdentity(result.identity);
-        setBaseline(content);
-        setDisplayArtifact(savedDocument);
+      } });
+      if (activeDocumentIdRef.current !== requestedDocumentId && !isExactArtifactSuccessor(outcome)) return;
+      if (outcome.status === "updated") {
         setConflict(false);
-        onArtifactSaved?.(savedDocument);
-        setNotice({ kind: "status", text: `Saved revision ${result.revision}` });
+        setNotice({ kind: "status", text: `Saved revision ${outcome.revision}` });
       } else {
-        setConflict(result.kind === "conflict");
-        setNotice({ kind: "error", text: result.message });
+        const reason = outcome.status === "accepted" || outcome.status === "queued" || outcome.status === "cancelled" ? "The native save did not return a committed revision." : outcome.reason;
+        setConflict(/conflict|changed on disk/i.test(reason));
+        setNotice({ kind: "error", text: reason });
       }
     } catch {
-      setNotice({ kind: "error", text: "Save failed. Your unsaved content is still here; retry after checking the file authority." });
+      if (activeDocumentIdRef.current === requestedDocumentId) setNotice({ kind: "error", text: "Save failed. Your unsaved content is still here; retry after checking the file authority." });
     } finally {
-      setSaving(false);
+      if (activeDocumentIdRef.current === requestedDocumentId) setSaving(false);
     }
   };
 
   const reloadArtifact = async () => {
-    if (!displayArtifact || !onArtifactReload || recovering) return;
+    if (!displayArtifact || !documentId || recovering) return;
+    const requestedDocumentId = documentId;
     setRecovering(true);
     try {
-      const result = await onArtifactReload(displayArtifact);
-      if (result.kind === "unsupported") {
-        setNotice({ kind: "error", text: result.reason });
-        return;
-      }
-      setDisplayArtifact(result.document);
-      setContent(result.document.content);
-      setBaseline(result.document.content);
-      setSavedRevision(result.document.ref.revision);
-      setSavedIdentity(result.document.identity);
-      setConflict(false);
-      onDraftChange?.(result.document.content);
-      onArtifactReloaded?.(result.document);
-      setNotice({ kind: "status", text: `Reloaded revision ${result.document.ref.revision}` });
+      const outcome = await onExecute({ action: "editor.conflict.reload", payload: {
+        documentId: requestedDocumentId, ref: displayArtifact.ref, expectedRevision: savedRevision, expectedIdentity: savedIdentity,
+      } });
+      if (activeDocumentIdRef.current !== requestedDocumentId && !isExactArtifactSuccessor(outcome)) return;
+      if (outcome.status === "updated") { setConflict(false); setNotice({ kind: "status", text: `Reloaded revision ${outcome.revision}` }); }
+      else setNotice({ kind: "error", text: outcome.status === "accepted" || outcome.status === "queued" || outcome.status === "cancelled" ? "Reload did not return an admitted document." : outcome.reason });
     } catch {
-      setNotice({ kind: "error", text: "Reload failed. Your unsaved content is still available until you retry or save a copy." });
+      if (activeDocumentIdRef.current === requestedDocumentId) setNotice({ kind: "error", text: "Reload failed. Your unsaved content is still available until you retry or save a copy." });
     } finally {
-      setRecovering(false);
+      if (activeDocumentIdRef.current === requestedDocumentId) setRecovering(false);
     }
   };
 
   const saveCopy = async () => {
-    if (!displayArtifact || !onArtifactSaveCopy || recovering) return;
+    if (!displayArtifact || !documentId || recovering) return;
+    const requestedDocumentId = documentId;
     setRecovering(true);
     try {
-      const result = await onArtifactSaveCopy({ ref: displayArtifact.ref, content });
-      if (result.kind === "saved_copy") setNotice({ kind: "status", text: `Saved copy as ${result.label}` });
-      else if (result.kind !== "cancelled") setNotice({ kind: "error", text: result.message });
+      const outcome = await onExecute({ action: "editor.conflict.save-copy", payload: {
+        documentId: requestedDocumentId, ref: displayArtifact.ref, expectedRevision: savedRevision, expectedIdentity: savedIdentity, content,
+      } });
+      if (activeDocumentIdRef.current !== requestedDocumentId) return;
+      if (outcome.status === "updated") setNotice({ kind: "status", text: `Saved copy as ${outcome.revision}` });
+      else if (outcome.status !== "cancelled") setNotice({ kind: "error", text: outcome.status === "accepted" || outcome.status === "queued" ? "Save-copy did not return a verified path." : outcome.reason });
     } catch {
-      setNotice({ kind: "error", text: "The copy could not be saved. Your unsaved content is still here." });
+      if (activeDocumentIdRef.current === requestedDocumentId) setNotice({ kind: "error", text: "The copy could not be saved. Your unsaved content is still here." });
     } finally {
-      setRecovering(false);
+      if (activeDocumentIdRef.current === requestedDocumentId) setRecovering(false);
+    }
+  };
+
+  const applyCanvas = async () => {
+    if (!canvas || !documentId || !dirty) return;
+    const requestedDocumentId = documentId;
+    try {
+      const outcome = await onExecute({ action: "editor.canvas.apply", payload: { chatId: canvas.chatId, messageId: canvas.messageId, expectedRevision: canvas.displayRevision, content } });
+      const currentCanvas = activeCanvasRef.current;
+      const exactSuccessor = outcome.status === "updated" && typeof outcome.revision === "number" && currentCanvas?.chatId === canvas.chatId
+        && currentCanvas.messageId === canvas.messageId && currentCanvas.displayRevision === outcome.revision && currentCanvas.content === content;
+      if (activeDocumentIdRef.current !== requestedDocumentId && !exactSuccessor) return;
+      if (outcome.status === "updated") setNotice({ kind: "status", text: `Applied display revision ${outcome.revision}` });
+      else setNotice({ kind: "error", text: outcome.status === "accepted" || outcome.status === "queued" || outcome.status === "cancelled" ? "Canvas apply did not commit a display revision." : outcome.reason });
+    } catch {
+      if (activeDocumentIdRef.current === requestedDocumentId) setNotice({ kind: "error", text: "Canvas apply failed without changing the parent transcript." });
     }
   };
 
@@ -219,14 +217,14 @@ export function EditorPane({
     {notice && <div className={`studio-editor-notice ${notice.kind}`} role={notice.kind === "error" ? "alert" : "status"}>
       <span>{notice.text}</span>
       {conflict && <div className="studio-editor-conflict-actions">
-        <ControlButton binding={controls.reload} type="button" disabled={!onArtifactReload || recovering} onClick={() => void reloadArtifact()}>Reload from disk</ControlButton>
-        <ControlButton binding={controls.saveCopy} type="button" disabled={!onArtifactSaveCopy || recovering} onClick={() => void saveCopy()}>Save a copy</ControlButton>
+        <ControlButton binding={controls.reload} type="button" disabled={recovering} onClick={() => void reloadArtifact()}>Reload from disk</ControlButton>
+        <ControlButton binding={controls.saveCopy} type="button" disabled={recovering} onClick={() => void saveCopy()}>Save a copy</ControlButton>
       </div>}
     </div>}
     <footer>
       <span>{dirty ? "Unsaved changes" : "All changes saved"}</span>
-      {displayArtifact ? <ControlButton binding={controls.save} type="button" className="studio-editor-primary" disabled={!dirty || !displayArtifact.writable || !onArtifactSave || saving} title={!onArtifactSave ? "A native conflict-aware save adapter is not connected." : undefined} onClick={() => void saveArtifact()}>{saving ? "Saving…" : "Save"}</ControlButton>
-        : <><button type="button" disabled>Save</button>{canvas && <ControlButton binding={controls.apply} type="button" className="studio-editor-primary" disabled={!dirty || !onCanvasApply} onClick={() => onCanvasApply?.(content)}>Apply display revision</ControlButton>}</>}
+      {displayArtifact ? <ControlButton binding={controls.save} type="button" className="studio-editor-primary" disabled={!dirty || !displayArtifact.writable || saving} onClick={() => void saveArtifact()}>{saving ? "Saving…" : "Save"}</ControlButton>
+        : <><button type="button" disabled>Save</button>{canvas && <ControlButton binding={controls.apply} type="button" className="studio-editor-primary" disabled={!dirty} onClick={() => { void applyCanvas(); }}>Apply display revision</ControlButton>}</>}
     </footer>
   </section>;
 }

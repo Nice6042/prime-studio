@@ -61,13 +61,17 @@ describe("ParentConversation", () => {
     expect(screen.getByText("Start a conversation when the verified Harness is available.")).toBeVisible();
   });
 
-  it("opens and renders exact display-only Canvas revisions without exposing activity", async () => {
-    const onOpenCanvas = vi.fn();
-    const { rerender } = render(<ParentConversation title="Harness architecture" session={session} archived={false} onOpenCanvas={onOpenCanvas} />);
+  it("dispatches exactly one identity-and-revision-bound Canvas-open operation before rendering the Canvas", async () => {
+    const executeOperation = vi.fn(async () => ({ status: "updated" as const, revision: 1 }));
+    const { rerender } = render(<ParentConversation title="Harness architecture" canvasChatId="studio-chat-1" session={session} archived={false} onExecuteOperation={executeOperation} />);
     await userEvent.click(screen.getByRole("button", { name: "Edit answer in Canvas" }));
-    expect(onOpenCanvas).toHaveBeenCalledWith("a1", "The adapter is versioned.");
+    expect(executeOperation).toHaveBeenCalledTimes(1);
+    expect(executeOperation).toHaveBeenCalledWith({
+      action: "conversation.canvas.open",
+      payload: { chatId: "studio-chat-1", messageId: "a1", expectedRevision: 1, content: "The adapter is versioned." },
+    });
 
-    rerender(<ParentConversation title="Harness architecture" session={session} archived={false} onOpenCanvas={onOpenCanvas} displayRevisions={{ a1: { revision: 2, content: "The adapter remains versioned." } }} />);
+    rerender(<ParentConversation title="Harness architecture" canvasChatId="studio-chat-1" session={session} archived={false} onExecuteOperation={executeOperation} displayRevisions={{ a1: { revision: 2, content: "The adapter remains versioned." } }} />);
     expect(screen.getByText("The adapter remains versioned.")).toBeVisible();
     expect(screen.queryByText("The adapter is versioned.")).not.toBeInTheDocument();
     expect(screen.getByText("Display revision 2")).toBeVisible();
@@ -75,7 +79,6 @@ describe("ParentConversation", () => {
 
   it("routes each response copy through the shared operation executor with an identity-qualified control", async () => {
     const executeOperation = vi.fn(async () => ({ status: "updated" as const, revision: 1 }));
-    const onOpenCanvas = vi.fn();
     const twoResponses: RootSessionProjection = {
       ...session,
       parentMessages: [
@@ -83,7 +86,7 @@ describe("ParentConversation", () => {
         { channel: "parent", kind: "assistant", id: "a2", blocks: [{ kind: "text", text: "A distinct answer." }], streaming: false, emittedAtMs: 3 },
       ],
     };
-    render(<ParentConversation title="Harness architecture" session={twoResponses} archived={false} onExecuteOperation={executeOperation} onOpenCanvas={onOpenCanvas} />);
+    render(<ParentConversation title="Harness architecture" canvasChatId="chat-1" session={twoResponses} archived={false} onExecuteOperation={executeOperation} />);
 
     expect(screen.getAllByRole("button", { name: /^Copy$/ })[0]).toHaveAttribute("data-control-id", "conversation-copy-a1");
     expect(screen.getAllByRole("button", { name: /^Edit answer in Canvas$/ })[0]).toHaveAttribute("data-control-id", "conversation-canvas-a1");

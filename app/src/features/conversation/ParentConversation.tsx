@@ -63,9 +63,9 @@ export function ParentConversation({
   title,
   session,
   archived,
+  canvasChatId,
   displayRevisions = {},
   presentations = {},
-  onOpenCanvas,
   onExecuteOperation,
   onEditUserMessage,
   onBranchFrom,
@@ -83,9 +83,9 @@ export function ParentConversation({
   readonly title: string;
   readonly session: RootSessionProjection | null;
   readonly archived: boolean;
+  readonly canvasChatId?: string;
   readonly displayRevisions?: Readonly<Record<string, Readonly<{ revision: number; content: string }>>>;
   readonly presentations?: Readonly<Record<string, ConversationTurnPresentation>>;
-  readonly onOpenCanvas?: (messageId: string, content: string) => void;
   readonly onExecuteOperation?: (operation: StudioOperation) => Promise<StudioOperationOutcome>;
   readonly onEditUserMessage?: (messageId: string, text: string) => void;
   readonly onBranchFrom?: (messageId: string) => void;
@@ -225,7 +225,7 @@ export function ParentConversation({
               {presentation.workedFor && <><button type="button" className="conversation-work-toggle" {...controlBinding(`work-toggle-${message.id}`, "conversation.work-details.toggle")} aria-expanded={workExpanded} aria-label={`Worked for ${presentation.workedFor}`} onClick={() => setExpandedWork((current) => { const next = new Set(current); if (next.has(message.id)) next.delete(message.id); else next.add(message.id); return next; })}>Worked for {presentation.workedFor} <span aria-hidden="true">⌄</span></button>
                 {workExpanded && <div className="conversation-work-steps">{workSteps.map((step) => <p key={step}>{step}</p>)}{presentation.workSteps && presentation.workSteps.length > workSteps.length && <p>{presentation.workSteps.length - workSteps.length} additional steps are not shown in this bounded view.</p>}</div>}</>}
               {presentation.editedFiles && presentation.editedFiles.length > 0 && <EditedFiles messageId={message.id} files={presentation.editedFiles} onUndo={onUndoEditedFiles} onReview={onReviewEditedFiles} onOpen={onOpenEditedFile} />}
-              {!message.streaming && text && <div className="parent-message-actions assistant-actions"><VersionStepper label="assistant" selected={selected} count={versions.length} onSelect={(index) => onSelectAssistantVersion?.(message.id, index)} /><button type="button" {...controlBinding(`response-regenerate-${message.id}`, "conversation.response.regenerate")} aria-label="Regenerate response" disabled={!onRegenerate} onClick={() => onRegenerate?.(message.id)}>Regenerate</button><MessageActions messageId={message.id} text={text} executeOperation={onExecuteOperation} onOpenCanvas={onOpenCanvas ? () => onOpenCanvas(message.id, text) : undefined} /></div>}
+              {!message.streaming && text && <div className="parent-message-actions assistant-actions"><VersionStepper label="assistant" selected={selected} count={versions.length} onSelect={(index) => onSelectAssistantVersion?.(message.id, index)} /><button type="button" {...controlBinding(`response-regenerate-${message.id}`, "conversation.response.regenerate")} aria-label="Regenerate response" disabled={!onRegenerate} onClick={() => onRegenerate?.(message.id)}>Regenerate</button><MessageActions chatId={canvasChatId} messageId={message.id} displayRevision={displayRevision?.revision ?? 1} text={text} executeOperation={onExecuteOperation} /></div>}
             </div>
           </article>;
         })}

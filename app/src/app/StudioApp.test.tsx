@@ -39,6 +39,11 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+function mockAvailableLayoutPersistence() {
+  vi.spyOn(rpc, "getLayoutPreferences").mockResolvedValue({ schemaVersion: 1, sidebarOpen: true, sidebarWidth: 264, inspectorOpen: true, inspectorWidth: 384, editorOpen: false, editorWidth: 400, expandedProjectIds: ["project:personal"] });
+  vi.spyOn(rpc, "setLayoutPreferences").mockImplementation(async (next) => next);
+}
+
 function conversationAdapter(operations: StudioOperation[]): HarnessInspectorAdapter {
   return {
     availability: { status: "available" },
@@ -667,7 +672,123 @@ describe("Studio application state", () => {
     }
   });
 
+  it("owns Canvas open/apply through exact operations with CAS replay and no Harness-history rewrite", async () => {
+    const operations: StudioOperation[] = [];
+    const loadLayout = vi.spyOn(rpc, "getLayoutPreferences").mockResolvedValue({ schemaVersion: 1, sidebarOpen: true, sidebarWidth: 264, inspectorOpen: true, inspectorWidth: 384, editorOpen: false, editorWidth: 400, expandedProjectIds: ["project:personal"] });
+    const saveLayout = vi.spyOn(rpc, "setLayoutPreferences").mockImplementation(async (next) => next);
+    const { createStudioOperationDispatcher: createDispatcher } = await vi.importActual<typeof operationDispatcher>("../contracts/dispatcher/studioOperationDispatcher");
+    let activeDispatch: ((operation: StudioOperation) => Promise<StudioOperationOutcome>) | null = null;
+    const dispatcherSpy = vi.spyOn(operationDispatcher, "createStudioOperationDispatcher").mockImplementation((routes) => {
+      const execute = createDispatcher(routes);
+      activeDispatch = execute;
+      return async (operation) => { operations.push(operation); return execute(operation); };
+    });
+    try {
+      const store = createStudioStore(initialStudioState({ projectCatalog: catalogBoundToRootSession(), sessions: [rootSession] }));
+      const view = render(<AppProviders store={store}><StudioApp harnessAdapter={conversationAdapter([])} /></AppProviders>);
+      await waitFor(() => expect(loadLayout).toHaveBeenCalled());
+      await userEvent.click(await screen.findByRole("button", { name: "Edit answer in Canvas" }));
+      expect(operations.filter((operation) => operation.action === "conversation.canvas.open")).toEqual([expect.objectContaining({
+        action: "conversation.canvas.open",
+        payload: { chatId: chat.id, messageId: "a1", expectedRevision: 1, content: "Original answer" },
+      })]);
+      const editor = await screen.findByRole("textbox", { name: "Canvas content" });
+      await userEvent.clear(editor);
+      await userEvent.type(editor, "Studio-only revision");
+      await userEvent.click(screen.getByRole("button", { name: "Apply display revision" }));
+      const apply = operations.find((operation) => operation.action === "editor.canvas.apply");
+      expect(apply).toEqual(expect.objectContaining({ payload: { chatId: chat.id, messageId: "a1", expectedRevision: 1, content: "Studio-only revision" } }));
+      expect((await screen.findAllByText("Display revision 2")).length).toBe(2);
+      expect(screen.getByText("Studio-only revision", { selector: ".parent-assistant-copy p" })).toBeVisible();
+
+      let replay: StudioOperationOutcome | undefined;
+      let stale: StudioOperationOutcome | undefined;
+      await act(async () => {
+        if (!activeDispatch || !apply) throw new Error("Studio dispatcher was not installed");
+        replay = await activeDispatch(apply);
+        stale = await activeDispatch({ action: "editor.canvas.apply", payload: { chatId: chat.id, messageId: "a1", expectedRevision: 1, content: "stale overwrite" } });
+      });
+      expect(replay).toEqual({ status: "updated", revision: 2 });
+      expect(stale).toEqual({ status: "rejected", reason: "The Canvas display revision changed before Apply completed.", retryable: false });
+      expect(screen.queryByText("stale overwrite")).not.toBeInTheDocument();
+      expect(rootSession.parentMessages[1]).toEqual(expect.objectContaining({ id: "a1", blocks: [{ kind: "text", text: "Original answer" }] }));
+      expect(store.getSnapshot().sessions[rootSession.sessionId]?.parentMessages[1]).toEqual(rootSession.parentMessages[1]);
+      expect(store.getSnapshot().canvasRevisions[chat.id]?.a1).toEqual({ revision: 2, content: "Studio-only revision" });
+
+      view.unmount();
+      render(<AppProviders store={store}><StudioApp harnessAdapter={conversationAdapter([])} /></AppProviders>);
+      expect(await screen.findByText("Studio-only revision", { selector: ".parent-assistant-copy p" })).toBeVisible();
+    } finally {
+      saveLayout.mockRestore();
+      loadLayout.mockRestore();
+      dispatcherSpy.mockRestore();
+    }
+  }, 20_000);
+
+  it("does not open a delayed Canvas outcome after the selected chat identity changes", async () => {
+    const secondSession: RootSessionProjection = {
+      ...rootSession, sessionId: "session-2", chatId: "daemon-chat-2", cursor: { runtimeGeneration: "g2", sequence: 1 },
+      parentMessages: [{ channel: "parent", kind: "assistant", id: "b1", blocks: [{ kind: "text", text: "Second answer" }], streaming: false, emittedAtMs: 3 }],
+      performance: { status: "unavailable", sessionId: "session-2", cursor: { runtimeGeneration: "g2", sequence: 1 }, reason: "event_chronology_unavailable" },
+    };
+    const firstCatalog = catalogBoundToRootSession();
+    const created = transitionProjectChatState(firstCatalog, { type: "chat.create", projectId: "project:personal", chatId: "chat-2", title: "Second" });
+    if (created.status !== "applied") throw new Error("second test chat create failed");
+    const bound = transitionProjectChatState(created.state, { type: "chat.bind-prime-session", projectId: "project:personal", chatId: "chat-2", binding: { kind: "prime-session", accountId: secondSession.accountId, sessionId: secondSession.sessionId, sessionFile: "second.jsonl", agentId: secondSession.chatId } });
+    if (bound.status !== "applied") throw new Error("second test chat bind failed");
+    const pendingLayout = deferred<Parameters<typeof rpc.setLayoutPreferences>[0]>();
+    const loadLayout = vi.spyOn(rpc, "getLayoutPreferences").mockResolvedValue({ schemaVersion: 1, sidebarOpen: true, sidebarWidth: 264, inspectorOpen: true, inspectorWidth: 384, editorOpen: false, editorWidth: 400, expandedProjectIds: ["project:personal"] });
+    let layoutWrites = 0;
+    const saveLayout = vi.spyOn(rpc, "setLayoutPreferences").mockImplementation(async (next) => {
+      layoutWrites += 1;
+      return layoutWrites === 1 ? pendingLayout.promise : next;
+    });
+    try {
+      const store = createStudioStore(initialStudioState({ projectCatalog: bound.state, sessions: [rootSession, secondSession] }));
+      store.dispatch({ type: "project-chat/command", command: { type: "selection.select-chat", projectId: "project:personal", chatId: chat.id } });
+      render(<AppProviders store={store}><StudioApp harnessAdapter={conversationAdapter([])} /></AppProviders>);
+      await waitFor(() => expect(loadLayout).toHaveBeenCalled());
+      await userEvent.click(await screen.findByRole("button", { name: "Edit answer in Canvas" }));
+      expect(screen.queryByRole("textbox", { name: "Canvas content" })).not.toBeInTheDocument();
+      act(() => { store.dispatch({ type: "project-chat/command", command: { type: "selection.select-chat", projectId: "project:personal", chatId: "chat-2" } }); });
+      await act(async () => { pendingLayout.resolve({ schemaVersion: 1, sidebarOpen: true, sidebarWidth: 264, inspectorOpen: true, inspectorWidth: 384, editorOpen: true, editorWidth: 400, expandedProjectIds: ["project:personal"] }); await pendingLayout.promise; });
+
+      expect(await screen.findByText("Second answer")).toBeVisible();
+      expect(screen.queryByRole("textbox", { name: "Canvas content" })).not.toBeInTheDocument();
+      expect(screen.queryByText("Original answer", { selector: "textarea" })).not.toBeInTheDocument();
+      await waitFor(() => expect(saveLayout).toHaveBeenLastCalledWith(expect.objectContaining({ editorOpen: false })));
+      expect(screen.getByRole("button", { name: "Open editor" })).toBeVisible();
+    } finally {
+      saveLayout.mockRestore();
+      loadLayout.mockRestore();
+    }
+  }, 20_000);
+
+  it("does not let an older Canvas completion close an editor acquired by a newer open", async () => {
+    const pendingLayout = deferred<Parameters<typeof rpc.setLayoutPreferences>[0]>();
+    const loadLayout = vi.spyOn(rpc, "getLayoutPreferences").mockResolvedValue({ schemaVersion: 1, sidebarOpen: true, sidebarWidth: 264, inspectorOpen: true, inspectorWidth: 384, editorOpen: false, editorWidth: 400, expandedProjectIds: ["project:personal"] });
+    const saveLayout = vi.spyOn(rpc, "setLayoutPreferences").mockImplementation(async () => pendingLayout.promise);
+    try {
+      const store = createStudioStore(initialStudioState({ projectCatalog: catalogBoundToRootSession(), sessions: [rootSession] }));
+      render(<AppProviders store={store}><StudioApp harnessAdapter={conversationAdapter([])} /></AppProviders>);
+      await waitFor(() => expect(loadLayout).toHaveBeenCalled());
+      const open = await screen.findByRole("button", { name: "Edit answer in Canvas" });
+      await userEvent.click(open);
+      await userEvent.click(open);
+      expect(await screen.findByRole("textbox", { name: "Canvas content" })).toHaveValue("Original answer");
+
+      await act(async () => { pendingLayout.resolve({ schemaVersion: 1, sidebarOpen: true, sidebarWidth: 264, inspectorOpen: true, inspectorWidth: 384, editorOpen: true, editorWidth: 400, expandedProjectIds: ["project:personal"] }); await pendingLayout.promise; });
+
+      expect(screen.getByRole("textbox", { name: "Canvas content" })).toHaveValue("Original answer");
+      expect(saveLayout).toHaveBeenCalledTimes(1);
+    } finally {
+      saveLayout.mockRestore();
+      loadLayout.mockRestore();
+    }
+  }, 20_000);
+
   it("hydrates an opaque Harness candidate through the centralized dispatcher and opens the editor", async () => {
+    mockAvailableLayoutPersistence();
     const openArtifact = vi.fn(async () => ({
       kind: "opened" as const,
       document: {
@@ -694,7 +815,39 @@ describe("Studio application state", () => {
     expect(screen.getByRole("textbox", { name: "File content" })).toHaveValue("verified content");
   });
 
+  it("rejects an artifact-open completion after the owning chat changes", async () => {
+    const pendingLayout = deferred<Parameters<typeof rpc.setLayoutPreferences>[0]>();
+    const loadLayout = vi.spyOn(rpc, "getLayoutPreferences").mockResolvedValue({ schemaVersion: 1, sidebarOpen: true, sidebarWidth: 264, inspectorOpen: true, inspectorWidth: 384, editorOpen: false, editorWidth: 400, expandedProjectIds: ["project:personal"] });
+    const saveLayout = vi.spyOn(rpc, "setLayoutPreferences").mockImplementation(async () => pendingLayout.promise);
+    const staleDocument = { label: "stale.md", ref: { brokerId: "broker-1", rootSessionId: rootSession.sessionId, artifactId: "candidate-1", revision: 1 }, identity: `sha256:${"a".repeat(64)}`, content: "stale", writable: true, diff: [] } as const;
+    const adapter: HarnessInspectorAdapter = {
+      availability: { status: "available" },
+      load: async () => ({ observedAtMs: 1, startedAtMs: null, context: null, extensionUi: { status: "available", requests: [] }, contributions: [], notices: [], activity: [], outputs: [{ id: "output-1", label: "Report", candidateId: "candidate-1", kind: "file" }], sources: [], children: {} }),
+      execute: async () => ({ status: "rejected", reason: "wrong route", retryable: false }),
+      openArtifact: async () => ({ kind: "opened", document: staleDocument }),
+    };
+    const secondSession: RootSessionProjection = { ...rootSession, sessionId: "session-2", chatId: "daemon-chat-2", cursor: { runtimeGeneration: "g2", sequence: 1 } };
+    const created = transitionProjectChatState(catalogBoundToRootSession(), { type: "chat.create", projectId: "project:personal", chatId: "chat-2", title: "Second" });
+    if (created.status !== "applied") throw new Error("second test chat create failed");
+    const bound = transitionProjectChatState(created.state, { type: "chat.bind-prime-session", projectId: "project:personal", chatId: "chat-2", binding: { kind: "prime-session", accountId: secondSession.accountId, sessionId: secondSession.sessionId, sessionFile: "second.jsonl", agentId: secondSession.chatId } });
+    if (bound.status !== "applied") throw new Error("second test chat bind failed");
+    const store = createStudioStore(initialStudioState({ projectCatalog: bound.state, sessions: [rootSession, secondSession] }));
+    store.dispatch({ type: "project-chat/command", command: { type: "selection.select-chat", projectId: "project:personal", chatId: chat.id } });
+    render(<AppProviders store={store}><StudioApp harnessAdapter={adapter} /></AppProviders>);
+    try {
+      await userEvent.click(await screen.findByText("Outputs"));
+      await userEvent.click(await screen.findByRole("button", { name: /Report/ }));
+      act(() => { store.dispatch({ type: "project-chat/command", command: { type: "selection.select-chat", projectId: "project:personal", chatId: "chat-2" } }); });
+      await act(async () => { pendingLayout.resolve({ schemaVersion: 1, sidebarOpen: true, sidebarWidth: 264, inspectorOpen: true, inspectorWidth: 384, editorOpen: true, editorWidth: 400, expandedProjectIds: ["project:personal"] }); await pendingLayout.promise; });
+      expect(screen.queryByRole("heading", { name: "stale.md" })).not.toBeInTheDocument();
+    } finally {
+      saveLayout.mockRestore();
+      loadLayout.mockRestore();
+    }
+  });
+
   it("lets the renderer owner visibly select an identity-bound editor mode", async () => {
+    mockAvailableLayoutPersistence();
     const document = {
       label: "report.md",
       ref: { brokerId: "broker-1", rootSessionId: rootSession.sessionId, artifactId: "candidate-1", revision: 7 },
@@ -742,6 +895,7 @@ describe("Studio application state", () => {
   }, 15_000);
 
   it("dispatches exactly one editor mode operation for each tab transition", async () => {
+    mockAvailableLayoutPersistence();
     const document = {
       label: "report.md",
       ref: { brokerId: "broker-1", rootSessionId: rootSession.sessionId, artifactId: "candidate-1", revision: 7 },
@@ -789,6 +943,7 @@ describe("Studio application state", () => {
   }, 15_000);
 
   it("never carries artifact A content or save identity into newly admitted artifact B", async () => {
+    mockAvailableLayoutPersistence();
     const identityA = `sha256:${"a".repeat(64)}`;
     const identityB = `sha256:${"b".repeat(64)}`;
     const documents = {
@@ -838,7 +993,53 @@ describe("Studio application state", () => {
     }
   }, 30_000);
 
+  it("isolates an in-flight native save from a replacement artifact identity", async () => {
+    mockAvailableLayoutPersistence();
+    const identityA = `sha256:${"a".repeat(64)}`;
+    const identityB = `sha256:${"b".repeat(64)}`;
+    const documents = {
+      "candidate-a": { label: "a.md", ref: { brokerId: "broker-1", rootSessionId: rootSession.sessionId, artifactId: "artifact-a", revision: 3 }, identity: identityA, content: "artifact A", writable: true, diff: [] },
+      "candidate-b": { label: "b.md", ref: { brokerId: "broker-1", rootSessionId: rootSession.sessionId, artifactId: "artifact-b", revision: 11 }, identity: identityB, content: "artifact B", writable: true, diff: [] },
+    } as const;
+    const adapter: HarnessInspectorAdapter = {
+      availability: { status: "available" },
+      load: async () => ({ observedAtMs: 1, startedAtMs: null, context: null, extensionUi: { status: "available", requests: [] }, contributions: [], notices: [], activity: [], outputs: [
+        { id: "output-a", label: "Artifact A", candidateId: "candidate-a", kind: "file" },
+        { id: "output-b", label: "Artifact B", candidateId: "candidate-b", kind: "file" },
+      ], sources: [], children: {} }),
+      execute: async () => ({ status: "rejected", reason: "wrong route", retryable: false }),
+      openArtifact: async (_sessionId, candidateId) => ({ kind: "opened", document: documents[candidateId as keyof typeof documents] }),
+    };
+    const pending = deferred<Awaited<ReturnType<typeof rpc.saveEditorArtifact>>>();
+    const save = vi.spyOn(rpc, "saveEditorArtifact").mockImplementation(async () => pending.promise);
+    const previousWidth = window.innerWidth;
+    try {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: 1600 });
+      const store = createStudioStore(initialStudioState({ projectCatalog: catalogBoundToRootSession(), sessions: [rootSession] }));
+      render(<AppProviders store={store}><StudioApp harnessAdapter={adapter} /></AppProviders>);
+      await userEvent.click(await screen.findByText("Outputs"));
+      await userEvent.click(await screen.findByRole("button", { name: /Artifact A/ }));
+      await userEvent.click(screen.getByRole("tab", { name: "Edit" }));
+      fireEvent.change(screen.getByRole("textbox", { name: "File content" }), { target: { value: "artifact A changed" } });
+      await userEvent.click(screen.getByRole("button", { name: "Save" }));
+      await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+
+      await userEvent.click(screen.getByRole("button", { name: /Artifact B/ }));
+      await userEvent.click(screen.getByRole("tab", { name: "Edit" }));
+      expect(screen.getByRole("textbox", { name: "File content" })).toHaveValue("artifact B");
+      await act(async () => { pending.resolve({ kind: "saved", revision: 4, identity: `sha256:${"c".repeat(64)}` }); await pending.promise; });
+
+      expect(screen.getByRole("heading", { name: "b.md" })).toBeVisible();
+      expect(screen.getByRole("textbox", { name: "File content" })).toHaveValue("artifact B");
+      expect(screen.queryByText("Saved revision 4")).not.toBeInTheDocument();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: previousWidth });
+      save.mockRestore();
+    }
+  }, 30_000);
+
   it("wires editor conflict recovery to native reload and save-copy authority", async () => {
+    mockAvailableLayoutPersistence();
     const document = {
       label: "report.md",
       ref: { brokerId: "broker-1", rootSessionId: rootSession.sessionId, artifactId: "candidate-1", revision: 1 },

@@ -8,6 +8,7 @@
 
 import type { HarnessCapability } from "../shared/ipc/harness.generated";
 import type { AttentionEvidence } from "../attention/attentionLedger";
+import type { ArtifactRef } from "../entities/editor/types";
 
 type EmptyPayload = Readonly<Record<string, never>>;
 type IdentifierPayload<K extends string> = Readonly<Record<K, string>>;
@@ -58,7 +59,7 @@ export interface StudioActionPayloadMap {
   "conversation.response.regenerate": Readonly<{ sessionId: string; messageId: string }>;
   "conversation.branch.create": Readonly<{ sessionId: string; messageId: string }>;
   "conversation.response.copy": Readonly<{ messageId: string; text: string }>;
-  "conversation.canvas.open": Readonly<{ chatId: string; messageId: string; content: string }>;
+  "conversation.canvas.open": Readonly<{ chatId: string; messageId: string; expectedRevision: number; content: string }>;
   "conversation.files.review": Readonly<{ sessionId: string; activityId: string | null }>;
   "conversation.files.undo": Readonly<{ sessionId: string; patchId: string }>;
   "conversation.work-details.toggle": Readonly<{ turnId: string }>;
@@ -114,10 +115,10 @@ export interface StudioActionPayloadMap {
   "editor.artifact.open": Readonly<{ sessionId: string; artifactId: string }>;
   "editor.mode.select": Readonly<{ documentId: string; mode: "diff" | "edit" }>;
   "editor.content.change": Readonly<{ documentId: string; content: string }>;
-  "editor.file.save": Readonly<{ documentId: string; expectedRevision: string; content: string }>;
+  "editor.file.save": Readonly<{ documentId: string; ref: ArtifactRef; expectedRevision: number; expectedIdentity: string; content: string }>;
   "editor.canvas.apply": Readonly<{ chatId: string; messageId: string; expectedRevision: number; content: string }>;
-  "editor.conflict.reload": IdentifierPayload<"documentId">;
-  "editor.conflict.save-copy": Readonly<{ documentId: string; content: string }>;
+  "editor.conflict.reload": Readonly<{ documentId: string; ref: ArtifactRef; expectedRevision: number; expectedIdentity: string }>;
+  "editor.conflict.save-copy": Readonly<{ documentId: string; ref: ArtifactRef; expectedRevision: number; expectedIdentity: string; content: string }>;
 
   "settings.search.change": Readonly<{ query: string }>;
   "settings.section.select": IdentifierPayload<"sectionId">;
@@ -158,7 +159,7 @@ export type StudioOperation = {
 export type StudioOperationOutcome =
   | Readonly<{ status: "accepted"; commandId: string }>
   | Readonly<{ status: "queued"; commandId: string; position: number | null }>
-  | Readonly<{ status: "updated"; revision: string | number }>
+  | Readonly<{ status: "updated"; revision: string | number; identity?: string }>
   | Readonly<{ status: "cancelled"; commandId: string | null }>
   | Readonly<{ status: "unavailable"; reason: string }>
   | Readonly<{ status: "rejected"; reason: string; retryable: boolean }>
