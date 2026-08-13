@@ -44,8 +44,8 @@ describe("Prime Studio package acceptance catalog", () => {
   it("derives the current implementation summary from the audited feature rows", () => {
     expect(PACKAGE_IMPLEMENTATION_SUMMARY).toEqual(summarizePackageImplementation(FEATURE_ACCEPTANCE));
     expect(PACKAGE_IMPLEMENTATION_SUMMARY).toEqual({
-      complete: 60,
-      partial: 53,
+      complete: 61,
+      partial: 52,
       placeholder: 0,
       missing: 0,
       explicitly_unavailable: 2,
@@ -121,6 +121,14 @@ describe("Prime Studio package acceptance catalog", () => {
     expect(status("CP-01")).toBe("complete");
     expect(status("HR-15")).toBe("complete");
     expect(status("NV-09")).toBe("complete");
+  });
+
+  it("records reviewed project expansion while keeping runtime identity and the toast queue nonterminal", () => {
+    const status = (id: string) => FEATURE_ACCEPTANCE.find((feature) => feature.id === id)?.current;
+
+    expect(status("NV-04")).toBe("complete");
+    expect(status("SH-08")).toBe("partial");
+    expect(status("CM-02")).toBe("partial");
   });
 
   it("records every package surface, state family, persisted setting, shortcut, responsive rule, and data authority", () => {
