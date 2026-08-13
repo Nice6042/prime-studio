@@ -33,6 +33,7 @@ const session: RootSessionProjection = {
   resources: [{ id: "r1", label: "AGENTS.md", kind: "context file", availability: "available" }],
   usage: { input: 100, output: 40, cacheRead: 20, cacheWrite: 5, totalTokens: 165, cost: null },
   workerRecovery: { status: "ready", closureReason: null, observationId: null, automaticRetryCount: 0, detail: null },
+  performance: { status: "unavailable", sessionId: "root-a", cursor: { runtimeGeneration: "g1", sequence: 10 }, reason: "event_chronology_unavailable" },
 };
 
 const details: HarnessPanelDetails = {

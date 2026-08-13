@@ -4171,7 +4171,8 @@ mod tests {
     use crate::harness::broker::{HarnessBroker, SessionOwnership};
     use crate::harness::generated::{
         CurrentChatUsage, HarnessCursor, MessageBlock, ParentChannel, ParentMessage,
-        RootSessionSnapshot, RootSessionState, WorkerRecoveryProjection, WorkerRecoveryStatus,
+        RootSessionSnapshot, RootSessionState, TurnPerformanceProjection,
+        TurnPerformanceUnavailableReason, WorkerRecoveryProjection, WorkerRecoveryStatus,
     };
     use crate::project_catalog::{
         PrimeChatBinding, PrimeChatBindingKind, Project, ProjectChat, ProjectKind, ProjectRoot,
@@ -4223,6 +4224,11 @@ mod tests {
                 observation_id: None,
                 automatic_retry_count: 0,
                 detail: None,
+            },
+            performance: TurnPerformanceProjection::Unavailable {
+                session_id: session_id.to_owned(),
+                cursor: HarnessCursor { runtime_generation: "generation-a".to_owned(), sequence: 99 },
+                reason: TurnPerformanceUnavailableReason::EventChronologyUnavailable,
             },
         }
     }

@@ -17,6 +17,7 @@ const session = (overrides: Partial<RootSessionProjection> = {}): RootSessionPro
   parentMessages: [], children: [], queue: [], tools: [], resources: [],
   usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: null },
   workerRecovery: { status: "ready", closureReason: null, observationId: null, automaticRetryCount: 0, detail: null },
+  performance: { status: "unavailable", sessionId: "session-a", cursor: { runtimeGeneration: "generation-a", sequence: 4 }, reason: "event_chronology_unavailable" },
   ...overrides,
 });
 

@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type { BootProjection, HarnessProjectionEvent, RootSessionProjection } from "../../entities/harness/types";
-import type { ChildAgentSummary, ContextSource, CurrentChatUsage, HarnessCapability, HarnessCompatibility, HarnessCursor, HarnessUnavailableReason, MessageBlock, ParentHistoryPage, ParentMessage, QueueItem, RuntimeIdentity, ToolDefinition, HarnessStudioAction, WorkerRecoveryProjection } from "./harness.generated";
+import type { ChildAgentSummary, ContextSource, CurrentChatUsage, HarnessCapability, HarnessCompatibility, HarnessCursor, HarnessUnavailableReason, MessageBlock, ParentHistoryPage, ParentMessage, QueueItem, RuntimeIdentity, ToolDefinition, HarnessStudioAction, TurnPerformanceProjection, WorkerRecoveryProjection } from "./harness.generated";
 import type { StudioOperation, StudioOperationOutcome } from "../../contracts/studioOperations";
 
 const MAX_TRANSPORT_BYTES = 4 * 1024 * 1024;
@@ -104,6 +104,11 @@ function bounded(value: unknown, maximum: number, allowEmpty = false): string {
 function safeInteger(value: unknown): number {
   if (!Number.isSafeInteger(value) || (value as number) < 0 || (value as number) > MAX_SAFE) fail();
   return value as number;
+}
+
+function finiteBounded(value: unknown, minimum: number, maximum: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < minimum || value > maximum) fail();
+  return value;
 }
 
 function u16(value: unknown): number {
@@ -334,9 +339,40 @@ function workerRecovery(value: unknown): WorkerRecoveryProjection {
   return { status, closureReason, observationId, automaticRetryCount: automaticRetryCount as 0 | 1, detail };
 }
 
+function turnPerformance(value: unknown, sessionId: string, snapshotCursor: HarnessCursor): TurnPerformanceProjection {
+  const status = value && typeof value === "object" && !Array.isArray(value) ? (value as { status?: unknown }).status : undefined;
+  if (status === "available") {
+    const source = record(value, ["status", "sessionId", "cursor", "firstTokenLatencyMs", "outputTokens", "generationDurationMs", "tokensPerSecond"]);
+    const boundCursor = cursor(source.cursor);
+    const projection: TurnPerformanceProjection = {
+      status,
+      sessionId: id(source.sessionId),
+      cursor: boundCursor,
+      firstTokenLatencyMs: finiteBounded(source.firstTokenLatencyMs, 0, 86_400_000),
+      outputTokens: safeInteger(source.outputTokens),
+      generationDurationMs: finiteBounded(source.generationDurationMs, 1, 86_400_000),
+      tokensPerSecond: finiteBounded(source.tokensPerSecond, 0, 1_000_000),
+    };
+    if (projection.sessionId !== sessionId || projection.cursor.runtimeGeneration !== snapshotCursor.runtimeGeneration || projection.cursor.sequence !== snapshotCursor.sequence || projection.outputTokens === 0) fail();
+    return projection;
+  }
+  const source = record(value, ["status", "sessionId", "cursor", "reason"]);
+  if (source.status !== "unavailable") fail();
+  const boundCursor = cursor(source.cursor);
+  const projection: TurnPerformanceProjection = {
+    status: "unavailable",
+    sessionId: id(source.sessionId),
+    cursor: boundCursor,
+    reason: oneOf(source.reason, new Set(["event_chronology_unavailable", "event_chronology_incomplete", "event_chronology_invalid", "generation_changed"] as const)),
+  };
+  if (projection.sessionId !== sessionId || projection.cursor.runtimeGeneration !== snapshotCursor.runtimeGeneration || projection.cursor.sequence !== snapshotCursor.sequence) fail();
+  return projection;
+}
+
 function session(value: unknown): RootSessionProjection {
-  const source = record(value, ["sessionId", "accountId", "projectId", "chatId", "cursor", "state", "freshness", "parentMessages", "children", "queue", "tools", "resources", "usage", "workerRecovery"]);
+  const source = record(value, ["sessionId", "accountId", "projectId", "chatId", "cursor", "state", "freshness", "parentMessages", "children", "queue", "tools", "resources", "usage", "workerRecovery", "performance"]);
   const sessionId = id(source.sessionId);
+  const snapshotCursor = cursor(source.cursor);
   const children = array(source.children, 256).map(child);
   const childIds = new Set<string>();
   for (const item of children) {
@@ -348,7 +384,7 @@ function session(value: unknown): RootSessionProjection {
     accountId: source.accountId === null ? null : id(source.accountId),
     projectId: id(source.projectId),
     chatId: id(source.chatId),
-    cursor: cursor(source.cursor),
+    cursor: snapshotCursor,
     state: oneOf(source.state, new Set(["idle", "working", "blocked", "failed", "disconnected", "stopped"] as const)),
     freshness: oneOf(source.freshness, new Set(["live", "stale", "disconnected", "unknown_outcome"] as const)),
     parentMessages: array(source.parentMessages, 300).map(message),
@@ -358,6 +394,7 @@ function session(value: unknown): RootSessionProjection {
     resources: array(source.resources, 512).map(resource),
     usage: usage(source.usage),
     workerRecovery: workerRecovery(source.workerRecovery),
+    performance: turnPerformance(source.performance, sessionId, snapshotCursor),
   };
 }
 

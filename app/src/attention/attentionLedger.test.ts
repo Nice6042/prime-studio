@@ -33,6 +33,7 @@ const session = (sessionId: string, sequence: number, runtimeGeneration = "gener
   parentMessages: [], children: [], queue: [], tools: [], resources: [],
   usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: null },
   workerRecovery: { status: "ready", closureReason: null, observationId: null, automaticRetryCount: 0, detail: null },
+  performance: { status: "unavailable", sessionId, cursor: { runtimeGeneration, sequence }, reason: "event_chronology_unavailable" },
 });
 
 const completed = (id: string, emittedAtMs: number, streaming = false) => ({

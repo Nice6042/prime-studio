@@ -108,7 +108,8 @@ test("bootstrap and prompt use real daemon state with generation and cursor bind
 test("a daemon event dirties the published projection and blocks stale mutation admission", async () => {
   const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
   let upstreamSequence = 4;
-  let eventListener: ((event: unknown) => void) | undefined;
+  const eventListeners = new Set<(event: unknown) => void>();
+  const emit = (event: unknown) => eventListeners.forEach((listener) => listener(event));
   let prompts = 0;
   const state = {
     activeSessionId: "root", cwd: "C:\\work", thinkingLevel: "high", serviceTier: "auto",
@@ -121,7 +122,7 @@ test("a daemon event dirties the published projection and blocks stale mutation 
     async getState() { return state; }, async getMessages() { return []; }, async getQueue() { return { steering: [], followUp: [] }; },
     async getResourceSnapshot() { return {}; }, async getSessionStats() { return { tokens: {}, cost: 0 }; }, async getToolDefinition() { return undefined; },
     async prompt() { prompts += 1; }, async steer() {}, async followUp() {}, async abort() {}, async dispose() {},
-    subscribe(listener: (event: unknown) => void) { eventListener = listener; return () => { eventListener = undefined; }; },
+    subscribe(listener: (event: unknown) => void) { eventListeners.add(listener); return () => { eventListeners.delete(listener); }; },
   };
   const bridge = new PrimeDaemonBridge({
     identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
@@ -131,7 +132,7 @@ test("a daemon event dirties the published projection and blocks stale mutation 
   const first = await bridge.attach("root");
   assert.equal(first.cursor.sequence, 4);
   upstreamSequence = 5;
-  eventListener?.({ type: "message_update" });
+  emit({ type: "message_update" });
   const operation = await bridge.executeOperation("root", {
     operationId: "operation-stale", action: "harness.session.prompt",
     payload: { sessionId: "root", text: "must not run" }, expectedCursor: first.cursor,
@@ -211,6 +212,136 @@ test("extension consumed identity capacity fails closed without evicting replay 
   assert.equal(ledger.size, 4_096);
   assert.equal(ledger.has("request-0"), true);
   assert.equal(ledger.has("request-overflow"), false);
+});
+
+test("projects parent turn performance from admitted events using a monotonic clock without child leakage or double counting", async () => {
+  const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
+  let upstreamSequence = 4;
+  let now = 0;
+  let queueGate: Promise<void> | null = null;
+  let markQueueReached: (() => void) | null = null;
+  const eventListeners = new Set<(event: unknown) => void>();
+  const emit = (event: unknown) => eventListeners.forEach((listener) => listener(event));
+  const state = {
+    activeSessionId: "root", cwd: "C:\\work", thinkingLevel: "high", serviceTier: "auto",
+    availableThinkingLevels: [], isStreaming: false, isCompacting: false, isBashRunning: false,
+    retryAttempt: 0, steeringMode: "all", followUpMode: "all", sessionId: "chat", leafId: null,
+    autoCompactionEnabled: true, messageCount: 0, sessionActions: {}, compactionCount: 0, goal: {}, scopedModels: [], activeToolNames: [],
+  };
+  const connection = {
+    async getInitialSnapshot() { return { state, messages: [], children: [], lastEventCursor: { generation: "generation-1", sequence: upstreamSequence } }; },
+    async getState() { return state; }, async getMessages() { return []; }, async getQueue() { markQueueReached?.(); if (queueGate) await queueGate; return {}; },
+    async getResourceSnapshot() { return {}; }, async getSessionStats() { return { tokens: {}, cost: 0 }; }, async getToolDefinition() { return undefined; },
+    async prompt() {}, async steer() {}, async followUp() {}, async abort() {}, async dispose() {},
+    subscribe(listener: (event: unknown) => void) { eventListeners.add(listener); return () => { eventListeners.delete(listener); }; },
+  };
+  const bridge = new PrimeDaemonBridge({
+    identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
+    client: { async connect() {}, async waitForHello() { return { type: "daemon_hello", socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: "generation-1", clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request() { return { type: "response", command: "list", success: true, data: { sessions: [{ activeSessionId: "root", isSessionActive: true, workerState: "ready" }] } }; }, close() {} },
+    attach: async () => connection,
+    monotonicNow: () => now,
+  });
+
+  const initial = await bridge.attach("root");
+  assert.deepEqual(initial.performance, { status: "unavailable", sessionId: "root", cursor: initial.cursor, reason: "event_chronology_unavailable" });
+  const sessionEvent = (event: unknown) => ({ type: "session_event", event });
+  now = 100; emit(sessionEvent({ type: "agent_start" }));
+  now = 101; emit(sessionEvent({ type: "turn_start" }));
+  now = 110; emit(sessionEvent({ type: "message_start", message: { role: "user", content: "Prompt" } }));
+  now = 111; emit(sessionEvent({ type: "message_end", message: { role: "user", content: "Prompt" } }));
+  now = 140; emit(sessionEvent({ type: "message_start", message: { role: "assistant", content: [] } }));
+  now = 150; emit(sessionEvent({ type: "message_update", message: { role: "assistant", content: [{ type: "toolCall", id: "tool-1", name: "read", arguments: {} }] }, assistantMessageEvent: { type: "toolcall_delta", contentIndex: 0, delta: "{}", partial: { role: "assistant", content: [{ type: "toolCall", id: "tool-1", name: "read", arguments: {} }] } } }));
+  now = 250; emit(sessionEvent({ type: "message_end", message: { role: "assistant", content: [{ type: "toolCall", id: "tool-1", name: "read", arguments: {} }], usage: { input: 10, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: 20 } } }));
+  now = 260; emit(sessionEvent({ type: "message_start", message: { role: "toolResult", toolCallId: "tool-1", content: [] } }));
+  now = 261; emit(sessionEvent({ type: "message_end", message: { role: "toolResult", toolCallId: "tool-1", content: [] } }));
+  now = 270; emit(sessionEvent({ type: "turn_end", message: { role: "assistant", content: [] }, toolResults: [{ role: "toolResult", content: [] }] }));
+  now = 280; emit(sessionEvent({ type: "turn_start" }));
+  now = 285; emit(sessionEvent({ type: "rlm_child_update", child: { id: "private" } }));
+  now = 290; emit(sessionEvent({ type: "message_start", message: { role: "assistant", content: [] } }));
+  now = 300; emit(sessionEvent({ type: "message_update", message: { role: "assistant", content: [{ type: "text", text: "Hello" }] }, assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "Hello", partial: { role: "assistant", content: [{ type: "text", text: "Hello" }] } } }));
+  now = 400; emit(sessionEvent({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "Hello" }], usage: { input: 10, output: 40, cacheRead: 0, cacheWrite: 0, totalTokens: 50 } } }));
+  now = 410; emit(sessionEvent({ type: "turn_end", message: { role: "assistant", content: [] }, toolResults: [] }));
+  now = 420; emit(sessionEvent({ type: "agent_end", messages: [] }));
+  upstreamSequence = 10;
+
+  const completed = await bridge.snapshot("root");
+  assert.deepEqual(completed.performance, {
+    status: "available", sessionId: "root", cursor: completed.cursor,
+    firstTokenLatencyMs: 50, outputTokens: 50, generationDurationMs: 200, tokensPerSecond: 250,
+  });
+
+  now = 500; emit(sessionEvent({ type: "agent_start" }));
+  now = 510; emit(sessionEvent({ type: "turn_start" }));
+  now = 520; emit(sessionEvent({ type: "message_start", message: { role: "assistant", content: [] } }));
+  let releaseQueue!: () => void;
+  queueGate = new Promise<void>((resolve) => { releaseQueue = resolve; });
+  const queueReached = new Promise<void>((resolve) => { markQueueReached = resolve; });
+  const racingSnapshot = bridge.snapshot("root");
+  await queueReached;
+  now = 560; emit(sessionEvent({ type: "message_update", message: { role: "assistant", content: [{ type: "text", text: "Later" }] }, assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "Later", partial: { role: "assistant", content: [{ type: "text", text: "Later" }] } } }));
+  now = 660; emit(sessionEvent({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "Later" }], usage: { input: 1, output: 20, cacheRead: 0, cacheWrite: 0, totalTokens: 21 } } }));
+  now = 670; emit(sessionEvent({ type: "turn_end", message: { role: "assistant", content: [] }, toolResults: [] }));
+  now = 680; emit(sessionEvent({ type: "agent_end", messages: [] }));
+  queueGate = null;
+  markQueueReached = null;
+  releaseQueue();
+  const atomicallyBound = await racingSnapshot;
+  assert.deepEqual(atomicallyBound.performance, { status: "unavailable", sessionId: "root", cursor: atomicallyBound.cursor, reason: "event_chronology_incomplete" });
+  const next = await bridge.snapshot("root");
+  assert.equal(next.performance.status, "available");
+
+  emit({ type: "connection_status", status: "reconnecting" });
+  const afterReconnect = await bridge.snapshot("root");
+  assert.deepEqual(afterReconnect.performance, { status: "unavailable", sessionId: "root", cursor: afterReconnect.cursor, reason: "generation_changed" });
+});
+
+test("fails turn performance closed for malformed chronology, regressing clocks, and generation changes", async () => {
+  const { PrimeDaemonBridge } = await import("../src/primeDaemonBridge.js");
+  let generation = "generation-1";
+  let upstreamSequence = 1;
+  let now = 10;
+  const eventListeners = new Set<(event: unknown) => void>();
+  const emit = (event: unknown) => eventListeners.forEach((listener) => listener(event));
+  const state = { activeSessionId: "root", cwd: "C:\\work", isStreaming: false, isCompacting: false, isBashRunning: false, sessionId: "chat", activeToolNames: [] };
+  const connection = {
+    async getInitialSnapshot() { return { state, messages: [], children: [], lastEventCursor: { generation, sequence: upstreamSequence } }; },
+    async getState() { return state; }, async getMessages() { return []; }, async getQueue() { return {}; }, async getResourceSnapshot() { return {}; }, async getSessionStats() { return { tokens: {}, cost: 0 }; }, async getToolDefinition() { return undefined; },
+    async prompt() {}, async steer() {}, async followUp() {}, async abort() {}, async dispose() {}, subscribe(listener: (event: unknown) => void) { eventListeners.add(listener); return () => { eventListeners.delete(listener); }; },
+  };
+  const bridge = new PrimeDaemonBridge({
+    identity: { packageName: "prime-agent", packageVersion: "0.7.1", packageDigest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900", entrypointDigest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b", protocolName: "prime-agent.daemon", protocolVersion: 7, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", capabilities: ["attach_snapshot", "event_sequence", "resident_sessions", "session_input_admission", "model_catalog"] },
+    client: { async connect() {}, async waitForHello() { return { type: "daemon_hello", socketPath: "fake", protocol: { name: "prime-agent.daemon", version: 7 }, schemaRevision: 13, schemaId: "protocol-7-schema-13-816309b1cd50", appVersion: "0.7.1", supervisorGeneration: generation, clientId: "c", serverCapabilities: ["attach_snapshot", "event_sequence", "session_input_admission", "model_catalog"] }; }, async request() { return { type: "response", command: "list", success: true, data: { sessions: [{ activeSessionId: "root", isSessionActive: true, workerState: "ready" }] } }; }, close() {} },
+    attach: async () => connection, monotonicNow: () => now,
+  });
+  await bridge.attach("root");
+  emit({ type: "session_event", event: { type: "agent_start" } });
+  now = 9;
+  emit({ type: "session_event", event: { type: "message_start", message: { role: "assistant", content: [] } } });
+  now = 20; emit({ type: "session_event", event: { type: "agent_end" } });
+  upstreamSequence = 2;
+  const invalid = await bridge.snapshot("root");
+  assert.equal(invalid.performance.status, "unavailable");
+  assert.equal(invalid.performance.status === "unavailable" ? invalid.performance.reason : "", "event_chronology_invalid");
+
+  generation = "generation-2";
+  upstreamSequence = 1;
+  const replaced = await bridge.snapshot("root");
+  assert.deepEqual(replaced.performance, { status: "unavailable", sessionId: "root", cursor: replaced.cursor, reason: "generation_changed" });
+
+  now = 30; emit({ type: "session_event", event: { type: "agent_start" } });
+  now = 31; emit({ type: "session_event", event: { type: "agent_start" } });
+  now = 32; emit({ type: "session_event", event: { type: "agent_end", messages: [] } });
+  upstreamSequence = 2;
+  const duplicateStart = await bridge.snapshot("root");
+  assert.equal(duplicateStart.performance.status === "unavailable" ? duplicateStart.performance.reason : "", "event_chronology_invalid");
+
+  emit({ type: "connection_status", status: "reconnecting" });
+  now = 40; emit({ type: "session_event", event: { type: "agent_start" } });
+  now = 41; emit({ type: "session_event", event: { type: "future_chronology_event" } });
+  now = 42; emit({ type: "session_event", event: { type: "agent_end", messages: [] } });
+  upstreamSequence = 3;
+  const unknownEvent = await bridge.snapshot("root");
+  assert.equal(unknownEvent.performance.status === "unavailable" ? unknownEvent.performance.reason : "", "event_chronology_invalid");
 });
 
 test("each published snapshot advances exactly one Studio revision even without an upstream event", async () => {

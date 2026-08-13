@@ -1,4 +1,4 @@
-// Generated from harness-v1.schema.json; SHA-256: c6bfc00124f4eeb97b83f5321e359064a7dd95fbdbbf8411225e8c5c6007378a
+// Generated from harness-v1.schema.json; SHA-256: ddbdf87b1e4dda91742f964d86f0597b33adfe1510b96ebb25db0deda9711aec
 // Do not edit by hand. Run npm run generate:harness-contract.
 
 export const STUDIO_HARNESS_PROTOCOL = 1 as const;
@@ -99,6 +99,10 @@ export interface WorkerRecoveryProjection {
   detail: string | null;
 }
 
+export type TurnPerformanceProjection =
+  | { status: "available"; sessionId: string; cursor: HarnessCursor; firstTokenLatencyMs: number; outputTokens: number; generationDurationMs: number; tokensPerSecond: number }
+  | { status: "unavailable"; sessionId: string; cursor: HarnessCursor; reason: "event_chronology_unavailable" | "event_chronology_incomplete" | "event_chronology_invalid" | "generation_changed" };
+
 export interface RootSessionSnapshot {
   sessionId: string;
   accountId: string | null;
@@ -113,6 +117,7 @@ export interface RootSessionSnapshot {
   resources: readonly ContextSource[];
   usage: CurrentChatUsage;
   workerRecovery: WorkerRecoveryProjection;
+  performance: TurnPerformanceProjection;
 }
 
 export interface ParentHistoryPage {

@@ -6,7 +6,8 @@ use prime_studio_lib::harness::broker::{
 use prime_studio_lib::harness::generated::{
     ChildAgentStatus, ChildAgentSummary, CurrentChatUsage, HarnessCursor, HarnessEvent,
     HarnessStudioAction, RootSessionSnapshot, RootSessionState, SessionCommandKind,
-    StudioOperationStatus, WorkerRecoveryProjection, WorkerRecoveryStatus,
+    StudioOperationStatus, TurnPerformanceProjection, TurnPerformanceUnavailableReason,
+    WorkerRecoveryProjection, WorkerRecoveryStatus,
 };
 use prime_studio_lib::harness::recovery::{RecoveredSession, RecoveryRecord};
 use prime_studio_lib::harness::sidecar::{HarnessError, SidecarSupervisor, VerifiedSidecarSpec};
@@ -79,6 +80,11 @@ fn snapshot(
             observation_id: None,
             automatic_retry_count: 0,
             detail: None,
+        },
+        performance: TurnPerformanceProjection::Unavailable {
+            session_id: session.to_owned(),
+            cursor: HarnessCursor { runtime_generation: generation.to_owned(), sequence },
+            reason: TurnPerformanceUnavailableReason::EventChronologyUnavailable,
         },
     }
 }

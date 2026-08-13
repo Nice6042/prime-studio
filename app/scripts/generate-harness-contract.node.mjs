@@ -82,6 +82,24 @@ test("parent history paging is closed and bounded by opaque cursor", async () =>
   assert.equal(page.properties.messages.items.$ref, "#/$defs/ParentMessage");
 });
 
+test("turn performance is a closed exact-snapshot-bound projection", async () => {
+  const schema = await loadHarnessSchema(schemaUrl);
+  const projection = schema.$defs.TurnPerformanceProjection;
+  const [available, unavailable] = projection.oneOf;
+
+  assert.deepEqual(available.required, ["status", "sessionId", "cursor", "firstTokenLatencyMs", "outputTokens", "generationDurationMs", "tokensPerSecond"]);
+  assert.deepEqual(available.properties.outputTokens, { type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER });
+  assert.equal(available.additionalProperties, false);
+  assert.equal(available.properties.firstTokenLatencyMs.maximum, 86_400_000);
+  assert.equal(available.properties.generationDurationMs.minimum, 1);
+  assert.equal(available.properties.tokensPerSecond.maximum, 1_000_000);
+  assert.deepEqual(unavailable.required, ["status", "sessionId", "cursor", "reason"]);
+  assert.equal(unavailable.additionalProperties, false);
+  assert.deepEqual(unavailable.properties.reason.enum, ["event_chronology_unavailable", "event_chronology_incomplete", "event_chronology_invalid", "generation_changed"]);
+  assert.ok(schema.$defs.RootSessionSnapshot.required.includes("performance"));
+  assert.equal(schema.$defs.RootSessionSnapshot.properties.performance.$ref, "#/$defs/TurnPerformanceProjection");
+});
+
 test("checked-in generated files exactly match the schema", async () => {
   const schema = await loadHarnessSchema(schemaUrl);
   const generated = generateHarnessContract(schema);

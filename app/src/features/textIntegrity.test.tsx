@@ -35,6 +35,7 @@ const session: RootSessionProjection = {
   resources: [],
   usage: { input: 1200, output: 340, cacheRead: 20, cacheWrite: 0, totalTokens: 1560, cost: null },
   workerRecovery: { status: "ready", closureReason: null, observationId: null, automaticRetryCount: 0, detail: null },
+  performance: { status: "unavailable", sessionId: "session-1", cursor: { runtimeGeneration: "generation-1", sequence: 1 }, reason: "event_chronology_unavailable" },
   freshness: "live",
 };
 

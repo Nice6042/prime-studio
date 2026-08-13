@@ -11,7 +11,7 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: mocks.listen,
 }));
 
-import { attachHarnessSession, bootstrapHarness, decodeBootProjection, decodeHarnessInspectorDetails, decodeHarnessProjectionEvent, executeHarnessStudioOperation, loadHarnessChildPage, loadHarnessInspector, pageHarnessConversationHistory, refreshHarnessSession, refreshHarnessSubscriptionsNow, registerHarnessSessionProjection, retryHarnessWorker, sendHarnessCommand, subscribeHarnessEvents } from "./client";
+import { attachHarnessSession, bootstrapHarness, decodeBootProjection, decodeHarnessInspectorDetails, decodeHarnessProjectionEvent, decodeRootSessionProjection, executeHarnessStudioOperation, loadHarnessChildPage, loadHarnessInspector, pageHarnessConversationHistory, refreshHarnessSession, refreshHarnessSubscriptionsNow, registerHarnessSessionProjection, retryHarnessWorker, sendHarnessCommand, subscribeHarnessEvents } from "./client";
 
 const unavailable = {
   compatibility: {
@@ -44,7 +44,12 @@ const session = {
     cost: null,
   },
   workerRecovery: { status: "ready", closureReason: null, observationId: null, automaticRetryCount: 0, detail: null },
+  performance: { status: "unavailable", sessionId: "root", cursor: { runtimeGeneration: "generation", sequence: 1 }, reason: "event_chronology_unavailable" },
 };
+
+function sessionAt(cursor: { runtimeGeneration: string; sequence: number }, patch: Record<string, unknown> = {}) {
+  return { ...session, ...patch, cursor, performance: { ...session.performance, cursor: { ...cursor } } };
+}
 
 describe("Harness IPC client", () => {
   beforeEach(() => {
@@ -55,6 +60,23 @@ describe("Harness IPC client", () => {
       return () => undefined;
     });
     mocks.eventCallback = null;
+  });
+
+  it("accepts only finite performance chronology bound to the exact root snapshot", () => {
+    const available = {
+      ...session,
+      performance: { status: "available", sessionId: "root", cursor: { ...session.cursor }, firstTokenLatencyMs: 75, outputTokens: 40, generationDurationMs: 200, tokensPerSecond: 200 },
+    };
+    expect(decodeRootSessionProjection(available).performance).toEqual(available.performance);
+
+    for (const performance of [
+      { ...available.performance, sessionId: "other" },
+      { ...available.performance, cursor: { ...session.cursor, sequence: 2 } },
+      { ...available.performance, tokensPerSecond: Number.POSITIVE_INFINITY },
+      { ...available.performance, tokensPerSecond: 1_000_001 },
+      { ...available.performance, generationDurationMs: 0 },
+      { status: "mystery", sessionId: "root", cursor: session.cursor },
+    ]) expect(() => decodeRootSessionProjection({ ...session, performance })).toThrow("Harness projection unavailable");
   });
 
   it("strictly decodes an exact parent history page and rejects hostile chronology", async () => {
@@ -267,7 +289,7 @@ describe("Harness IPC client", () => {
   it("binds typed attach and command responses to the requested session and command", async () => {
     mocks.invoke.mockResolvedValueOnce({
       ...session,
-      cursor: { ...session.cursor, sequence: 2 },
+      ...sessionAt({ ...session.cursor, sequence: 2 }),
     });
     const attached = await attachHarnessSession("root");
     expect(attached.cursor.sequence).toBe(2);
@@ -277,7 +299,7 @@ describe("Harness IPC client", () => {
 
     const commandSession = {
       ...session,
-      cursor: { ...session.cursor, sequence: 3 },
+      ...sessionAt({ ...session.cursor, sequence: 3 }),
       state: "working",
     };
     mocks.invoke.mockResolvedValueOnce({
@@ -320,7 +342,7 @@ describe("Harness IPC client", () => {
     await bootstrapHarness();
     const recovered = {
       ...session,
-      cursor: { ...session.cursor, sequence: 2 },
+      ...sessionAt({ ...session.cursor, sequence: 2 }),
       workerRecovery: { status: "recovered", closureReason: "supervisor_recovery_exhausted", observationId, automaticRetryCount: 1, detail: null },
     };
     mocks.invoke.mockResolvedValueOnce({ observationId, outcome: "recovered", session: recovered });
@@ -329,13 +351,13 @@ describe("Harness IPC client", () => {
   });
 
   it("binds live refresh snapshots to the exact next Studio cursor", async () => {
-    const refreshed = { ...session, cursor: { ...session.cursor, sequence: 2 }, state: "working" };
+    const refreshed = sessionAt({ ...session.cursor, sequence: 2 }, { state: "working" });
     mocks.invoke.mockResolvedValueOnce(refreshed);
     await expect(refreshHarnessSession("root", session.cursor)).resolves.toEqual(refreshed);
     expect(mocks.invoke).toHaveBeenLastCalledWith("harness_refresh_session", { request: { sessionId: "root", knownCursor: session.cursor } });
     mocks.invoke.mockResolvedValueOnce({ ...refreshed, cursor: { ...refreshed.cursor, sequence: 4 } });
     await expect(refreshHarnessSession("root", session.cursor)).rejects.toThrow("Harness projection unavailable");
-    const replacement = { ...session, cursor: { runtimeGeneration: "generation-b", sequence: 1 } };
+    const replacement = sessionAt({ runtimeGeneration: "generation-b", sequence: 1 });
     mocks.invoke.mockResolvedValueOnce(replacement);
     await expect(refreshHarnessSession("root", session.cursor)).resolves.toEqual(replacement);
   });
@@ -434,7 +456,7 @@ describe("Harness IPC client", () => {
   });
 
   it("routes closed Harness actions and validates the operation outcome", async () => {
-    const operationSession = { ...session, cursor: { ...session.cursor, sequence: 2 } };
+    const operationSession = sessionAt({ ...session.cursor, sequence: 2 });
     mocks.invoke.mockResolvedValueOnce({
       compatibility: { status: "ready", profile: "profile", capabilities: readyCapabilities },
       sessions: [session],
@@ -539,7 +561,7 @@ describe("Harness IPC client", () => {
     await bootstrapHarness();
     const unsubscribe = subscribeHarnessEvents((event) => received.push(event.sequence));
     await vi.waitFor(() => expect(mocks.eventCallback).not.toBeNull());
-    const next = { ...session, cursor: { ...session.cursor, sequence: 2 } };
+    const next = sessionAt({ ...session.cursor, sequence: 2 });
     mocks.eventCallback?.({
       payload: {
         schemaVersion: 1,
@@ -594,12 +616,12 @@ describe("Harness IPC client", () => {
       if (command === "harness_refresh_session") {
         const request = args?.request as { knownCursor: { sequence: number } };
         refreshCursors.push(request.knownCursor.sequence);
-        return { ...session, cursor: { ...session.cursor, sequence: request.knownCursor.sequence + 1 } };
+        return sessionAt({ ...session.cursor, sequence: request.knownCursor.sequence + 1 });
       }
       if (command === "harness_session_command") return {
         commandId: "command-12345678",
         outcome: "accepted",
-        session: { ...session, cursor: { ...session.cursor, sequence: 3 }, state: "working" },
+        session: sessionAt({ ...session.cursor, sequence: 3 }, { state: "working" }),
       };
       throw new Error(`Unexpected command: ${command}`);
     });
@@ -637,12 +659,12 @@ describe("Harness IPC client", () => {
         if (request.knownCursor.sequence === 1) {
           return await new Promise((resolve) => { resolveFirstRefresh = resolve; });
         }
-        return { ...session, cursor: { ...session.cursor, sequence: request.knownCursor.sequence + 1 } };
+        return sessionAt({ ...session.cursor, sequence: request.knownCursor.sequence + 1 });
       }
       if (command === "harness_session_command") return {
         commandId: "command-12345678",
         outcome: "accepted",
-        session: { ...session, cursor: { ...session.cursor, sequence: 2 }, state: "working" },
+        session: sessionAt({ ...session.cursor, sequence: 2 }, { state: "working" }),
       };
       throw new Error(`Unexpected command: ${command}`);
     });
@@ -659,7 +681,7 @@ describe("Harness IPC client", () => {
       kind: "prompt",
       text: "Advance first",
     });
-    resolveFirstRefresh({ ...session, cursor: { ...session.cursor, sequence: 2 } });
+    resolveFirstRefresh(sessionAt({ ...session.cursor, sequence: 2 }));
     await staleRefresh;
     await refreshHarnessSubscriptionsNow();
     unsubscribe();

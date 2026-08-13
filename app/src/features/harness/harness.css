@@ -88,7 +88,7 @@
 .harness-extension-prompt small { color: var(--hi-muted); font-size: 10.5px; }
 .harness-extension-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .harness-extension-actions button { min-block-size: 28px; padding: 4px 10px; border: 1px solid var(--hi-line-strong); border-radius: 6px; background: transparent; color: var(--hi-soft); font-size: 11px; }
-.harness-extension-actions button:first-child { border-color: var(--hi-accent); background: var(--hi-accent); color: white; }
+.harness-extension-actions button:first-child { border-color: #aaa3ff; background: #665ec2; color: #fff; }
 .harness-extension-actions button:focus-visible { outline: 2px solid var(--hi-accent-soft); outline-offset: 2px; }
 .harness-extension-actions button:disabled { cursor: wait; opacity: .55; }
 

@@ -2149,7 +2149,8 @@ fn compatibility_uses_profile(compatibility: &HarnessCompatibility, expected: &s
 mod artifact_candidate_tests {
     use super::*;
     use crate::harness::generated::{
-        CurrentChatUsage, RootSessionState, WorkerRecoveryProjection, WorkerRecoveryStatus,
+        CurrentChatUsage, RootSessionState, TurnPerformanceProjection,
+        TurnPerformanceUnavailableReason, WorkerRecoveryProjection, WorkerRecoveryStatus,
     };
 
     fn snapshot(session_id: &str, project_id: &str, sequence: u64) -> RootSessionSnapshot {
@@ -2182,6 +2183,11 @@ mod artifact_candidate_tests {
                 observation_id: None,
                 automatic_retry_count: 0,
                 detail: None,
+            },
+            performance: TurnPerformanceProjection::Unavailable {
+                session_id: session_id.to_owned(),
+                cursor: HarnessCursor { runtime_generation: "generation-a".to_owned(), sequence },
+                reason: TurnPerformanceUnavailableReason::EventChronologyUnavailable,
             },
         }
     }

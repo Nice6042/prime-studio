@@ -26,6 +26,7 @@ const session: RootSessionProjection = {
   ],
   usage: { input: 28_900, output: 6_200, cacheRead: 5_900, cacheWrite: 1_800, totalTokens: 42_800, cost: null },
   workerRecovery: { status: "ready", closureReason: null, observationId: null, automaticRetryCount: 0, detail: null },
+  performance: { status: "unavailable", sessionId: "visual-session", cursor: { runtimeGeneration: "visual", sequence: 24 }, reason: "event_chronology_unavailable" },
 };
 
 const details: HarnessPanelDetails = {

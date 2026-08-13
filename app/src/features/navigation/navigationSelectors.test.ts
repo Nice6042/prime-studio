@@ -9,6 +9,7 @@ const session: RootSessionProjection = {
   cursor: { runtimeGeneration: "generation-a", sequence: 2 }, state: "working", freshness: "live",
   parentMessages: [], children: [], queue: [], tools: [], resources: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: null },
   workerRecovery: { status: "ready", closureReason: null, observationId: null, automaticRetryCount: 0, detail: null },
+  performance: { status: "unavailable", sessionId: "session-recent", cursor: { runtimeGeneration: "generation-a", sequence: 2 }, reason: "event_chronology_unavailable" },
 };
 
 const state: ProjectChatState = {

@@ -255,10 +255,37 @@
         "cost": { "oneOf": [{ "$ref": "#/$defs/FiniteNumber" }, { "type": "null" }] }
       }
     },
+    "TurnPerformanceProjection": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["status", "sessionId", "cursor", "firstTokenLatencyMs", "outputTokens", "generationDurationMs", "tokensPerSecond"],
+          "properties": {
+            "status": { "const": "available" },
+            "sessionId": { "$ref": "#/$defs/Id" },
+            "cursor": { "$ref": "#/$defs/HarnessCursor" },
+            "firstTokenLatencyMs": { "type": "number", "minimum": 0, "maximum": 86400000 },
+            "outputTokens": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+            "generationDurationMs": { "type": "number", "minimum": 1, "maximum": 86400000 },
+            "tokensPerSecond": { "type": "number", "minimum": 0, "maximum": 1000000 }
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["status", "sessionId", "cursor", "reason"],
+          "properties": {
+            "status": { "const": "unavailable" },
+            "sessionId": { "$ref": "#/$defs/Id" },
+            "cursor": { "$ref": "#/$defs/HarnessCursor" },
+            "reason": { "type": "string", "enum": ["event_chronology_unavailable", "event_chronology_incomplete", "event_chronology_invalid", "generation_changed"] }
+          }
+        }
+      ]
+    },
     "RootSessionSnapshot": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["sessionId", "accountId", "projectId", "chatId", "cursor", "state", "parentMessages", "children", "queue", "tools", "resources", "usage", "workerRecovery"],
+      "required": ["sessionId", "accountId", "projectId", "chatId", "cursor", "state", "parentMessages", "children", "queue", "tools", "resources", "usage", "workerRecovery", "performance"],
       "properties": {
         "sessionId": { "$ref": "#/$defs/Id" },
         "accountId": { "oneOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] },
@@ -271,7 +298,8 @@
         "tools": { "type": "array", "maxItems": 512, "items": { "$ref": "#/$defs/ToolDefinition" } },
         "resources": { "type": "array", "maxItems": 512, "items": { "$ref": "#/$defs/ContextSource" } },
         "usage": { "$ref": "#/$defs/CurrentChatUsage" },
-        "workerRecovery": { "$ref": "#/$defs/WorkerRecoveryProjection" }
+        "workerRecovery": { "$ref": "#/$defs/WorkerRecoveryProjection" },
+        "performance": { "$ref": "#/$defs/TurnPerformanceProjection" }
       }
     },
     "ParentHistoryPage": {

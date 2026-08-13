@@ -14,6 +14,7 @@ use uuid::Uuid;
 use crate::harness::generated::{
     reject_duplicate_json_keys, ChildAgentSummary, CurrentChatUsage, HarnessCompatibility,
     MessageBlock, ParentMessage, RootSessionSnapshot, RuntimeIdentity, StudioEnvelope,
+    TurnPerformanceProjection,
     StudioRequest, StudioResponse, WorkerRecoveryStatus, HARNESS_FRAME_MAX_BYTES,
     STUDIO_HARNESS_PROTOCOL,
 };
@@ -637,6 +638,7 @@ pub(crate) fn validate_root_snapshot(snapshot: &RootSessionSnapshot) -> bool {
             valid_id(&resource.id) && valid_label(&resource.label) && valid_id(&resource.kind)
         })
         && valid_usage(&snapshot.usage)
+        && valid_turn_performance(snapshot)
         && snapshot.worker_recovery.automatic_retry_count <= 1
         && snapshot
             .worker_recovery
@@ -673,6 +675,32 @@ pub(crate) fn validate_root_snapshot(snapshot: &RootSessionSnapshot) -> bool {
                 snapshot.worker_recovery.closure_reason.is_some()
             }
         }
+}
+
+fn valid_turn_performance(snapshot: &RootSessionSnapshot) -> bool {
+    match &snapshot.performance {
+        TurnPerformanceProjection::Available {
+            session_id,
+            cursor,
+            first_token_latency_ms,
+            output_tokens,
+            generation_duration_ms,
+            tokens_per_second,
+        } => {
+            session_id == &snapshot.session_id
+                && cursor == &snapshot.cursor
+                && first_token_latency_ms.is_finite()
+                && (0.0..=86_400_000.0).contains(first_token_latency_ms)
+                && (1..=9_007_199_254_740_991).contains(output_tokens)
+                && generation_duration_ms.is_finite()
+                && (1.0..=86_400_000.0).contains(generation_duration_ms)
+                && tokens_per_second.is_finite()
+                && (0.0..=1_000_000.0).contains(tokens_per_second)
+        }
+        TurnPerformanceProjection::Unavailable {
+            session_id, cursor, ..
+        } => session_id == &snapshot.session_id && cursor == &snapshot.cursor,
+    }
 }
 
 fn valid_parent_message(message: &ParentMessage) -> bool {

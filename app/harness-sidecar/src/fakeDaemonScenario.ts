@@ -20,6 +20,10 @@ export interface WorkerRecoveryProjection {
   readonly detail: string | null;
 }
 
+export type TurnPerformanceProjection =
+  | Readonly<{ status: "available"; sessionId: string; cursor: Readonly<{ runtimeGeneration: string; sequence: number }>; firstTokenLatencyMs: number; outputTokens: number; generationDurationMs: number; tokensPerSecond: number }>
+  | Readonly<{ status: "unavailable"; sessionId: string; cursor: Readonly<{ runtimeGeneration: string; sequence: number }>; reason: "event_chronology_unavailable" | "event_chronology_incomplete" | "event_chronology_invalid" | "generation_changed" }>;
+
 export interface FakeRootSessionSnapshot {
   readonly sessionId: string;
   readonly accountId: string | null;
@@ -34,6 +38,7 @@ export interface FakeRootSessionSnapshot {
   readonly resources: readonly Readonly<Record<string, unknown>>[];
   readonly usage: Readonly<{ input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number; cost: number | null }>;
   readonly workerRecovery: WorkerRecoveryProjection;
+  readonly performance: TurnPerformanceProjection;
 }
 
 export interface ParentHistoryPage {
@@ -240,6 +245,7 @@ function snapshot(value: unknown): FakeRootSessionSnapshot {
     parentMessages: array(source.parentMessages, 300).map(message), children, queue, tools, resources,
     usage: { input, output, cacheRead, cacheWrite, totalTokens, cost: cost as number | null },
     workerRecovery: { status: "ready", closureReason: null, observationId: null, automaticRetryCount: 0, detail: null },
+    performance: { status: "unavailable", sessionId, cursor: { runtimeGeneration: id(cursorSource.runtimeGeneration), sequence: integer(cursorSource.sequence) }, reason: "event_chronology_unavailable" },
   };
 }
 
@@ -432,10 +438,12 @@ export class FakeDaemonController {
   }
 
   #advance(current: FakeRootSessionSnapshot, patch: Partial<FakeRootSessionSnapshot>): FakeRootSessionSnapshot {
+    const cursor = { runtimeGeneration: current.cursor.runtimeGeneration, sequence: current.cursor.sequence + 1 };
     return deepFreeze({
       ...current,
       ...patch,
-      cursor: { runtimeGeneration: current.cursor.runtimeGeneration, sequence: current.cursor.sequence + 1 },
+      cursor,
+      performance: { status: "unavailable", sessionId: current.sessionId, cursor, reason: "event_chronology_unavailable" },
     });
   }
 }

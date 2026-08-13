@@ -3,7 +3,7 @@ import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
 import { decideCompatibility } from "./compatibility.js";
-import type { FakeRootSessionSnapshot, ParentHistoryPage, ParentMessage, ScenarioRequest, ScenarioResponse, WorkerRecoveryProjection } from "./fakeDaemonScenario.js";
+import type { FakeRootSessionSnapshot, ParentHistoryPage, ParentMessage, ScenarioRequest, ScenarioResponse, TurnPerformanceProjection, WorkerRecoveryProjection } from "./fakeDaemonScenario.js";
 import { discoverRuntime, type RuntimeIdentity } from "./runtimeDiscovery.js";
 import { loadReviewedPrimeAdapter } from "./reviewedPrimeAdapter.js";
 import { parseStudioHarnessOperation, StudioHarnessOperationDispatcher, type StudioHarnessOperationOutcome } from "./studioHarnessOperations.js";
@@ -58,6 +58,7 @@ export interface PrimeDaemonBridgePorts {
   readonly expectedSocketPath?: string;
   readonly expectedDaemonEntrypoint?: string;
   readonly runtimeClosure?: RuntimeClosureLock;
+  readonly monotonicNow?: () => number;
 }
 
 export interface PrimeHarnessInspectorDetails {
@@ -153,10 +154,37 @@ interface BoundConnection {
   eventRevision: bigint;
   dirty: boolean;
   lastSnapshot: FakeRootSessionSnapshot | null;
+  performance: TurnPerformanceState;
   unsubscribe?: () => void;
   readonly extensionRequests: Map<string, PendingExtensionRequest>;
   readonly consumedExtensionRequestIds: Set<string>;
   extensionUiUnavailableReason: string | null;
+}
+
+type TurnPerformanceReason = Extract<TurnPerformanceProjection, { status: "unavailable" }>["reason"];
+interface TurnPerformanceSegment { role: "assistant" | "user" | "toolResult"; firstOutputAtMs: number | null }
+interface TurnPerformanceTurn {
+  startedAtMs: number;
+  firstOutputAtMs: number | null;
+  generationDurationMs: number;
+  outputTokens: number;
+  invalid: boolean;
+  cycleOpen: boolean;
+  activeSegment: TurnPerformanceSegment | null;
+  segmentCount: number;
+}
+interface TurnPerformanceEvidence {
+  generation: string;
+  firstTokenLatencyMs: number;
+  outputTokens: number;
+  generationDurationMs: number;
+  tokensPerSecond: number;
+}
+interface TurnPerformanceState {
+  reason: TurnPerformanceReason;
+  turn: TurnPerformanceTurn | null;
+  evidence: TurnPerformanceEvidence | null;
+  lastObservedAtMs: number | null;
 }
 
 interface WorkerRecoveryObservation {
@@ -247,6 +275,228 @@ function projectPendingExtensionRequest(request: PendingExtensionRequest): Prime
   if (!request.cursor) return null;
   const { fingerprint: _fingerprint, cursor, ...fields } = request;
   return Object.freeze({ ...fields, cursor }) as PrimeHarnessExtensionRequest;
+}
+
+const MAX_PERFORMANCE_DURATION_MS = 86_400_000;
+const MAX_TOKENS_PER_SECOND = 1_000_000;
+const MAX_PERFORMANCE_SEGMENTS = 256;
+const PASSIVE_SESSION_EVENTS = new Set([
+  "tool_execution_start", "tool_execution_update", "tool_execution_end",
+  "ipython_sent_agent_message", "session_action_update", "compaction_start", "session_info_changed",
+  "thinking_level_changed", "service_tier_changed", "compaction_end", "auto_retry_start", "auto_retry_end",
+  "auth_stale", "rlm_child_update", "recap_update", "goal_update", "bash_start", "bash_output", "bash_end",
+  "refine_complete", "refine_failed",
+]);
+const ASSISTANT_MESSAGE_EVENT_TYPES = new Set([
+  "text_start", "text_delta", "text_end", "thinking_start", "thinking_delta", "thinking_end",
+  "toolcall_start", "toolcall_delta", "toolcall_end",
+]);
+
+function initialTurnPerformance(reason: TurnPerformanceReason = "event_chronology_unavailable"): TurnPerformanceState {
+  return { reason, turn: null, evidence: null, lastObservedAtMs: null };
+}
+
+function eventIsChild(event: Record<string, unknown>, message?: Record<string, unknown>): boolean {
+  return event.channel === "child" || message?.channel === "child" || event.parentSessionId !== undefined || message?.parentSessionId !== undefined;
+}
+
+function validAssistantContent(message: Record<string, unknown>): boolean {
+  if (!Array.isArray(message.content) || message.content.length > 1_024) return false;
+  return message.content.every((raw) => plain(raw) && (
+    (raw.type === "text" && typeof raw.text === "string")
+    || (raw.type === "thinking" && typeof raw.thinking === "string")
+    || (raw.type === "toolCall" && typeof raw.id === "string" && typeof raw.name === "string" && plain(raw.arguments))
+  ));
+}
+
+function messageHasOutput(message: Record<string, unknown>): boolean {
+  return Array.isArray(message.content) && message.content.some((raw) => plain(raw) && (
+    (raw.type === "text" && typeof raw.text === "string" && raw.text.length > 0)
+    || (raw.type === "thinking" && typeof raw.thinking === "string" && raw.thinking.length > 0)
+    || (raw.type === "toolCall" && typeof raw.name === "string" && raw.name.length > 0)
+  ));
+}
+
+function validAssistantUpdate(raw: Record<string, unknown>): boolean {
+  const event = plain(raw.assistantMessageEvent) ? raw.assistantMessageEvent : null;
+  if (!event || typeof event.type !== "string" || !ASSISTANT_MESSAGE_EVENT_TYPES.has(event.type)
+    || !Number.isSafeInteger(event.contentIndex) || (event.contentIndex as number) < 0 || !plain(event.partial)
+    || event.partial.role !== "assistant" || !validAssistantContent(event.partial)) return false;
+  if (event.type.endsWith("_delta") && typeof event.delta !== "string") return false;
+  if ((event.type === "text_end" || event.type === "thinking_end") && typeof event.content !== "string") return false;
+  if (event.type === "toolcall_end" && (!plain(event.toolCall) || event.toolCall.type !== "toolCall")) return false;
+  return true;
+}
+
+function invalidateTurnPerformance(state: TurnPerformanceState): void {
+  state.reason = "event_chronology_invalid";
+  state.evidence = null;
+  if (state.turn) state.turn.invalid = true;
+}
+
+function cloneTurnPerformance(state: TurnPerformanceState): TurnPerformanceState {
+  return {
+    reason: state.reason,
+    lastObservedAtMs: state.lastObservedAtMs,
+    evidence: state.evidence ? { ...state.evidence } : null,
+    turn: state.turn ? {
+      ...state.turn,
+      activeSegment: state.turn.activeSegment ? { ...state.turn.activeSegment } : null,
+    } : null,
+  };
+}
+
+function observeTurnPerformance(state: TurnPerformanceState, envelope: unknown, observedAtMs: number, generation: string | null): void {
+  // DaemonConnectionPort subscribers receive the adapter's admitted event
+  // envelope, not its nested wire event. Ignore other adapter notifications;
+  // only a malformed session_event can invalidate the active chronology.
+  if (!plain(envelope) || typeof envelope.type !== "string") return;
+  if (["session_resynced", "session_replaced", "closed"].includes(envelope.type)
+    || (envelope.type === "connection_status" && envelope.status === "reconnecting")) {
+    Object.assign(state, initialTurnPerformance("generation_changed"));
+    return;
+  }
+  if (envelope.type !== "session_event") return;
+  if (!plain(envelope.event) || typeof envelope.event.type !== "string") {
+    invalidateTurnPerformance(state);
+    return;
+  }
+  if (!Number.isFinite(observedAtMs) || observedAtMs < 0 || observedAtMs > Number.MAX_SAFE_INTEGER) {
+    invalidateTurnPerformance(state);
+    return;
+  }
+  if (state.lastObservedAtMs !== null && observedAtMs < state.lastObservedAtMs) {
+    invalidateTurnPerformance(state);
+    return;
+  }
+  const rawEvent = envelope.event;
+  const eventType = rawEvent.type as string;
+  const message = plain(rawEvent.message) ? rawEvent.message : undefined;
+  if (eventIsChild(rawEvent, message)) {
+    invalidateTurnPerformance(state);
+    return;
+  }
+  state.lastObservedAtMs = observedAtMs;
+  if (rawEvent.type === "agent_start") {
+    if (state.turn) {
+      invalidateTurnPerformance(state);
+      return;
+    }
+    state.turn = { startedAtMs: observedAtMs, firstOutputAtMs: null, generationDurationMs: 0, outputTokens: 0, invalid: generation === null, cycleOpen: false, activeSegment: null, segmentCount: 0 };
+    state.evidence = null;
+    state.reason = generation === null ? "event_chronology_invalid" : "event_chronology_incomplete";
+    return;
+  }
+  const turn = state.turn;
+  if (!turn) {
+    if (["message_start", "message_update", "message_end", "agent_end"].includes(eventType)) invalidateTurnPerformance(state);
+    else if (!PASSIVE_SESSION_EVENTS.has(eventType)) invalidateTurnPerformance(state);
+    return;
+  }
+  if (rawEvent.type === "turn_start") {
+    if (turn.cycleOpen || turn.activeSegment) invalidateTurnPerformance(state);
+    else turn.cycleOpen = true;
+    return;
+  }
+  if (rawEvent.type === "turn_end") {
+    if (!turn.cycleOpen || turn.activeSegment || !plain(rawEvent.message) || rawEvent.message.role !== "assistant" || !validAssistantContent(rawEvent.message)
+      || !Array.isArray(rawEvent.toolResults) || rawEvent.toolResults.length > MAX_PERFORMANCE_SEGMENTS
+      || !rawEvent.toolResults.every((item) => plain(item) && item.role === "toolResult" && Array.isArray(item.content))) {
+      invalidateTurnPerformance(state);
+    } else turn.cycleOpen = false;
+    return;
+  }
+  if (rawEvent.type === "message_start" || rawEvent.type === "message_update" || rawEvent.type === "message_end") {
+    if (!turn.cycleOpen || !message || !["assistant", "user", "toolResult"].includes(String(message.role))
+      || (message.role === "assistant" && !validAssistantContent(message))) {
+      invalidateTurnPerformance(state);
+      return;
+    }
+    if (rawEvent.type === "message_start") {
+      if (turn.activeSegment || turn.segmentCount >= MAX_PERFORMANCE_SEGMENTS) {
+        invalidateTurnPerformance(state);
+        return;
+      }
+      turn.activeSegment = { role: message.role as "assistant" | "user" | "toolResult", firstOutputAtMs: null };
+      turn.segmentCount += 1;
+    } else if (!turn.activeSegment) {
+      invalidateTurnPerformance(state);
+      return;
+    }
+    const segment = turn.activeSegment!;
+    if (segment.role !== message.role || (rawEvent.type === "message_update" && segment.role !== "assistant")) {
+      invalidateTurnPerformance(state);
+      return;
+    }
+    if (rawEvent.type === "message_update") {
+      if (!validAssistantUpdate(rawEvent)) {
+        invalidateTurnPerformance(state);
+        return;
+      }
+    }
+    const assistantEventType = plain(rawEvent.assistantMessageEvent) && typeof rawEvent.assistantMessageEvent.type === "string"
+      ? rawEvent.assistantMessageEvent.type : null;
+    const streamedToolCall = assistantEventType === "toolcall_start" || assistantEventType === "toolcall_delta" || assistantEventType === "toolcall_end";
+    if (segment.role === "assistant" && (messageHasOutput(message) || streamedToolCall) && segment.firstOutputAtMs === null) {
+      segment.firstOutputAtMs = observedAtMs;
+      turn.firstOutputAtMs ??= observedAtMs;
+    }
+    if (rawEvent.type === "message_end") {
+      if (segment.role !== "assistant") {
+        turn.activeSegment = null;
+        return;
+      }
+      if (!plain(message.usage) || !Number.isSafeInteger(message.usage.output) || (message.usage.output as number) < 0 || segment.firstOutputAtMs === null) {
+        invalidateTurnPerformance(state);
+        return;
+      }
+      const duration = observedAtMs - segment.firstOutputAtMs;
+      if (duration <= 0 || duration > MAX_PERFORMANCE_DURATION_MS) {
+        invalidateTurnPerformance(state);
+        return;
+      }
+      const output = message.usage.output as number;
+      const nextOutput = turn.outputTokens + output;
+      const nextDuration = turn.generationDurationMs + duration;
+      if (!Number.isSafeInteger(nextOutput) || nextDuration > MAX_PERFORMANCE_DURATION_MS) {
+        invalidateTurnPerformance(state);
+        return;
+      }
+      turn.outputTokens = nextOutput;
+      turn.generationDurationMs = nextDuration;
+      turn.activeSegment = null;
+    }
+    return;
+  }
+  if (rawEvent.type !== "agent_end") {
+    if (!PASSIVE_SESSION_EVENTS.has(eventType)) invalidateTurnPerformance(state);
+    return;
+  }
+  if (turn.invalid || turn.cycleOpen || turn.activeSegment || generation === null || turn.firstOutputAtMs === null || turn.outputTokens <= 0 || turn.generationDurationMs <= 0) {
+    state.reason = turn.invalid ? "event_chronology_invalid" : "event_chronology_incomplete";
+    state.evidence = null;
+    state.turn = null;
+    return;
+  }
+  const firstTokenLatencyMs = turn.firstOutputAtMs - turn.startedAtMs;
+  const tokensPerSecond = turn.outputTokens * 1_000 / turn.generationDurationMs;
+  if (firstTokenLatencyMs < 0 || firstTokenLatencyMs > MAX_PERFORMANCE_DURATION_MS || !Number.isFinite(tokensPerSecond) || tokensPerSecond < 0 || tokensPerSecond > MAX_TOKENS_PER_SECOND) {
+    state.reason = "event_chronology_invalid";
+    state.evidence = null;
+  } else {
+    state.evidence = { generation, firstTokenLatencyMs, outputTokens: turn.outputTokens, generationDurationMs: turn.generationDurationMs, tokensPerSecond };
+  }
+  state.turn = null;
+}
+
+function bindTurnPerformance(state: TurnPerformanceState, sessionId: string, cursor: Readonly<{ runtimeGeneration: string; sequence: number }>, generationChanged: boolean): TurnPerformanceProjection {
+  if (generationChanged) Object.assign(state, initialTurnPerformance("generation_changed"));
+  const evidence = state.evidence;
+  if (!evidence || evidence.generation !== cursor.runtimeGeneration) {
+    const reason = evidence ? "generation_changed" : state.reason;
+    return Object.freeze({ status: "unavailable", sessionId, cursor: Object.freeze({ ...cursor }), reason });
+  }
+  return Object.freeze({ status: "available", sessionId, cursor: Object.freeze({ ...cursor }), firstTokenLatencyMs: evidence.firstTokenLatencyMs, outputTokens: evidence.outputTokens, generationDurationMs: evidence.generationDurationMs, tokensPerSecond: evidence.tokensPerSecond });
 }
 
 const MAX_TURN_USAGE_ROWS = 300;
@@ -471,6 +721,7 @@ export class PrimeDaemonBridge {
   readonly #expectedSocketPath: string | undefined;
   readonly #expectedDaemonEntrypoint: string | undefined;
   readonly #runtimeClosure: RuntimeClosureLock | undefined;
+  readonly #monotonicNow: () => number;
   readonly #connections = new Map<string, BoundConnection>();
   readonly #commands = new Map<string, Readonly<{ fingerprint: string; response: Extract<ScenarioResponse, { type: "command_result" }> }>>();
   readonly #creations = new Map<string, Readonly<{ fingerprint: string; response: Extract<ScenarioResponse, { type: "resident_created" }> }>>();
@@ -490,6 +741,7 @@ export class PrimeDaemonBridge {
     this.#expectedSocketPath = ports.expectedSocketPath;
     this.#expectedDaemonEntrypoint = ports.expectedDaemonEntrypoint;
     this.#runtimeClosure = ports.runtimeClosure;
+    this.#monotonicNow = ports.monotonicNow ?? (() => performance.now());
   }
 
   get client(): DaemonClientPort { return this.#client; }
@@ -889,6 +1141,7 @@ export class PrimeDaemonBridge {
           bound.extensionRequests.clear();
           bound.consumedExtensionRequestIds.clear();
           bound.extensionUiUnavailableReason = null;
+          Object.assign(bound.performance, initialTurnPerformance("generation_changed"));
           const unsubscribe = bound.connection.subscribe?.((event) => this.#observeConnectionEvent(bound, event));
           if (unsubscribe) bound.unsubscribe = unsubscribe;
           bound.dirty = true;
@@ -1068,8 +1321,13 @@ export class PrimeDaemonBridge {
       return this.#publishWorkerRecoverySnapshot(bound, recovery, minimumSequence);
     }
     const bound = await this.#bound(activeSessionId);
+    const performanceEventRevision = bound.eventRevision;
+    const performanceAtRevision = cloneTurnPerformance(bound.performance);
     const barrier = await this.#openBarrier(activeSessionId, bound);
     const publicationEventRevision = barrier.eventRevision;
+    const atomicPerformance = publicationEventRevision === performanceEventRevision
+      ? performanceAtRevision
+      : initialTurnPerformance("event_chronology_incomplete");
     const initial = barrier.source;
     await barrier.close();
     const source = plain(initial) ? initial : {};
@@ -1123,13 +1381,16 @@ export class PrimeDaemonBridge {
     if (!Number.isSafeInteger(totalTokens)) throw new TypeError("daemon token usage is invalid");
     const cwd = boundedString(state.cwd, 4096);
     const chatId = typeof state.sessionId === "string" ? boundedString(state.sessionId, 128) : activeSessionId;
+    const cursor = { runtimeGeneration: observedCursor.generation, sequence: nextSequence };
     const snapshot = Object.freeze({
       sessionId: activeSessionId, accountId: null, projectId: projectId(cwd), chatId,
-      cursor: { runtimeGeneration: observedCursor.generation, sequence: nextSequence }, state: rootState(state),
+      cursor, state: rootState(state),
       parentMessages: messages, children, queue, tools, resources: resources.slice(0, 512),
       usage: { input, output, cacheRead, cacheWrite, totalTokens, cost: typeof stats.cost === "number" && Number.isFinite(stats.cost) && stats.cost >= 0 ? stats.cost : null },
       workerRecovery: recovery,
+      performance: bindTurnPerformance(atomicPerformance, activeSessionId, cursor, generationChanged),
     });
+    if (generationChanged) Object.assign(bound.performance, initialTurnPerformance("generation_changed"));
     bound.sequence = nextSequence;
     bound.initialized = true;
     bound.publishedUpstreamSequence = observedCursor.sequence;
@@ -1202,11 +1463,13 @@ export class PrimeDaemonBridge {
     if (!Number.isSafeInteger(sequence) || sequence > Number.MAX_SAFE_INTEGER || minimumSequence > sequence) {
       throw new Error("Studio projection cursor cannot advance exactly one revision");
     }
+    const cursor = { runtimeGeneration: bound.studioGeneration, sequence };
     const snapshot = Object.freeze({
       ...prior,
-      cursor: { runtimeGeneration: bound.studioGeneration, sequence },
+      cursor,
       state: "failed" as const,
       workerRecovery: Object.freeze({ ...recovery }),
+      performance: bindTurnPerformance(initialTurnPerformance("generation_changed"), prior.sessionId, cursor, false),
     });
     bound.sequence = sequence;
     this.#consumeExtensionRequestIds(bound, bound.extensionRequests.keys());
@@ -1261,6 +1524,7 @@ export class PrimeDaemonBridge {
     if (replacementUnsubscribe) bound.unsubscribe = replacementUnsubscribe;
     else delete bound.unsubscribe;
     bound.dirty = false;
+    Object.assign(bound.performance, initialTurnPerformance("generation_changed"));
     await prior.dispose().catch(() => undefined);
   }
 
@@ -1283,6 +1547,7 @@ export class PrimeDaemonBridge {
       publishedUpstreamGeneration: null, studioGeneration: null,
       eventRevision: 0n, dirty: false, lastSnapshot: null,
       extensionRequests: new Map(), consumedExtensionRequestIds: new Set(), extensionUiUnavailableReason: null,
+      performance: initialTurnPerformance(),
     };
     if (connection.subscribe) {
       bound.unsubscribe = connection.subscribe((event) => this.#observeConnectionEvent(bound, event));
@@ -1292,6 +1557,7 @@ export class PrimeDaemonBridge {
   }
 
   #observeConnectionEvent(bound: BoundConnection, event: unknown): void {
+    observeTurnPerformance(bound.performance, event, this.#monotonicNow(), bound.publishedUpstreamGeneration);
     bound.eventRevision += 1n;
     bound.dirty = true;
     try {

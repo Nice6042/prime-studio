@@ -66,6 +66,12 @@ export const test = base.extend<ShellFixtures>({
           automaticRetryCount: 0,
           detail: null,
         },
+        performance: {
+          status: "unavailable",
+          sessionId: session.sessionId,
+          cursor: { ...session.cursor },
+          reason: "event_chronology_unavailable",
+        },
       }));
       let layoutPreferences = {
         schemaVersion: 1,
@@ -245,6 +251,10 @@ export const test = base.extend<ShellFixtures>({
             const updated = {
               ...current,
               cursor: { ...current.cursor, sequence },
+              performance: {
+                status: "unavailable", sessionId: current.sessionId,
+                cursor: { ...current.cursor, sequence }, reason: "event_chronology_unavailable",
+              },
               state: request.kind === "abort" ? "idle" : "working",
               parentMessages: messages,
               usage: { ...current.usage, input: current.usage.input + input, output: current.usage.output + output, totalTokens: current.usage.totalTokens + input + output },

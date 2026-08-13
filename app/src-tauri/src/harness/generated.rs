@@ -1,4 +1,4 @@
-// Generated from harness-v1.schema.json; SHA-256: c6bfc00124f4eeb97b83f5321e359064a7dd95fbdbbf8411225e8c5c6007378a
+// Generated from harness-v1.schema.json; SHA-256: ddbdf87b1e4dda91742f964d86f0597b33adfe1510b96ebb25db0deda9711aec
 // Do not edit by hand. Run npm run generate:harness-contract.
 
 use std::collections::HashSet;
@@ -142,6 +142,28 @@ pub struct WorkerRecoveryProjection {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase", tag = "status", rename_all_fields = "camelCase")]
+pub enum TurnPerformanceProjection {
+    Available {
+        #[serde(rename = "sessionId")] session_id: String,
+        cursor: HarnessCursor,
+        #[serde(rename = "firstTokenLatencyMs")] first_token_latency_ms: f64,
+        #[serde(rename = "outputTokens")] output_tokens: u64,
+        #[serde(rename = "generationDurationMs")] generation_duration_ms: f64,
+        #[serde(rename = "tokensPerSecond")] tokens_per_second: f64,
+    },
+    Unavailable {
+        #[serde(rename = "sessionId")] session_id: String,
+        cursor: HarnessCursor,
+        reason: TurnPerformanceUnavailableReason,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TurnPerformanceUnavailableReason { EventChronologyUnavailable, EventChronologyIncomplete, EventChronologyInvalid, GenerationChanged }
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct RootSessionSnapshot {
     pub session_id: String, pub account_id: Option<String>, pub project_id: String, pub chat_id: String,
@@ -149,6 +171,7 @@ pub struct RootSessionSnapshot {
     pub children: Vec<ChildAgentSummary>, pub queue: Vec<QueueItem>, pub tools: Vec<ToolDefinition>,
     pub resources: Vec<ContextSource>, pub usage: CurrentChatUsage,
     pub worker_recovery: WorkerRecoveryProjection,
+    pub performance: TurnPerformanceProjection,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

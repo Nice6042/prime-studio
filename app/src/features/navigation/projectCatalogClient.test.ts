@@ -116,6 +116,7 @@ describe("project catalog client", () => {
         cursor: { runtimeGeneration: "generation-1", sequence: 0 }, state: "idle", freshness: "live",
         parentMessages: [], children: [], queue: [], tools: [], resources: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: null },
         workerRecovery: { status: "ready", closureReason: null, observationId: null, automaticRetryCount: 0, detail: null },
+        performance: { status: "unavailable", sessionId: "daemon-active-1", cursor: { runtimeGeneration: "generation-1", sequence: 0 }, reason: "event_chronology_unavailable" },
       },
     });
     const result = await createResidentForCatalogChat(1, "project:personal", "studio-chat-1");
@@ -149,6 +150,7 @@ describe("project catalog client", () => {
         parentMessages: [{ channel: "parent", kind: "user", id: "message-1", text: "Branch here", emittedAtMs: 1 }],
         children: [], queue: [], tools: [], resources: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: null },
         workerRecovery: { status: "ready", closureReason: null, observationId: null, automaticRetryCount: 0, detail: null },
+        performance: { status: "unavailable", sessionId: "daemon-active-branch", cursor: { runtimeGeneration: "generation-branch", sequence: 1 }, reason: "event_chronology_unavailable" },
       },
     });
 
@@ -200,6 +202,7 @@ describe("project catalog client", () => {
         cursor: { runtimeGeneration: "generation-branch", sequence: 1 }, state: "idle", freshness: "live",
         parentMessages: [], children: [], queue: [], tools: [], resources: [], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: null },
         workerRecovery: { status: "ready", closureReason: null, observationId: null, automaticRetryCount: 0, detail: null },
+        performance: { status: "unavailable", sessionId: "daemon-active-branch", cursor: { runtimeGeneration: "generation-branch", sequence: 1 }, reason: "event_chronology_unavailable" },
       },
     });
 
