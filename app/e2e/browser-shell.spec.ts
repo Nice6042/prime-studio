@@ -76,6 +76,20 @@ test("typed failure toasts deduplicate, stay outside the inspector, and dismiss 
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-typed-toast-wide");
 });
 
+test("retryable toast Retry retains Chromium keyboard focus after another dispatcher rejection", async ({ shellPage }) => {
+  const harness = shellPage.getByRole("complementary", { name: "Harness" });
+  await harness.getByRole("button", { name: "Retry", exact: true }).click();
+
+  const toast = shellPage.getByRole("alert", { name: "Harness request failed" });
+  const retry = toast.getByRole("button", { name: "Retry", exact: true });
+  await expect(retry).toBeVisible();
+  await retry.focus();
+  await shellPage.keyboard.press("Enter");
+
+  await expect(retry).toHaveAttribute("aria-disabled", "false");
+  await expect(retry).toBeFocused();
+});
+
 test("collapsed rail preserves one dispatcher-owned keyboard action set and adaptive focus", async ({ shellPage }, testInfo) => {
   await shellPage.getByRole("button", { name: "Collapse sidebar" }).click();
   const rail = shellPage.getByRole("toolbar", { name: "Collapsed navigation" });

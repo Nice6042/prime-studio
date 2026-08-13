@@ -113,9 +113,10 @@ export function Toasts({
         </span>
         <span className="toast-actions">
           {action && <button
+            key={action.id}
             type="button"
             className="toast-action"
-            disabled={actionPending}
+            aria-disabled={actionPending ? "true" : "false"}
             data-control-id={`toast.action:${toast.id}`}
             data-studio-action={action.action}
             onClick={() => void attempt(toast, action.id, () => retry(action.id))}

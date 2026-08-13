@@ -41,6 +41,7 @@ export class ToastOperationCoordinator {
   private readonly actions = new Map<string, AdmittedOperation>();
   private readonly reservations = new Set<string>();
   private readonly retrying = new Set<string>();
+  private readonly dismissingToastIds = new Set<string>();
   private dispatch: Dispatcher;
   private listener: ((queue: readonly StudioToast[]) => void) | undefined;
   private readonly createOperationId: () => string;
@@ -79,12 +80,18 @@ export class ToastOperationCoordinator {
       if (!this.queue.some((toast) => toast.id === toastId)) {
         return { status: "unavailable", reason: "This notification is already resolved." };
       }
+      if (this.dismissingToastIds.has(toastId)) {
+        return { status: "unavailable", reason: "This notification is already resolving." };
+      }
+      this.dismissingToastIds.add(toastId);
       const admitted = this.admit(operation);
       let outcome: StudioOperationOutcome;
       try {
         outcome = await this.dispatch(admitted);
       } catch (error) {
         outcome = uncertain(admitted.operationId, error);
+      } finally {
+        this.dismissingToastIds.delete(toastId);
       }
       if (completed(outcome)) this.dismiss(toastId);
       return outcome;

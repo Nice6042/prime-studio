@@ -980,6 +980,7 @@ tr.usage-total td { font-weight: 700; }
 .toast-action:focus-visible,
 .toast-dismiss:focus-visible { outline: var(--focus); outline-offset: 1px; }
 .toast-action:disabled,
+.toast-action[aria-disabled="true"],
 .toast-dismiss:disabled { cursor: wait; color: var(--fg-dim); }
 
 @media (max-width: 420px), (max-height: 320px) {

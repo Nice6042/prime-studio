@@ -4,7 +4,7 @@ import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { StudioOperation, StudioOperationOutcome } from "../contracts/studioOperations";
-import { enqueueToast, type StudioToast } from "./toastQueue";
+import { enqueueToast, removeToastAction, type StudioToast } from "./toastQueue";
 import { Toasts } from "./Toasts";
 
 function deferred<T>() {
@@ -48,6 +48,36 @@ function Harness({
       return outcome;
     }} />
   </>;
+}
+
+function RetainedHarness({ retry }: { readonly retry: (actionId: string) => Promise<StudioOperationOutcome> }) {
+  return <>
+    <button type="button">Outside control</button>
+    <Toasts
+      toasts={failure()}
+      retry={retry}
+      execute={async () => ({ status: "updated", revision: 1 })}
+    />
+  </>;
+}
+
+function AdvancingHarness() {
+  const [toasts, setToasts] = useState(() => enqueueToast(failure("operation-1"), {
+    owner: "studio_durable",
+    scope: "workspace.switch",
+    severity: "error",
+    title: "Studio data operation failed",
+    message: "Another workspace switch failed.",
+    action: { id: "operation-2", label: "Retry", action: "workspace.switch" },
+  }));
+  return <Toasts
+    toasts={toasts}
+    retry={async (actionId) => {
+      setToasts((current) => removeToastAction(current, current[0]!, actionId));
+      return { status: "updated", revision: 1 };
+    }}
+    execute={async () => ({ status: "updated", revision: 1 })}
+  />;
 }
 
 describe("typed toasts", () => {
@@ -104,6 +134,33 @@ describe("typed toasts", () => {
 
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
     await waitFor(() => expect(screen.getByRole("button", { name: "Outside control" })).toHaveFocus());
+  });
+
+  it("keeps a retained retryable action keyboard-focused without native disabling", async () => {
+    const settlement = deferred<StudioOperationOutcome>();
+    const user = userEvent.setup();
+    render(<RetainedHarness retry={() => settlement.promise} />);
+    const retry = screen.getByRole("button", { name: "Retry" });
+
+    await user.click(retry);
+    expect(retry).toHaveFocus();
+    expect(retry).toHaveAttribute("aria-disabled", "true");
+    expect(retry).not.toBeDisabled();
+    await act(async () => settlement.resolve({ status: "rejected", reason: "Retry again.", retryable: true }));
+
+    await waitFor(() => expect(retry).toHaveAttribute("aria-disabled", "false"));
+    expect(retry).toHaveFocus();
+  });
+
+  it("hands focus to the next distinct coalesced action when the first settles", async () => {
+    const user = userEvent.setup();
+    render(<AdvancingHarness />);
+    const first = screen.getByRole("button", { name: "Retry (2)" });
+    await user.click(first);
+
+    const next = await screen.findByRole("button", { name: "Retry" });
+    expect(next).not.toBe(first);
+    await waitFor(() => expect(next).toHaveFocus());
   });
 
   it("cancels deferred focus handoff when the user moves after settlement but before animation frame", async () => {

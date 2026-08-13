@@ -142,6 +142,28 @@ describe("toast operation coordinator", () => {
     expect(dispatches).toBe(0);
   });
 
+  it("same-tick concurrent toast.dismiss reserves ownership so only one reaches the dispatcher", async () => {
+    const dismissal = deferred<StudioOperationOutcome>();
+    let dispatches = 0;
+    const coordinator = new ToastOperationCoordinator({
+      dispatch: async () => {
+        dispatches += 1;
+        return dismissal.promise;
+      },
+    });
+    coordinator.notify({ owner: "runtime", scope: "failure", severity: "error", title: "Failure", message: "Failed." });
+    const toastId = coordinator.getSnapshot()[0]!.id;
+
+    const first = coordinator.execute({ action: "toast.dismiss", payload: { toastId } });
+    const second = await coordinator.execute({ action: "toast.dismiss", payload: { toastId } });
+
+    expect(second).toEqual({ status: "unavailable", reason: "This notification is already resolving." });
+    expect(dispatches).toBe(1);
+    dismissal.resolve({ status: "updated", revision: 1 });
+    expect(await first).toMatchObject({ status: "updated" });
+    expect(coordinator.getSnapshot()).toEqual([]);
+  });
+
   it("stable equivalent presentation dedupe coexists with a distinct privacy-safe per-operation action ledger", async () => {
     let id = 0;
     const coordinator = new ToastOperationCoordinator({
