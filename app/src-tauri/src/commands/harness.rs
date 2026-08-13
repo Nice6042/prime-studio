@@ -223,73 +223,85 @@ pub(crate) async fn harness_create_resident_chat(
         let _transaction = transaction
             .lock()
             .map_err(|_| "Harness resident transaction is unavailable".to_owned())?;
-        let _durable_transaction = durable_transaction.acquire().map_err(str::to_owned)?;
-        let current = catalog.load().map_err(|error| error.to_string())?;
-        let project = current
-            .state
-            .projects
-            .iter()
-            .find(|project| project.id == request.project_id && !project.archived)
-            .ok_or_else(|| "Catalog project is unavailable".to_owned())?;
-        let chat = project
-            .chats
-            .iter()
-            .find(|chat| chat.id == request.chat_id && !chat.archived)
-            .ok_or_else(|| "Catalog chat is unavailable".to_owned())?;
-        if chat.project_id != project.id {
-            return Err("Catalog chat ownership is invalid".to_owned());
-        }
-        if chat.binding.is_none() && current.revision != request.expected_revision {
-            return Err("revisionConflict".to_owned());
-        }
-        let cwd = project_workspace(project)?;
-        let expected_project_id = daemon_project_id(&cwd);
-        let mut broker = broker
-            .lock()
-            .map_err(|_| "Harness broker is unavailable".to_owned())?;
-        let created = tauri::async_runtime::block_on(
-            broker.create_resident(ResidentCreateRequest {
-                creation_id: chat.id.clone(),
-                name: format!("Prime Studio chat {}", chat.id),
-                cwd,
-                expected_account_id: chat
-                    .binding
-                    .as_ref()
-                    .and_then(|binding| binding.account_id.clone()),
-                expected_project_id,
-            }),
-        )
-        .map_err(|error| format!("Harness resident creation failed: {}", error.code()))?;
-        let binding = PrimeChatBinding {
-            kind: PrimeChatBindingKind::PrimeSession,
-            account_id: created.session.account_id.clone(),
-            session_id: created.session.session_id.clone(),
-            session_file: session_file_metadata(&created.session.chat_id),
-            agent_id: Some(created.session.chat_id.clone()),
-        };
-        if let Some(existing) = &chat.binding {
-            if existing != &binding {
-                return Err("Catalog chat is bound to a different Harness session".to_owned());
-            }
-            return Ok(HarnessCreateResidentChatOutput {
-                catalog: current,
-                session: created.session,
-            });
-        }
-        let catalog = catalog
-            .apply(
-                current.revision,
-                ProjectChatCommand::BindPrimeSession(BindPrimeSessionCommand {
-                    project_id: project.id.clone(),
-                    chat_id: chat.id.clone(),
-                    binding,
-                }),
-            )
-            .map_err(|error| error.to_string())?;
-        Ok(HarnessCreateResidentChatOutput {
-            catalog,
-            session: created.session,
-        })
+        durable_transaction
+            .with_lock(|| -> Result<_, String> {
+                let current = catalog.load().map_err(|error| error.to_string())?;
+                let project = current
+                    .state
+                    .projects
+                    .iter()
+                    .find(|project| project.id == request.project_id && !project.archived)
+                    .ok_or_else(|| "Catalog project is unavailable".to_owned())?;
+                let chat = project
+                    .chats
+                    .iter()
+                    .find(|chat| chat.id == request.chat_id && !chat.archived)
+                    .ok_or_else(|| "Catalog chat is unavailable".to_owned())?;
+                if chat.project_id != project.id {
+                    return Err("Catalog chat ownership is invalid".to_owned());
+                }
+                if chat.binding.is_none() && current.revision != request.expected_revision {
+                    return Err("revisionConflict".to_owned());
+                }
+                let cwd = project_workspace(project)?;
+                let expected_project_id = daemon_project_id(&cwd);
+                let mut broker = broker
+                    .lock()
+                    .map_err(|_| "Harness broker is unavailable".to_owned())?;
+                let created = tauri::async_runtime::block_on(
+                    broker.create_resident(ResidentCreateRequest {
+                        creation_id: chat.id.clone(),
+                        name: format!("Prime Studio chat {}", chat.id),
+                        cwd,
+                        expected_account_id: chat
+                            .binding
+                            .as_ref()
+                            .and_then(|binding| binding.account_id.clone()),
+                        expected_project_id,
+                    }),
+                )
+                .map_err(|error| format!("Harness resident creation failed: {}", error.code()))?;
+                let binding = PrimeChatBinding {
+                    kind: PrimeChatBindingKind::PrimeSession,
+                    account_id: created.session.account_id.clone(),
+                    session_id: created.session.session_id.clone(),
+                    session_file: session_file_metadata(&created.session.chat_id),
+                    agent_id: Some(created.session.chat_id.clone()),
+                };
+                if let Some(existing) = &chat.binding {
+                    if existing != &binding {
+                        return Err(
+                            "Catalog chat is bound to a different Harness session".to_owned()
+                        );
+                    }
+                    return Ok(HarnessCreateResidentChatOutput {
+                        catalog: current,
+                        session: created.session,
+                    });
+                }
+                let catalog = catalog
+                    .apply(
+                        current.revision,
+                        ProjectChatCommand::BindPrimeSession(BindPrimeSessionCommand {
+                            project_id: project.id.clone(),
+                            chat_id: chat.id.clone(),
+                            binding,
+                        }),
+                    )
+                    .map_err(|error| error.to_string())?;
+                Ok(HarnessCreateResidentChatOutput {
+                    catalog,
+                    session: created.session,
+                })
+            })
+            .map_err(|error| match error {
+                crate::durable_transaction::DurableTransactionError::Unavailable => {
+                    "durable transaction lock is unavailable".to_owned()
+                }
+                crate::durable_transaction::DurableTransactionError::PersistenceOutcomeUnknown => {
+                    "persistenceOutcomeUnknown".to_owned()
+                }
+            })?
     })
     .await
     .map_err(|_| "Harness resident transaction task failed".to_owned())?
@@ -312,157 +324,170 @@ pub(crate) async fn harness_branch_resident_chat(
         let _transaction = transaction
             .lock()
             .map_err(|_| "Harness resident transaction is unavailable".to_owned())?;
-        let _durable_transaction = durable_transaction.acquire().map_err(str::to_owned)?;
-        let current = catalog.load().map_err(|error| error.to_string())?;
-        let project = current
-            .state
-            .projects
-            .iter()
-            .find(|project| project.id == request.project_id && !project.archived)
-            .ok_or_else(|| "Catalog project is unavailable".to_owned())?;
-        let source = project
-            .chats
-            .iter()
-            .find(|chat| chat.id == request.source_chat_id && !chat.archived)
-            .ok_or_else(|| "Source catalog chat is unavailable".to_owned())?;
-        let source_binding = source
-            .binding
-            .as_ref()
-            .filter(|binding| binding.session_id == request.source_session_id)
-            .ok_or_else(|| "Source Harness binding changed".to_owned())?;
-        let branch_chat_id = branch_chat_id(&project.id, &source.id, &request.message_id);
-        if let Some(existing) = project.chats.iter().find(|chat| chat.id == branch_chat_id) {
-            if existing.archived {
-                return Err("Catalog branch chat is archived".to_owned());
-            }
-            if let Some(binding) = &existing.binding {
-                let broker = broker
-                    .lock()
-                    .map_err(|_| "Harness broker is unavailable".to_owned())?;
-                let session = broker
-                    .project(&binding.session_id)
-                    .ok_or_else(|| "Catalog branch Harness session is unavailable".to_owned())?;
-                if binding.account_id != session.account_id
-                    || binding.agent_id.as_deref() != Some(session.chat_id.as_str())
-                    || binding.session_id == source_binding.session_id
-                    || session.account_id != source_binding.account_id
-                    || session.project_id != daemon_project_id(&project_workspace(project)?)
-                    || !session.parent_messages.iter().any(|message| match message {
-                        ParentMessage::User { id, .. }
-                        | ParentMessage::Assistant { id, .. }
-                        | ParentMessage::Notice { id, .. } => id == &request.message_id,
-                    })
-                    || branch_chat_id == session.session_id
-                    || branch_chat_id == session.chat_id
-                {
-                    return Err("Catalog branch binding identity is invalid".to_owned());
-                }
-                return Ok(HarnessBranchResidentChatOutput {
-                    branch_chat_id,
-                    catalog: current,
-                    session,
-                });
-            }
-        } else if current.revision != request.expected_revision {
-            return Err("revisionConflict".to_owned());
-        }
-        let source_title = source.title.clone();
-        let mut broker = broker
-            .lock()
-            .map_err(|_| "Harness broker is unavailable".to_owned())?;
-        let branched =
-            tauri::async_runtime::block_on(broker.branch_resident(ResidentBranchRequest {
-                creation_id: branch_chat_id.clone(),
-                source_session_id: request.source_session_id,
-                entry_id: request.message_id,
-                name: branch_title(&source_title),
-                expected_cursor: request.expected_cursor,
-            }))
-            .map_err(|error| format!("Harness resident branch failed: {}", error.code()))?;
-        if branched.session.account_id != source_binding.account_id
-            || branched.session.project_id != daemon_project_id(&project_workspace(project)?)
-            || branch_chat_id == branched.session.session_id
-            || branch_chat_id == branched.session.chat_id
-        {
-            return Err("Harness resident branch identity is invalid".to_owned());
-        }
-        drop(broker);
-
-        let latest = catalog.load().map_err(|error| error.to_string())?;
-        let latest_project = latest
-            .state
-            .projects
-            .iter()
-            .find(|candidate| candidate.id == project.id && !candidate.archived)
-            .ok_or_else(|| "Catalog project changed during branch".to_owned())?;
-        let latest_source = latest_project
-            .chats
-            .iter()
-            .find(|chat| chat.id == source.id && !chat.archived)
-            .ok_or_else(|| "Source catalog chat changed during branch".to_owned())?;
-        if latest_source.binding.as_ref() != Some(source_binding) {
-            return Err("Source Harness binding changed during branch".to_owned());
-        }
-        let latest_project_id = latest_project.id.clone();
-        let branch_exists = latest_project
-            .chats
-            .iter()
-            .any(|chat| chat.id == branch_chat_id);
-        let mut persisted = latest;
-        if !branch_exists {
-            persisted = catalog
-                .apply(
-                    persisted.revision,
-                    ProjectChatCommand::ChatCreate(ChatCreateCommand {
-                        project_id: latest_project_id.clone(),
-                        chat_id: branch_chat_id.clone(),
-                        title: branch_title(&source_title),
-                    }),
-                )
-                .map_err(|error| error.to_string())?;
-        }
-        let binding = PrimeChatBinding {
-            kind: PrimeChatBindingKind::PrimeSession,
-            account_id: branched.session.account_id.clone(),
-            session_id: branched.session.session_id.clone(),
-            session_file: session_file_metadata(&branched.session.chat_id),
-            agent_id: Some(branched.session.chat_id.clone()),
-        };
-        let branch = persisted
-            .state
-            .projects
-            .iter()
-            .find(|candidate| candidate.id == latest_project_id)
-            .and_then(|candidate| {
-                candidate
+        durable_transaction
+            .with_lock(|| -> Result<_, String> {
+                let current = catalog.load().map_err(|error| error.to_string())?;
+                let project = current
+                    .state
+                    .projects
+                    .iter()
+                    .find(|project| project.id == request.project_id && !project.archived)
+                    .ok_or_else(|| "Catalog project is unavailable".to_owned())?;
+                let source = project
                     .chats
                     .iter()
-                    .find(|chat| chat.id == branch_chat_id)
+                    .find(|chat| chat.id == request.source_chat_id && !chat.archived)
+                    .ok_or_else(|| "Source catalog chat is unavailable".to_owned())?;
+                let source_binding = source
+                    .binding
+                    .as_ref()
+                    .filter(|binding| binding.session_id == request.source_session_id)
+                    .ok_or_else(|| "Source Harness binding changed".to_owned())?;
+                let branch_chat_id = branch_chat_id(&project.id, &source.id, &request.message_id);
+                if let Some(existing) = project.chats.iter().find(|chat| chat.id == branch_chat_id)
+                {
+                    if existing.archived {
+                        return Err("Catalog branch chat is archived".to_owned());
+                    }
+                    if let Some(binding) = &existing.binding {
+                        let broker = broker
+                            .lock()
+                            .map_err(|_| "Harness broker is unavailable".to_owned())?;
+                        let session = broker.project(&binding.session_id).ok_or_else(|| {
+                            "Catalog branch Harness session is unavailable".to_owned()
+                        })?;
+                        if binding.account_id != session.account_id
+                            || binding.agent_id.as_deref() != Some(session.chat_id.as_str())
+                            || binding.session_id == source_binding.session_id
+                            || session.account_id != source_binding.account_id
+                            || session.project_id != daemon_project_id(&project_workspace(project)?)
+                            || !session.parent_messages.iter().any(|message| match message {
+                                ParentMessage::User { id, .. }
+                                | ParentMessage::Assistant { id, .. }
+                                | ParentMessage::Notice { id, .. } => id == &request.message_id,
+                            })
+                            || branch_chat_id == session.session_id
+                            || branch_chat_id == session.chat_id
+                        {
+                            return Err("Catalog branch binding identity is invalid".to_owned());
+                        }
+                        return Ok(HarnessBranchResidentChatOutput {
+                            branch_chat_id,
+                            catalog: current,
+                            session,
+                        });
+                    }
+                } else if current.revision != request.expected_revision {
+                    return Err("revisionConflict".to_owned());
+                }
+                let source_title = source.title.clone();
+                let mut broker = broker
+                    .lock()
+                    .map_err(|_| "Harness broker is unavailable".to_owned())?;
+                let branched =
+                    tauri::async_runtime::block_on(broker.branch_resident(ResidentBranchRequest {
+                        creation_id: branch_chat_id.clone(),
+                        source_session_id: request.source_session_id,
+                        entry_id: request.message_id,
+                        name: branch_title(&source_title),
+                        expected_cursor: request.expected_cursor,
+                    }))
+                    .map_err(|error| format!("Harness resident branch failed: {}", error.code()))?;
+                if branched.session.account_id != source_binding.account_id
+                    || branched.session.project_id
+                        != daemon_project_id(&project_workspace(project)?)
+                    || branch_chat_id == branched.session.session_id
+                    || branch_chat_id == branched.session.chat_id
+                {
+                    return Err("Harness resident branch identity is invalid".to_owned());
+                }
+                drop(broker);
+
+                let latest = catalog.load().map_err(|error| error.to_string())?;
+                let latest_project = latest
+                    .state
+                    .projects
+                    .iter()
+                    .find(|candidate| candidate.id == project.id && !candidate.archived)
+                    .ok_or_else(|| "Catalog project changed during branch".to_owned())?;
+                let latest_source = latest_project
+                    .chats
+                    .iter()
+                    .find(|chat| chat.id == source.id && !chat.archived)
+                    .ok_or_else(|| "Source catalog chat changed during branch".to_owned())?;
+                if latest_source.binding.as_ref() != Some(source_binding) {
+                    return Err("Source Harness binding changed during branch".to_owned());
+                }
+                let latest_project_id = latest_project.id.clone();
+                let branch_exists = latest_project
+                    .chats
+                    .iter()
+                    .any(|chat| chat.id == branch_chat_id);
+                let mut persisted = latest;
+                if !branch_exists {
+                    persisted = catalog
+                        .apply(
+                            persisted.revision,
+                            ProjectChatCommand::ChatCreate(ChatCreateCommand {
+                                project_id: latest_project_id.clone(),
+                                chat_id: branch_chat_id.clone(),
+                                title: branch_title(&source_title),
+                            }),
+                        )
+                        .map_err(|error| error.to_string())?;
+                }
+                let binding = PrimeChatBinding {
+                    kind: PrimeChatBindingKind::PrimeSession,
+                    account_id: branched.session.account_id.clone(),
+                    session_id: branched.session.session_id.clone(),
+                    session_file: session_file_metadata(&branched.session.chat_id),
+                    agent_id: Some(branched.session.chat_id.clone()),
+                };
+                let branch = persisted
+                    .state
+                    .projects
+                    .iter()
+                    .find(|candidate| candidate.id == latest_project_id)
+                    .and_then(|candidate| {
+                        candidate
+                            .chats
+                            .iter()
+                            .find(|chat| chat.id == branch_chat_id)
+                    })
+                    .ok_or_else(|| "Catalog branch chat was not created".to_owned())?;
+                if let Some(existing) = &branch.binding {
+                    if existing != &binding {
+                        return Err(
+                            "Catalog branch chat is bound to a different Harness session"
+                                .to_owned(),
+                        );
+                    }
+                } else {
+                    persisted = catalog
+                        .apply(
+                            persisted.revision,
+                            ProjectChatCommand::BindPrimeSession(BindPrimeSessionCommand {
+                                project_id: latest_project_id,
+                                chat_id: branch_chat_id.clone(),
+                                binding,
+                            }),
+                        )
+                        .map_err(|error| error.to_string())?;
+                }
+                Ok(HarnessBranchResidentChatOutput {
+                    branch_chat_id,
+                    catalog: persisted,
+                    session: branched.session,
+                })
             })
-            .ok_or_else(|| "Catalog branch chat was not created".to_owned())?;
-        if let Some(existing) = &branch.binding {
-            if existing != &binding {
-                return Err(
-                    "Catalog branch chat is bound to a different Harness session".to_owned(),
-                );
-            }
-        } else {
-            persisted = catalog
-                .apply(
-                    persisted.revision,
-                    ProjectChatCommand::BindPrimeSession(BindPrimeSessionCommand {
-                        project_id: latest_project_id,
-                        chat_id: branch_chat_id.clone(),
-                        binding,
-                    }),
-                )
-                .map_err(|error| error.to_string())?;
-        }
-        Ok(HarnessBranchResidentChatOutput {
-            branch_chat_id,
-            catalog: persisted,
-            session: branched.session,
-        })
+            .map_err(|error| match error {
+                crate::durable_transaction::DurableTransactionError::Unavailable => {
+                    "durable transaction lock is unavailable".to_owned()
+                }
+                crate::durable_transaction::DurableTransactionError::PersistenceOutcomeUnknown => {
+                    "persistenceOutcomeUnknown".to_owned()
+                }
+            })?
     })
     .await
     .map_err(|_| "Harness resident branch transaction task failed".to_owned())?

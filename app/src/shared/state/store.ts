@@ -261,14 +261,14 @@ export function reduceStudio(state: StudioAppState, intent: StudioIntent): Studi
         || !validCanvasContent(intent.sourceContent) || !validCanvasContent(intent.content)) return state;
       const current = state.canvasRevisions[intent.chatId]?.[intent.messageId];
       const revision = current?.revision ?? 1;
-      if (revision !== intent.expectedRevision || current && current.sourceContent !== intent.sourceContent) return state;
+      if (revision !== intent.expectedRevision) return state;
       return {
         ...state,
         canvasRevisions: Object.freeze({
           ...state.canvasRevisions,
           [intent.chatId]: Object.freeze({
             ...(state.canvasRevisions[intent.chatId] ?? {}),
-            [intent.messageId]: Object.freeze({ revision: revision + 1, sourceContent: current?.sourceContent ?? intent.sourceContent, content: intent.content }),
+            [intent.messageId]: Object.freeze({ revision: revision + 1, sourceContent: intent.sourceContent, content: intent.content }),
           }),
         }),
       };

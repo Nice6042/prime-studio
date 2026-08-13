@@ -2747,11 +2747,28 @@ fn project_catalog_apply(
     let _transaction = coordinator
         .lock()
         .map_err(|_| "Catalog transaction is unavailable".to_owned())?;
-    let _durable_transaction = state.durable_transaction.acquire().map_err(str::to_owned)?;
     state
-        .project_catalog
-        .apply(expected_revision, command)
-        .map_err(|error| error.to_string())
+        .durable_transaction
+        .with_lock(|| {
+            if let project_catalog::ProjectChatCommand::DeleteChat(delete) = &command {
+                state
+                    .chat_display
+                    .remove_chat(expected_revision, &delete.project_id, &delete.chat_id)
+                    .map_err(|error| error.to_string())?;
+            }
+            state
+                .project_catalog
+                .apply(expected_revision, command)
+                .map_err(|error| error.to_string())
+        })
+        .map_err(|error| match error {
+            durable_transaction::DurableTransactionError::Unavailable => {
+                "durable transaction lock is unavailable".to_owned()
+            }
+            durable_transaction::DurableTransactionError::PersistenceOutcomeUnknown => {
+                "persistenceOutcomeUnknown".to_owned()
+            }
+        })?
 }
 
 #[tauri::command]
@@ -2769,17 +2786,28 @@ fn chat_display_apply(
     let _transaction = coordinator
         .lock()
         .map_err(|_| "Chat display transaction is unavailable".to_owned())?;
-    let _durable_transaction = state.durable_transaction.acquire().map_err(str::to_owned)?;
     state
-        .chat_display
-        .apply(
-            request.expected_revision,
-            &request.chat_id,
-            &request.message_id,
-            &request.source_content,
-            &request.content,
-        )
-        .map_err(|error| error.to_string())
+        .durable_transaction
+        .with_lock(|| {
+            state
+                .chat_display
+                .apply(
+                    request.expected_revision,
+                    &request.chat_id,
+                    &request.message_id,
+                    &request.source_content,
+                    &request.content,
+                )
+                .map_err(|error| error.to_string())
+        })
+        .map_err(|error| match error {
+            durable_transaction::DurableTransactionError::Unavailable => {
+                "durable transaction lock is unavailable".to_owned()
+            }
+            durable_transaction::DurableTransactionError::PersistenceOutcomeUnknown => {
+                "persistenceOutcomeUnknown".to_owned()
+            }
+        })?
 }
 
 #[derive(Deserialize)]

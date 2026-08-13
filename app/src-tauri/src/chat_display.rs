@@ -108,6 +108,7 @@ pub struct ChatDisplayAuthority {
     catalog: Arc<ProjectCatalog>,
     mutation: Mutex<()>,
     lock_provisioned: bool,
+    lock_identity: Option<LockIdentity>,
     namespace: Option<DisplayNamespace>,
 }
 
@@ -118,16 +119,19 @@ impl ChatDisplayAuthority {
             .as_ref()
             .map(DisplayNamespace::display_path)
             .unwrap_or(path);
-        let lock_provisioned = namespace.as_ref().is_some_and(|namespace| {
-            namespace.revalidate_display_leaf().is_ok()
-                && DisplayFileLock::provision(&confined_path).is_ok()
-                && namespace.revalidate_display_leaf().is_ok()
+        let lock_identity = namespace.as_ref().and_then(|namespace| {
+            namespace.revalidate_display_leaf().ok()?;
+            let identity = DisplayFileLock::provision(&confined_path).ok()?;
+            namespace.revalidate_display_leaf().ok()?;
+            Some(identity)
         });
+        let lock_provisioned = lock_identity.is_some();
         Self {
             path: confined_path,
             catalog,
             mutation: Mutex::new(()),
             lock_provisioned,
+            lock_identity,
             namespace,
         }
     }
@@ -178,17 +182,11 @@ impl ChatDisplayAuthority {
             if current_revision != expected_revision {
                 return Err(ChatDisplayError::revision_conflict());
             }
-            if index.is_some_and(|index| snapshot.records[index].source_content != source_content) {
-                return Err(ChatDisplayError::revision_conflict());
-            }
-            let source_content = index
-                .map(|index| snapshot.records[index].source_content.clone())
-                .unwrap_or_else(|| source_content.to_owned());
             let record = ChatDisplayRecord {
                 chat_id: chat_id.to_owned(),
                 message_id: message_id.to_owned(),
                 revision: expected_revision + 1,
-                source_content,
+                source_content: source_content.to_owned(),
                 content: content.to_owned(),
             };
             if let Some(index) = index {
@@ -223,6 +221,57 @@ impl ChatDisplayAuthority {
         })
     }
 
+    pub fn remove_chat(
+        &self,
+        expected_catalog_revision: u64,
+        project_id: &str,
+        chat_id: &str,
+    ) -> Result<(), ChatDisplayError> {
+        if !valid_id(project_id) || !valid_id(chat_id) {
+            return Err(ChatDisplayError::invalid_input());
+        }
+        self.with_locked_snapshot(|mut snapshot| {
+            let catalog = self
+                .catalog
+                .load()
+                .map_err(|_| ChatDisplayError::recovery_required())?;
+            if catalog.revision != expected_catalog_revision {
+                return Err(ChatDisplayError::revision_conflict());
+            }
+            let matches = catalog
+                .state
+                .projects
+                .iter()
+                .filter(|project| project.id == project_id)
+                .flat_map(|project| project.chats.iter())
+                .filter(|chat| chat.id == chat_id && chat.project_id == project_id)
+                .count();
+            if matches != 1 {
+                return Err(ChatDisplayError::unknown_chat());
+            }
+            let prior_len = snapshot.records.len();
+            snapshot.records.retain(|record| record.chat_id != chat_id);
+            if snapshot.records.len() == prior_len {
+                return Ok(());
+            }
+            let bytes =
+                serde_json::to_vec(&snapshot).map_err(|_| ChatDisplayError::invalid_input())?;
+            self.revalidate_namespace()
+                .map_err(|_| ChatDisplayError::recovery_required())?;
+            self.persist_bytes(&bytes)?;
+            self.revalidate_namespace()
+                .map_err(|_| ChatDisplayError::persistence_outcome_unknown())?;
+            if self
+                .read_snapshot()
+                .map_err(|_| ChatDisplayError::persistence_outcome_unknown())?
+                != snapshot
+            {
+                return Err(ChatDisplayError::persistence_outcome_unknown());
+            }
+            Ok(())
+        })
+    }
+
     fn with_locked_snapshot<T>(
         &self,
         operation: impl FnOnce(ChatDisplaySnapshot) -> Result<T, ChatDisplayError>,
@@ -236,8 +285,12 @@ impl ChatDisplayAuthority {
             .mutation
             .lock()
             .map_err(|_| ChatDisplayError::recovery_required())?;
-        let file_lock = DisplayFileLock::acquire(&self.path)
-            .map_err(|_| ChatDisplayError::recovery_required())?;
+        let file_lock = DisplayFileLock::acquire(
+            &self.path,
+            self.lock_identity
+                .ok_or_else(ChatDisplayError::recovery_required)?,
+        )
+        .map_err(|_| ChatDisplayError::recovery_required())?;
         file_lock
             .revalidate()
             .map_err(|_| ChatDisplayError::recovery_required())?;
@@ -719,8 +772,50 @@ fn lock_path(destination: &Path) -> std::io::Result<PathBuf> {
 }
 
 #[cfg(windows)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct LockIdentity {
+    volume: u32,
+    file: u64,
+}
+
+#[cfg(windows)]
+fn lock_identity(file: &File) -> std::io::Result<LockIdentity> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+    };
+    let mut information = BY_HANDLE_FILE_INFORMATION::default();
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut information) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(LockIdentity {
+        volume: information.dwVolumeSerialNumber,
+        file: (u64::from(information.nFileIndexHigh) << 32) | u64::from(information.nFileIndexLow),
+    })
+}
+
+#[cfg(unix)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct LockIdentity {
+    device: u64,
+    inode: u64,
+}
+
+#[cfg(unix)]
+fn lock_identity(file: &File) -> std::io::Result<LockIdentity> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = file.metadata()?;
+    Ok(LockIdentity {
+        device: metadata.dev(),
+        inode: metadata.ino(),
+    })
+}
+
+#[cfg(windows)]
 struct DisplayFileLock {
     file: File,
+    destination: PathBuf,
+    identity: LockIdentity,
 }
 
 #[cfg(windows)]
@@ -745,18 +840,25 @@ impl DisplayFileLock {
         }
         Ok(file)
     }
-    fn provision(destination: &Path) -> std::io::Result<()> {
-        drop(Self::open(destination, true)?);
-        Ok(())
+    fn provision(destination: &Path) -> std::io::Result<LockIdentity> {
+        let file = Self::open(destination, true)?;
+        lock_identity(&file)
     }
-    fn acquire(destination: &Path) -> std::io::Result<Self> {
+    fn acquire(destination: &Path, expected: LockIdentity) -> std::io::Result<Self> {
         use std::os::windows::io::AsRawHandle;
         use windows_sys::Win32::Storage::FileSystem::LockFile;
         let file = Self::open(destination, false)?;
+        if lock_identity(&file)? != expected {
+            return Err(std::io::Error::other("chat-display lock identity changed"));
+        }
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         loop {
             if unsafe { LockFile(file.as_raw_handle() as _, 0, 0, 1, 0) } != 0 {
-                return Ok(Self { file });
+                return Ok(Self {
+                    file,
+                    destination: destination.to_owned(),
+                    identity: expected,
+                });
             }
             let error = std::io::Error::last_os_error();
             if error.raw_os_error() != Some(33) || std::time::Instant::now() >= deadline {
@@ -766,7 +868,11 @@ impl DisplayFileLock {
         }
     }
     fn revalidate(&self) -> std::io::Result<()> {
-        if is_reparse(&self.file.metadata()?) {
+        let current = Self::open(&self.destination, false)?;
+        if is_reparse(&self.file.metadata()?)
+            || lock_identity(&self.file)? != self.identity
+            || lock_identity(&current)? != self.identity
+        {
             Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "chat-display lock changed",
@@ -791,6 +897,8 @@ impl Drop for DisplayFileLock {
 #[cfg(unix)]
 struct DisplayFileLock {
     file: File,
+    destination: PathBuf,
+    identity: LockIdentity,
 }
 
 #[cfg(unix)]
@@ -811,20 +919,31 @@ impl DisplayFileLock {
         }
         Ok(file)
     }
-    fn provision(destination: &Path) -> std::io::Result<()> {
-        drop(Self::open(destination, true)?);
-        Ok(())
+    fn provision(destination: &Path) -> std::io::Result<LockIdentity> {
+        let file = Self::open(destination, true)?;
+        lock_identity(&file)
     }
-    fn acquire(destination: &Path) -> std::io::Result<Self> {
+    fn acquire(destination: &Path, expected: LockIdentity) -> std::io::Result<Self> {
         use std::os::fd::AsRawFd;
         let file = Self::open(destination, false)?;
+        if lock_identity(&file)? != expected {
+            return Err(std::io::Error::other("chat-display lock identity changed"));
+        }
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
             return Err(std::io::Error::last_os_error());
         }
-        Ok(Self { file })
+        Ok(Self {
+            file,
+            destination: destination.to_owned(),
+            identity: expected,
+        })
     }
     fn revalidate(&self) -> std::io::Result<()> {
-        if self.file.metadata()?.is_file() {
+        let current = Self::open(&self.destination, false)?;
+        if self.file.metadata()?.is_file()
+            && lock_identity(&self.file)? == self.identity
+            && lock_identity(&current)? == self.identity
+        {
             Ok(())
         } else {
             Err(std::io::Error::new(

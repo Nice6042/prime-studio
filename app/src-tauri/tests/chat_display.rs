@@ -6,7 +6,7 @@ use std::sync::Barrier;
 use std::thread;
 
 use prime_studio_lib::chat_display::{ChatDisplayAuthority, MAX_CHAT_DISPLAY_BYTES};
-use prime_studio_lib::project_catalog::{ProjectCatalog, ProjectChatCommand};
+use prime_studio_lib::project_catalog::{ChatIdCommand, ProjectCatalog, ProjectChatCommand};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -156,7 +156,7 @@ fn stale_cas_and_unknown_catalog_chat_fail_closed_without_changing_committed_byt
 }
 
 #[test]
-fn an_existing_revision_rejects_a_forged_source_version_without_changing_bytes() {
+fn source_supersession_requires_the_exact_current_authority_revision() {
     let root = TestDirectory::new("source-cas");
     let catalog = catalog_with_chat(root.path(), "chat:one");
     let path = root.path().join("chat-display-v1.json");
@@ -164,21 +164,56 @@ fn an_existing_revision_rejects_a_forged_source_version_without_changing_bytes()
     authority
         .apply(1, "chat:one", "answer:one", "version one", "revision two")
         .unwrap();
-    let committed = fs::read(&path).unwrap();
     assert_eq!(
         authority
-            .apply(
-                2,
-                "chat:one",
-                "answer:one",
-                "version two",
-                "forged revision"
-            )
+            .apply(1, "chat:one", "answer:one", "version two", "stale forgery")
             .unwrap_err()
             .code(),
         "revisionConflict"
     );
-    assert_eq!(fs::read(path).unwrap(), committed);
+    let superseded = authority
+        .apply(2, "chat:one", "answer:one", "version two", "revision three")
+        .expect("exact native CAS supersedes the selected source lineage");
+    assert_eq!(superseded.revision, 3);
+    assert_eq!(superseded.source_content, "version two");
+}
+
+#[test]
+fn deleting_a_catalog_chat_cleans_only_its_display_records_before_catalog_removal() {
+    let root = TestDirectory::new("delete-cleanup");
+    let catalog = catalog_with_chat(root.path(), "chat:one");
+    let create_two: ProjectChatCommand = serde_json::from_value(json!({
+        "type": "chat.create", "projectId": "project:personal", "chatId": "chat:two", "title": "Two"
+    }))
+    .unwrap();
+    catalog.apply(1, create_two).unwrap();
+    let authority =
+        ChatDisplayAuthority::new(root.path().join("chat-display-v1.json"), catalog.clone());
+    authority
+        .apply(1, "chat:one", "answer:one", "one", "one display")
+        .unwrap();
+    authority
+        .apply(1, "chat:two", "answer:two", "two", "two display")
+        .unwrap();
+
+    authority
+        .remove_chat(2, "project:personal", "chat:one")
+        .expect("cleanup commits while catalog identity still exists");
+    catalog
+        .apply(
+            2,
+            ProjectChatCommand::DeleteChat(ChatIdCommand {
+                project_id: "project:personal".to_owned(),
+                chat_id: "chat:one".to_owned(),
+            }),
+        )
+        .unwrap();
+
+    let snapshot = authority
+        .load()
+        .expect("unrelated display revisions remain loadable");
+    assert_eq!(snapshot.records.len(), 1);
+    assert_eq!(snapshot.records[0].chat_id, "chat:two");
 }
 
 #[test]

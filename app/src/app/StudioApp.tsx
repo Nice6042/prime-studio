@@ -194,7 +194,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const sidebarReplacementFocus = useRef<"rail.sidebar.toggle" | "sidebar.collapse" | null>(null);
   const sidebarHadFocus = useRef(false);
   const previousSidebarHost = useRef<"pane" | "rail" | "sheet" | null>(null);
-  const [canvas, setCanvas] = useState<Readonly<{ chatId: string; messageId: string; displayRevision: number; sourceContent: string; content: string }> | null>(null);
+  const [canvas, setCanvas] = useState<Readonly<{ chatId: string; messageId: string; displayRevision: number; authorityRevision: number; sourceContent: string; content: string }> | null>(null);
   const canvasRef = useRef(canvas);
   canvasRef.current = canvas;
   const [editorArtifact, setEditorArtifact] = useState<ArtifactDocument | null>(null);
@@ -662,8 +662,9 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         const { chatId, messageId, expectedRevision, content } = operation.payload;
         const activeCanvas = canvasRef.current;
         const current = store.getSnapshot().canvasRevisions[chatId]?.[messageId];
-        const currentRevision = current?.revision ?? (activeCanvas?.chatId === chatId && activeCanvas.messageId === messageId ? activeCanvas.displayRevision : 1);
-        const currentContent = current?.content ?? (activeCanvas?.chatId === chatId && activeCanvas.messageId === messageId ? activeCanvas.content : null);
+        const activeCurrent = current?.sourceContent === activeCanvas?.sourceContent ? current : undefined;
+        const currentRevision = activeCurrent?.revision ?? (activeCanvas?.chatId === chatId && activeCanvas.messageId === messageId ? activeCanvas.displayRevision : 1);
+        const currentContent = activeCurrent?.content ?? (activeCanvas?.chatId === chatId && activeCanvas.messageId === messageId ? activeCanvas.content : null);
         if (currentRevision === expectedRevision + 1 && currentContent === content) {
           return { status: "updated", revision: currentRevision };
         }
@@ -677,15 +678,15 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         ) return { status: "rejected", reason: "The Canvas display revision changed before Apply completed.", retryable: false };
         let nativeRecord;
         try {
-          nativeRecord = await applyChatDisplayRevision({ chatId, messageId, expectedRevision, sourceContent: activeCanvas.sourceContent, content });
+          nativeRecord = await applyChatDisplayRevision({ chatId, messageId, expectedRevision: activeCanvas.authorityRevision, sourceContent: activeCanvas.sourceContent, content });
         } catch {
           return { status: "rejected", reason: "The Canvas display revision could not be durably confirmed.", retryable: false };
         }
         const beforeAdopt = store.getSnapshot().canvasRevisions[chatId]?.[messageId];
-        if ((beforeAdopt?.revision ?? expectedRevision) !== expectedRevision) {
+        if ((beforeAdopt?.revision ?? 1) !== activeCanvas.authorityRevision) {
           return { status: "rejected", reason: "The Canvas display revision changed before Apply completed.", retryable: false };
         }
-        store.dispatch({ type: "conversation/canvas-applied", chatId: nativeRecord.chatId, messageId: nativeRecord.messageId, expectedRevision, sourceContent: nativeRecord.sourceContent, content: nativeRecord.content });
+        store.dispatch({ type: "conversation/canvas-applied", chatId: nativeRecord.chatId, messageId: nativeRecord.messageId, expectedRevision: activeCanvas.authorityRevision, sourceContent: nativeRecord.sourceContent, content: nativeRecord.content });
         const committed = store.getSnapshot().canvasRevisions[chatId]?.[messageId];
         if (!committed || committed.revision !== nativeRecord.revision || committed.content !== nativeRecord.content) {
           return { status: "rejected", reason: "The Canvas display revision changed before Apply completed.", retryable: false };
@@ -693,7 +694,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         const revision = committed.revision;
         const currentCanvas = canvasRef.current;
         if (navigationRef.current.selectedChatId === chatId && currentCanvas?.chatId === chatId && currentCanvas.messageId === messageId && currentCanvas.displayRevision === expectedRevision) {
-          const nextCanvas = Object.freeze({ ...currentCanvas, displayRevision: revision, content: nativeRecord.content });
+          const nextCanvas = Object.freeze({ ...currentCanvas, displayRevision: revision, authorityRevision: revision, content: nativeRecord.content });
           canvasRef.current = nextCanvas;
           setCanvas(nextCanvas);
         }
@@ -838,7 +839,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         const selectedVersion = versionState?.kind === "assistant" ? versionState.versions[versionState.selected]?.text : null;
         const selectedContent = selectedVersion ?? source;
         const activeDisplay = displayed?.sourceContent === selectedContent ? displayed : undefined;
-        const nextCanvas = Object.freeze({ chatId, messageId, displayRevision: expectedRevision, sourceContent: activeDisplay?.sourceContent ?? selectedContent, content });
+        const nextCanvas = Object.freeze({ chatId, messageId, displayRevision: expectedRevision, authorityRevision: displayed?.revision ?? 1, sourceContent: activeDisplay?.sourceContent ?? selectedContent, content });
         canvasRef.current = nextCanvas;
         setCanvas(nextCanvas);
         setActiveSheet("editor");

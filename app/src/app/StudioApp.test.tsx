@@ -801,6 +801,9 @@ describe("Studio application state", () => {
 
   it("opens Canvas from the visibly selected assistant version", async () => {
     mockAvailableLayoutPersistence();
+    const applyDisplay = vi.spyOn(chatDisplayClient, "applyChatDisplayRevision").mockImplementation(async (request) => ({
+      chatId: request.chatId, messageId: request.messageId, revision: request.expectedRevision + 1, sourceContent: request.sourceContent, content: request.content,
+    }));
     const store = createStudioStore(initialStudioState({ projectCatalog: catalogBoundToRootSession(), sessions: [rootSession] }));
     store.dispatch({ type: "conversation/canvas-loaded", records: [
       { chatId: chat.id, messageId: "a1", revision: 4, sourceContent: "Original answer", content: "Canvas revision of original" },
@@ -813,8 +816,16 @@ describe("Studio application state", () => {
     expect(screen.queryByText("Canvas revision of original")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Edit answer in Canvas" }));
 
-    expect(await screen.findByRole("textbox", { name: "Canvas content" })).toHaveValue("Alternate answer");
-  });
+    const editor = await screen.findByRole("textbox", { name: "Canvas content" });
+    expect(editor).toHaveValue("Alternate answer");
+    fireEvent.change(editor, { target: { value: "Canvas revision of alternate" } });
+    await userEvent.click(screen.getByRole("button", { name: "Apply display revision" }));
+    expect(applyDisplay).toHaveBeenCalledWith({
+      chatId: chat.id, messageId: "a1", expectedRevision: 4, sourceContent: "Alternate answer", content: "Canvas revision of alternate",
+    });
+    expect(store.getSnapshot().canvasRevisions[chat.id]?.a1).toEqual({ revision: 5, sourceContent: "Alternate answer", content: "Canvas revision of alternate" });
+    applyDisplay.mockRestore();
+  }, 20_000);
 
   it("does not open a delayed Canvas outcome after the selected chat identity changes", async () => {
     const secondSession: RootSessionProjection = {
