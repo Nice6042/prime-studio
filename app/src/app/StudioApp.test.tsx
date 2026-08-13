@@ -734,7 +734,7 @@ describe("Studio application state", () => {
     });
     const loadDisplay = vi.spyOn(chatDisplayClient, "loadChatDisplayRevisions").mockResolvedValue({ schemaVersion: 1, records: [] });
     const applyDisplay = vi.spyOn(chatDisplayClient, "applyChatDisplayRevision").mockImplementation(async (request) => ({
-      chatId: request.chatId, messageId: request.messageId, revision: request.expectedRevision + 1, content: request.content,
+      chatId: request.chatId, messageId: request.messageId, revision: request.expectedRevision + 1, sourceContent: request.sourceContent, content: request.content,
     }));
     try {
       const store = createStudioStore(initialStudioState({ projectCatalog: catalogBoundToRootSession(), sessions: [rootSession] }));
@@ -766,9 +766,9 @@ describe("Studio application state", () => {
       expect(screen.queryByText("stale overwrite")).not.toBeInTheDocument();
       expect(rootSession.parentMessages[1]).toEqual(expect.objectContaining({ id: "a1", blocks: [{ kind: "text", text: "Original answer" }] }));
       expect(store.getSnapshot().sessions[rootSession.sessionId]?.parentMessages[1]).toEqual(rootSession.parentMessages[1]);
-      expect(store.getSnapshot().canvasRevisions[chat.id]?.a1).toEqual({ revision: 2, content: "Studio-only revision" });
+      expect(store.getSnapshot().canvasRevisions[chat.id]?.a1).toEqual({ revision: 2, sourceContent: "Original answer", content: "Studio-only revision" });
       expect(applyDisplay).toHaveBeenCalledTimes(1);
-      expect(applyDisplay).toHaveBeenCalledWith({ chatId: chat.id, messageId: "a1", expectedRevision: 1, content: "Studio-only revision" });
+      expect(applyDisplay).toHaveBeenCalledWith({ chatId: chat.id, messageId: "a1", expectedRevision: 1, sourceContent: "Original answer", content: "Studio-only revision" });
 
       view.unmount();
       render(<AppProviders store={store}><StudioApp harnessAdapter={conversationAdapter([])} /></AppProviders>);
@@ -786,13 +786,13 @@ describe("Studio application state", () => {
     mockAvailableLayoutPersistence();
     const loadDisplay = vi.spyOn(chatDisplayClient, "loadChatDisplayRevisions").mockResolvedValue({
       schemaVersion: 1,
-      records: [{ chatId: chat.id, messageId: "a1", revision: 4, content: "Persisted after restart" }],
+      records: [{ chatId: chat.id, messageId: "a1", revision: 4, sourceContent: "Original answer", content: "Persisted after restart" }],
     });
     try {
       const freshStore = createStudioStore(initialStudioState({ projectCatalog: catalogBoundToRootSession(), sessions: [rootSession] }));
       render(<AppProviders store={freshStore}><StudioApp harnessAdapter={conversationAdapter([])} /></AppProviders>);
       expect(await screen.findByText("Persisted after restart", { selector: ".parent-assistant-copy p" })).toBeVisible();
-      expect(freshStore.getSnapshot().canvasRevisions[chat.id]?.a1).toEqual({ revision: 4, content: "Persisted after restart" });
+      expect(freshStore.getSnapshot().canvasRevisions[chat.id]?.a1).toEqual({ revision: 4, sourceContent: "Original answer", content: "Persisted after restart" });
       expect(loadDisplay).toHaveBeenCalledOnce();
     } finally {
       loadDisplay.mockRestore();
@@ -802,11 +802,15 @@ describe("Studio application state", () => {
   it("opens Canvas from the visibly selected assistant version", async () => {
     mockAvailableLayoutPersistence();
     const store = createStudioStore(initialStudioState({ projectCatalog: catalogBoundToRootSession(), sessions: [rootSession] }));
+    store.dispatch({ type: "conversation/canvas-loaded", records: [
+      { chatId: chat.id, messageId: "a1", revision: 4, sourceContent: "Original answer", content: "Canvas revision of original" },
+    ] });
     store.dispatch({ type: "conversation/version-appended", chatId: chat.id, messageId: "a1", kind: "assistant", text: "Alternate answer" });
     store.dispatch({ type: "conversation/version-selected", chatId: chat.id, messageId: "a1", kind: "assistant", version: 1 });
 
     render(<AppProviders store={store}><StudioApp harnessAdapter={conversationAdapter([])} /></AppProviders>);
     expect(await screen.findByText("Alternate answer", { selector: ".parent-assistant-copy p" })).toBeVisible();
+    expect(screen.queryByText("Canvas revision of original")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Edit answer in Canvas" }));
 
     expect(await screen.findByRole("textbox", { name: "Canvas content" })).toHaveValue("Alternate answer");

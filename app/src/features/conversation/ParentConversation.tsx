@@ -84,7 +84,7 @@ export function ParentConversation({
   readonly session: RootSessionProjection | null;
   readonly archived: boolean;
   readonly canvasChatId?: string;
-  readonly displayRevisions?: Readonly<Record<string, Readonly<{ revision: number; content: string }>>>;
+  readonly displayRevisions?: Readonly<Record<string, Readonly<{ revision: number; sourceContent: string; content: string }>>>;
   readonly presentations?: Readonly<Record<string, ConversationTurnPresentation>>;
   readonly onExecuteOperation?: (operation: StudioOperation) => Promise<StudioOperationOutcome>;
   readonly onEditUserMessage?: (messageId: string, text: string) => void;
@@ -211,8 +211,10 @@ export function ParentConversation({
           const sourceText = message.blocks.filter((block) => block.kind === "text").map((block) => block.text).join("\n\n");
           const versions = presentation.assistantVersions ?? [{ text: sourceText }];
           const selected = Math.min(versions.length - 1, Math.max(0, presentation.selectedAssistantVersion ?? 0));
-          const displayRevision = displayRevisions[message.id];
-          const text = displayRevision?.content ?? versions[selected]?.text ?? sourceText;
+          const candidateRevision = displayRevisions[message.id];
+          const selectedContent = versions[selected]?.text ?? sourceText;
+          const displayRevision = candidateRevision?.sourceContent === selectedContent ? candidateRevision : undefined;
+          const text = displayRevision?.content ?? selectedContent;
           const workExpanded = expandedWork.has(message.id);
           const workSteps = presentation.workSteps?.slice(0, 64) ?? [];
           return <article className="parent-turn parent-assistant-turn" key={message.id} data-parent-message-id={message.id} tabIndex={-1} aria-busy={message.streaming}>

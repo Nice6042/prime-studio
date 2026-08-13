@@ -37,7 +37,7 @@ export interface StudioAppState {
   readonly drafts: Readonly<Record<string, string>>;
   readonly attachments: Readonly<Record<string, readonly DraftAttachment[]>>;
   readonly conversationDisplay: Readonly<Record<string, ConversationDisplay>>;
-  readonly canvasRevisions: Readonly<Record<string, Readonly<Record<string, Readonly<{ revision: number; content: string }>>>>>;
+  readonly canvasRevisions: Readonly<Record<string, Readonly<Record<string, Readonly<{ revision: number; sourceContent: string; content: string }>>>>>;
   readonly conversationHistory: Readonly<Record<string, ParentHistoryState>>;
   readonly async: Readonly<Record<string, AsyncState>>;
   readonly attention: AttentionState;
@@ -88,6 +88,15 @@ function sameCursor(left: HarnessCursor, right: HarnessCursor): boolean {
   return left.runtimeGeneration === right.runtimeGeneration && left.sequence === right.sequence;
 }
 
+function validCanvasId(value: string): boolean {
+  return value.length > 0 && value.length <= 128 && value.trim() === value && /^[\x20-\x7e]+$/.test(value);
+}
+
+function validCanvasContent(value: string): boolean {
+  return value.length > 0 && new TextEncoder().encode(value).byteLength <= 128 * 1024
+    && !/[\p{Cf}\p{Zl}\p{Zp}\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(value);
+}
+
 function reconcileSessionDisplays(
   current: Readonly<Record<string, ConversationDisplay>>,
   catalog: ProjectChatState,
@@ -108,8 +117,8 @@ export type StudioIntent =
   | Readonly<{ type: "attachments/change"; chatId: string; attachments: readonly DraftAttachment[] }>
   | Readonly<{ type: "conversation/version-appended"; chatId: string; messageId: string; kind: DisplayMessageKind; text: string }>
   | Readonly<{ type: "conversation/version-selected"; chatId: string; messageId: string; kind: DisplayMessageKind; version: number }>
-  | Readonly<{ type: "conversation/canvas-applied"; chatId: string; messageId: string; expectedRevision: number; content: string }>
-  | Readonly<{ type: "conversation/canvas-loaded"; records: readonly Readonly<{ chatId: string; messageId: string; revision: number; content: string }>[] }>
+  | Readonly<{ type: "conversation/canvas-applied"; chatId: string; messageId: string; expectedRevision: number; sourceContent: string; content: string }>
+  | Readonly<{ type: "conversation/canvas-loaded"; records: readonly Readonly<{ chatId: string; messageId: string; revision: number; sourceContent: string; content: string }>[] }>
   | Readonly<{ type: "conversation/history-requested"; chatId: string; sessionId: string; expectedCursor: HarnessCursor; before: string | null }>
   | Readonly<{ type: "conversation/history-page-loaded"; chatId: string; before: string | null; page: ParentHistoryPage }>
   | Readonly<{ type: "conversation/history-unavailable"; chatId: string; sessionId: string; expectedCursor: HarnessCursor; before: string | null; reason: string }>
@@ -248,33 +257,31 @@ export function reduceStudio(state: StudioAppState, intent: StudioIntent): Studi
       return { ...state, conversationDisplay: Object.freeze({ ...state.conversationDisplay, [intent.chatId]: next }) };
     }
     case "conversation/canvas-applied": {
-      if (!state.chats[intent.chatId] || !intent.messageId || !Number.isSafeInteger(intent.expectedRevision) || intent.expectedRevision < 1) return state;
+      if (!state.chats[intent.chatId] || !validCanvasId(intent.messageId) || !Number.isSafeInteger(intent.expectedRevision) || intent.expectedRevision < 1
+        || !validCanvasContent(intent.sourceContent) || !validCanvasContent(intent.content)) return state;
       const current = state.canvasRevisions[intent.chatId]?.[intent.messageId];
       const revision = current?.revision ?? 1;
-      if (revision !== intent.expectedRevision) return state;
-      const bounded = Array.from(intent.content).slice(0, 128 * 1024).join("");
-      if (!bounded) return state;
+      if (revision !== intent.expectedRevision || current && current.sourceContent !== intent.sourceContent) return state;
       return {
         ...state,
         canvasRevisions: Object.freeze({
           ...state.canvasRevisions,
           [intent.chatId]: Object.freeze({
             ...(state.canvasRevisions[intent.chatId] ?? {}),
-            [intent.messageId]: Object.freeze({ revision: revision + 1, content: bounded }),
+            [intent.messageId]: Object.freeze({ revision: revision + 1, sourceContent: current?.sourceContent ?? intent.sourceContent, content: intent.content }),
           }),
         }),
       };
     }
     case "conversation/canvas-loaded": {
-      const revisions: Record<string, Record<string, Readonly<{ revision: number; content: string }>>> = {};
+      const revisions: Record<string, Record<string, Readonly<{ revision: number; sourceContent: string; content: string }>>> = {};
       const keys = new Set<string>();
       for (const record of intent.records) {
         const key = `${record.chatId}\u0000${record.messageId}`;
-        if (!state.chats[record.chatId] || !record.messageId || record.messageId.length > 128 || !/^[\x20-\x7e]+$/.test(record.messageId)
-          || !Number.isSafeInteger(record.revision) || record.revision < 2 || !record.content || new TextEncoder().encode(record.content).byteLength > 128 * 1024
-          || /[\p{Cf}\p{Zl}\p{Zp}\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(record.content) || keys.has(key)) return state;
+        if (!state.chats[record.chatId] || !validCanvasId(record.messageId) || !Number.isSafeInteger(record.revision) || record.revision < 2
+          || !validCanvasContent(record.sourceContent) || !validCanvasContent(record.content) || keys.has(key)) return state;
         keys.add(key);
-        (revisions[record.chatId] ??= {})[record.messageId] = Object.freeze({ revision: record.revision, content: record.content });
+        (revisions[record.chatId] ??= {})[record.messageId] = Object.freeze({ revision: record.revision, sourceContent: record.sourceContent, content: record.content });
       }
       return { ...state, canvasRevisions: Object.freeze(Object.fromEntries(Object.entries(revisions).map(([chatId, records]) => [chatId, Object.freeze(records)]))) };
     }

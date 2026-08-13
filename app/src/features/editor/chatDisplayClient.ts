@@ -8,6 +8,7 @@ export interface ChatDisplayRecord {
   readonly chatId: string;
   readonly messageId: string;
   readonly revision: number;
+  readonly sourceContent: string;
   readonly content: string;
 }
 
@@ -20,6 +21,7 @@ export interface ChatDisplayApplyRequest {
   readonly chatId: string;
   readonly messageId: string;
   readonly expectedRevision: number;
+  readonly sourceContent: string;
   readonly content: string;
 }
 
@@ -51,10 +53,10 @@ function validContent(value: unknown): value is string {
 function decodeRecord(value: unknown): ChatDisplayRecord {
   if (!value || typeof value !== "object" || Array.isArray(value)) return fail();
   const source = value as Record<string, unknown>;
-  if (Object.keys(source).sort().join(",") !== "chatId,content,messageId,revision"
-    || !validId(source.chatId) || !validId(source.messageId) || !validContent(source.content)
+  if (Object.keys(source).sort().join(",") !== "chatId,content,messageId,revision,sourceContent"
+    || !validId(source.chatId) || !validId(source.messageId) || !validContent(source.sourceContent) || !validContent(source.content)
     || !Number.isSafeInteger(source.revision) || (source.revision as number) < 2) return fail();
-  return Object.freeze({ chatId: source.chatId, messageId: source.messageId, revision: source.revision as number, content: source.content });
+  return Object.freeze({ chatId: source.chatId, messageId: source.messageId, revision: source.revision as number, sourceContent: source.sourceContent, content: source.content });
 }
 
 export function decodeChatDisplaySnapshot(value: unknown): ChatDisplaySnapshot {
@@ -78,9 +80,9 @@ export async function loadChatDisplayRevisions(): Promise<ChatDisplaySnapshot> {
 export async function applyChatDisplayRevision(request: ChatDisplayApplyRequest): Promise<ChatDisplayRecord> {
   let detached: ChatDisplayApplyRequest;
   try { preflight(request); detached = structuredClone(request); } catch { return fail(); }
-  if (!validId(detached.chatId) || !validId(detached.messageId) || !validContent(detached.content)
+  if (!validId(detached.chatId) || !validId(detached.messageId) || !validContent(detached.sourceContent) || !validContent(detached.content)
     || !Number.isSafeInteger(detached.expectedRevision) || detached.expectedRevision < 1 || detached.expectedRevision >= Number.MAX_SAFE_INTEGER) return fail();
   const record = decodeRecord(await invoke("chat_display_apply", { request: detached }));
-  if (record.chatId !== detached.chatId || record.messageId !== detached.messageId || record.content !== detached.content || record.revision !== detached.expectedRevision + 1) return fail();
+  if (record.chatId !== detached.chatId || record.messageId !== detached.messageId || record.sourceContent !== detached.sourceContent || record.content !== detached.content || record.revision !== detached.expectedRevision + 1) return fail();
   return record;
 }

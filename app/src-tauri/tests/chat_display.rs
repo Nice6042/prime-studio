@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::Arc;
 use std::sync::Barrier;
 use std::thread;
@@ -8,6 +9,10 @@ use prime_studio_lib::chat_display::{ChatDisplayAuthority, MAX_CHAT_DISPLAY_BYTE
 use prime_studio_lib::project_catalog::{ProjectCatalog, ProjectChatCommand};
 use serde_json::json;
 use uuid::Uuid;
+
+const CHILD_MODE: &str = "PRIME_CHAT_DISPLAY_CHILD_MODE";
+const CHILD_ROOT: &str = "PRIME_CHAT_DISPLAY_CHILD_ROOT";
+const CHILD_OUTPUT: &str = "PRIME_CHAT_DISPLAY_CHILD_OUTPUT";
 
 struct TestDirectory(PathBuf);
 
@@ -48,25 +53,69 @@ fn catalog_with_chat(root: &Path, chat_id: &str) -> Arc<ProjectCatalog> {
 }
 
 #[test]
+fn chat_display_process_child() {
+    let Ok(mode) = std::env::var(CHILD_MODE) else {
+        return;
+    };
+    let root = PathBuf::from(std::env::var_os(CHILD_ROOT).expect("child root"));
+    let output = PathBuf::from(std::env::var_os(CHILD_OUTPUT).expect("child output"));
+    let catalog = Arc::new(ProjectCatalog::new(root.join("projects-v2.json")));
+    let authority = ChatDisplayAuthority::new(root.join("chat-display-v1.json"), catalog);
+    let transcript = root.join("session.jsonl");
+    let transcript_before =
+        fs::read(&transcript).expect("child reads transcript before authority use");
+    match mode.as_str() {
+        "writer" => {
+            let committed = authority
+                .apply(
+                    1,
+                    "chat:one",
+                    "answer:one",
+                    "Original answer",
+                    "Studio-only revision",
+                )
+                .expect("writer commits display revision");
+            fs::write(output, serde_json::to_vec(&committed).unwrap()).unwrap();
+        }
+        "reader" => {
+            let snapshot = authority.load().expect("reader loads display revision");
+            fs::write(output, serde_json::to_vec(&snapshot).unwrap()).unwrap();
+        }
+        other => panic!("unexpected child mode {other}"),
+    }
+    assert_eq!(fs::read(transcript).unwrap(), transcript_before);
+}
+
+fn run_child(mode: &str, root: &Path, output: &Path) {
+    let status = Command::new(std::env::current_exe().expect("resolve integration test binary"))
+        .arg("--exact")
+        .arg("chat_display_process_child")
+        .arg("--test-threads=1")
+        .env(CHILD_MODE, mode)
+        .env(CHILD_ROOT, root)
+        .env(CHILD_OUTPUT, output)
+        .status()
+        .expect("launch isolated chat-display process");
+    assert!(status.success(), "{mode} child must exit successfully");
+}
+
+#[test]
 fn process_restart_hydrates_the_exact_committed_display_revision_without_rewriting_transcript() {
     let root = TestDirectory::new("restart");
-    let catalog = catalog_with_chat(root.path(), "chat:one");
-    let path = root.path().join("chat-display-v1.json");
+    drop(catalog_with_chat(root.path(), "chat:one"));
     let transcript = root.path().join("session.jsonl");
     let transcript_bytes = br#"{"role":"assistant","content":"original"}\n"#;
     fs::write(&transcript, transcript_bytes).expect("write transcript fixture");
+    let writer_output = root.path().join("writer.json");
+    let reader_output = root.path().join("reader.json");
 
-    let authority = ChatDisplayAuthority::new(path.clone(), catalog.clone());
-    let committed = authority
-        .apply(1, "chat:one", "answer:one", "Studio-only revision")
-        .expect("first display revision commits");
+    run_child("writer", root.path(), &writer_output);
+    let committed: prime_studio_lib::chat_display::ChatDisplayRecord =
+        serde_json::from_slice(&fs::read(&writer_output).unwrap()).unwrap();
     assert_eq!(committed.revision, 2);
-    drop(authority);
-
-    let restarted = ChatDisplayAuthority::new(path, catalog);
-    let snapshot = restarted
-        .load()
-        .expect("fresh process loads display authority");
+    run_child("reader", root.path(), &reader_output);
+    let snapshot: prime_studio_lib::chat_display::ChatDisplaySnapshot =
+        serde_json::from_slice(&fs::read(&reader_output).unwrap()).unwrap();
     assert_eq!(snapshot.schema_version, 1);
     assert_eq!(snapshot.records, [committed]);
     assert_eq!(
@@ -82,20 +131,20 @@ fn stale_cas_and_unknown_catalog_chat_fail_closed_without_changing_committed_byt
     let path = root.path().join("chat-display-v1.json");
     let authority = ChatDisplayAuthority::new(path.clone(), catalog);
     authority
-        .apply(1, "chat:one", "answer:one", "revision two")
+        .apply(1, "chat:one", "answer:one", "original", "revision two")
         .unwrap();
     let committed = fs::read(&path).expect("read committed display bytes");
 
     assert_eq!(
         authority
-            .apply(1, "chat:one", "answer:one", "stale overwrite")
+            .apply(1, "chat:one", "answer:one", "original", "stale overwrite")
             .unwrap_err()
             .code(),
         "revisionConflict"
     );
     assert_eq!(
         authority
-            .apply(1, "chat:missing", "answer:one", "unknown chat")
+            .apply(1, "chat:missing", "answer:one", "original", "unknown chat")
             .unwrap_err()
             .code(),
         "unknownChat"
@@ -104,6 +153,32 @@ fn stale_cas_and_unknown_catalog_chat_fail_closed_without_changing_committed_byt
         fs::read(path).expect("read unchanged display bytes"),
         committed
     );
+}
+
+#[test]
+fn an_existing_revision_rejects_a_forged_source_version_without_changing_bytes() {
+    let root = TestDirectory::new("source-cas");
+    let catalog = catalog_with_chat(root.path(), "chat:one");
+    let path = root.path().join("chat-display-v1.json");
+    let authority = ChatDisplayAuthority::new(path.clone(), catalog);
+    authority
+        .apply(1, "chat:one", "answer:one", "version one", "revision two")
+        .unwrap();
+    let committed = fs::read(&path).unwrap();
+    assert_eq!(
+        authority
+            .apply(
+                2,
+                "chat:one",
+                "answer:one",
+                "version two",
+                "forged revision"
+            )
+            .unwrap_err()
+            .code(),
+        "revisionConflict"
+    );
+    assert_eq!(fs::read(path).unwrap(), committed);
 }
 
 #[test]
@@ -119,7 +194,7 @@ fn independent_authority_instances_serialize_cas_and_admit_only_one_successor() 
         thread::spawn(move || {
             let authority = ChatDisplayAuthority::new(path, catalog);
             barrier.wait();
-            authority.apply(1, "chat:one", "answer:one", content)
+            authority.apply(1, "chat:one", "answer:one", "original", content)
         })
     });
     barrier.wait();
@@ -149,8 +224,8 @@ fn independent_authority_instances_serialize_cas_and_admit_only_one_successor() 
 fn malformed_oversized_duplicate_and_control_hostile_state_is_rejected_and_preserved() {
     let cases = [
         ("malformed", br#"{"schemaVersion":1,"records":["#.to_vec()),
-        ("duplicate", br#"{"schemaVersion":1,"records":[{"chatId":"chat:one","messageId":"answer:one","revision":2,"content":"a"},{"chatId":"chat:one","messageId":"answer:one","revision":3,"content":"b"}]}"#.to_vec()),
-        ("control", br#"{"schemaVersion":1,"records":[{"chatId":"chat:one","messageId":"answer:\u0000one","revision":2,"content":"a"}]}"#.to_vec()),
+        ("duplicate", br#"{"schemaVersion":1,"records":[{"chatId":"chat:one","messageId":"answer:one","revision":2,"sourceContent":"original","content":"a"},{"chatId":"chat:one","messageId":"answer:one","revision":3,"sourceContent":"original","content":"b"}]}"#.to_vec()),
+        ("control", br#"{"schemaVersion":1,"records":[{"chatId":"chat:one","messageId":"answer:\u0000one","revision":2,"sourceContent":"original","content":"a"}]}"#.to_vec()),
         ("oversized", vec![b' '; MAX_CHAT_DISPLAY_BYTES + 1]),
     ];
     for (label, bytes) in cases {
@@ -188,7 +263,7 @@ fn apply_rejects_invalid_identifiers_content_controls_and_non_successor_revision
     ] {
         assert_eq!(
             authority
-                .apply(revision, chat_id, message_id, content)
+                .apply(revision, chat_id, message_id, "original", content)
                 .unwrap_err()
                 .code(),
             "invalidInput"

@@ -9,25 +9,25 @@ describe("chat display client", () => {
   beforeEach(() => invoke.mockReset());
 
   it("loads and freezes a bounded exact native snapshot for fresh-store hydration", async () => {
-    invoke.mockResolvedValue({ schemaVersion: 1, records: [{ chatId: "chat:one", messageId: "answer:one", revision: 2, content: "persisted" }] });
+    invoke.mockResolvedValue({ schemaVersion: 1, records: [{ chatId: "chat:one", messageId: "answer:one", revision: 2, sourceContent: "original", content: "persisted" }] });
     const snapshot = await loadChatDisplayRevisions();
-    expect(snapshot).toEqual({ schemaVersion: 1, records: [{ chatId: "chat:one", messageId: "answer:one", revision: 2, content: "persisted" }] });
+    expect(snapshot).toEqual({ schemaVersion: 1, records: [{ chatId: "chat:one", messageId: "answer:one", revision: 2, sourceContent: "original", content: "persisted" }] });
     expect(Object.isFrozen(snapshot.records[0])).toBe(true);
     expect(invoke).toHaveBeenCalledWith("chat_display_load");
   });
 
   it("admits only an exact successor returned for the requested Studio chat and message", async () => {
-    invoke.mockResolvedValue({ chatId: "chat:one", messageId: "answer:one", revision: 2, content: "next" });
-    await expect(applyChatDisplayRevision({ chatId: "chat:one", messageId: "answer:one", expectedRevision: 1, content: "next" }))
-      .resolves.toEqual({ chatId: "chat:one", messageId: "answer:one", revision: 2, content: "next" });
-    expect(invoke).toHaveBeenCalledWith("chat_display_apply", { request: { chatId: "chat:one", messageId: "answer:one", expectedRevision: 1, content: "next" } });
+    invoke.mockResolvedValue({ chatId: "chat:one", messageId: "answer:one", revision: 2, sourceContent: "original", content: "next" });
+    await expect(applyChatDisplayRevision({ chatId: "chat:one", messageId: "answer:one", expectedRevision: 1, sourceContent: "original", content: "next" }))
+      .resolves.toEqual({ chatId: "chat:one", messageId: "answer:one", revision: 2, sourceContent: "original", content: "next" });
+    expect(invoke).toHaveBeenCalledWith("chat_display_apply", { request: { chatId: "chat:one", messageId: "answer:one", expectedRevision: 1, sourceContent: "original", content: "next" } });
 
-    invoke.mockResolvedValue({ chatId: "chat:other", messageId: "answer:one", revision: 2, content: "next" });
-    await expect(applyChatDisplayRevision({ chatId: "chat:one", messageId: "answer:one", expectedRevision: 1, content: "next" })).rejects.toThrow("Chat display unavailable");
+    invoke.mockResolvedValue({ chatId: "chat:other", messageId: "answer:one", revision: 2, sourceContent: "original", content: "next" });
+    await expect(applyChatDisplayRevision({ chatId: "chat:one", messageId: "answer:one", expectedRevision: 1, sourceContent: "original", content: "next" })).rejects.toThrow("Chat display unavailable");
   });
 
   it("rejects malformed oversized unsafe and accessor-hostile transport before state admission", async () => {
-    invoke.mockResolvedValue({ schemaVersion: 1, records: [{ chatId: "chat:one", messageId: "answer:one", revision: 2, content: "x".repeat(128 * 1024 + 1) }] });
+    invoke.mockResolvedValue({ schemaVersion: 1, records: [{ chatId: "chat:one", messageId: "answer:one", revision: 2, sourceContent: "original", content: "x".repeat(128 * 1024 + 1) }] });
     await expect(loadChatDisplayRevisions()).rejects.toThrow("Chat display unavailable");
 
     let reads = 0;
@@ -36,7 +36,7 @@ describe("chat display client", () => {
     expect(reads).toBe(0);
 
     invoke.mockClear();
-    await expect(applyChatDisplayRevision({ chatId: "chat:one", messageId: "answer:one", expectedRevision: 1, content: "bidirectional \u202econtent" }))
+    await expect(applyChatDisplayRevision({ chatId: "chat:one", messageId: "answer:one", expectedRevision: 1, sourceContent: "original", content: "bidirectional \u202econtent" }))
       .rejects.toThrow("Chat display unavailable");
     expect(invoke).not.toHaveBeenCalled();
   });

@@ -71,10 +71,25 @@ describe("ParentConversation", () => {
       payload: { chatId: "studio-chat-1", messageId: "a1", expectedRevision: 1, content: "The adapter is versioned." },
     });
 
-    rerender(<ParentConversation title="Harness architecture" canvasChatId="studio-chat-1" session={session} archived={false} onExecuteOperation={executeOperation} displayRevisions={{ a1: { revision: 2, content: "The adapter remains versioned." } }} />);
+    rerender(<ParentConversation title="Harness architecture" canvasChatId="studio-chat-1" session={session} archived={false} onExecuteOperation={executeOperation} displayRevisions={{ a1: { revision: 2, sourceContent: "The adapter is versioned.", content: "The adapter remains versioned." } }} />);
     expect(screen.getByText("The adapter remains versioned.")).toBeVisible();
     expect(screen.queryByText("The adapter is versioned.")).not.toBeInTheDocument();
     expect(screen.getByText("Display revision 2")).toBeVisible();
+  });
+
+  it("gives a newly selected assistant version precedence over a Canvas revision based on another version", async () => {
+    const alternate = {
+      a1: { assistantVersions: [{ text: "The adapter is versioned." }, { text: "Alternate answer." }], selectedAssistantVersion: 1 },
+    };
+    const executeOperation = vi.fn(async () => ({ status: "updated" as const, revision: 1 }));
+    render(<ParentConversation title="Harness architecture" canvasChatId="studio-chat-1" session={session} archived={false}
+      presentations={alternate} onExecuteOperation={executeOperation}
+      displayRevisions={{ a1: { revision: 2, sourceContent: "The adapter is versioned.", content: "Canvas answer." } }} />);
+
+    expect(screen.getByText("Alternate answer.")).toBeVisible();
+    expect(screen.queryByText("Canvas answer.")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Edit answer in Canvas" }));
+    expect(executeOperation).toHaveBeenCalledWith(expect.objectContaining({ payload: expect.objectContaining({ content: "Alternate answer." }) }));
   });
 
   it("routes each response copy through the shared operation executor with an identity-qualified control", async () => {

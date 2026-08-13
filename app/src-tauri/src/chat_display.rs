@@ -82,6 +82,7 @@ pub struct ChatDisplayRecord {
     pub chat_id: String,
     pub message_id: String,
     pub revision: u64,
+    pub source_content: String,
     pub content: String,
 }
 
@@ -98,6 +99,7 @@ pub struct ChatDisplayApplyRequest {
     pub chat_id: String,
     pub message_id: String,
     pub expected_revision: u64,
+    pub source_content: String,
     pub content: String,
 }
 
@@ -139,11 +141,13 @@ impl ChatDisplayAuthority {
         expected_revision: u64,
         chat_id: &str,
         message_id: &str,
+        source_content: &str,
         content: &str,
     ) -> Result<ChatDisplayRecord, ChatDisplayError> {
         if !(1..MAX_SAFE_REVISION).contains(&expected_revision)
             || !valid_id(chat_id)
             || !valid_id(message_id)
+            || !valid_content(source_content)
             || !valid_content(content)
         {
             return Err(ChatDisplayError::invalid_input());
@@ -174,10 +178,17 @@ impl ChatDisplayAuthority {
             if current_revision != expected_revision {
                 return Err(ChatDisplayError::revision_conflict());
             }
+            if index.is_some_and(|index| snapshot.records[index].source_content != source_content) {
+                return Err(ChatDisplayError::revision_conflict());
+            }
+            let source_content = index
+                .map(|index| snapshot.records[index].source_content.clone())
+                .unwrap_or_else(|| source_content.to_owned());
             let record = ChatDisplayRecord {
                 chat_id: chat_id.to_owned(),
                 message_id: message_id.to_owned(),
                 revision: expected_revision + 1,
+                source_content,
                 content: content.to_owned(),
             };
             if let Some(index) = index {
@@ -199,10 +210,11 @@ impl ChatDisplayAuthority {
             }
             self.revalidate_namespace()
                 .map_err(|_| ChatDisplayError::recovery_required())?;
-            classify_persistence_result(crate::accounts::atomic_replace(&self.path, &bytes))?;
+            self.persist_bytes(&bytes)?;
             self.revalidate_namespace()
                 .map_err(|_| ChatDisplayError::persistence_outcome_unknown())?;
-            let committed = read_snapshot(&self.path)
+            let committed = self
+                .read_snapshot()
                 .map_err(|_| ChatDisplayError::persistence_outcome_unknown())?;
             if committed != snapshot {
                 return Err(ChatDisplayError::persistence_outcome_unknown());
@@ -231,7 +243,7 @@ impl ChatDisplayAuthority {
             .map_err(|_| ChatDisplayError::recovery_required())?;
         self.revalidate_namespace()
             .map_err(|_| ChatDisplayError::recovery_required())?;
-        let snapshot = read_snapshot(&self.path)?;
+        let snapshot = self.read_snapshot()?;
         validate_catalog_records(&self.catalog, &snapshot)?;
         let result = operation(snapshot);
         file_lock
@@ -248,6 +260,38 @@ impl ChatDisplayAuthority {
             .filter(|_| self.lock_provisioned)
             .ok_or_else(|| std::io::Error::other("chat-display namespace unavailable"))?
             .revalidate_display_leaf()
+    }
+
+    fn read_snapshot(&self) -> Result<ChatDisplaySnapshot, ChatDisplayError> {
+        #[cfg(unix)]
+        {
+            return read_snapshot_from_directory(
+                self.namespace
+                    .as_ref()
+                    .ok_or_else(ChatDisplayError::recovery_required)?,
+            );
+        }
+        #[cfg(not(unix))]
+        {
+            read_snapshot(&self.path)
+        }
+    }
+
+    fn persist_bytes(&self, bytes: &[u8]) -> Result<(), ChatDisplayError> {
+        #[cfg(unix)]
+        {
+            return persist_bytes_in_directory(
+                self.namespace
+                    .as_ref()
+                    .ok_or_else(ChatDisplayError::recovery_required)?,
+                bytes,
+            )
+            .map_err(|_| ChatDisplayError::persistence_outcome_unknown());
+        }
+        #[cfg(not(unix))]
+        {
+            classify_persistence_result(crate::accounts::atomic_replace(&self.path, bytes))
+        }
     }
 }
 
@@ -340,6 +384,7 @@ fn validate_snapshot(snapshot: &ChatDisplaySnapshot) -> Result<(), ChatDisplayEr
             || !valid_id(&record.message_id)
             || record.revision < 2
             || record.revision > MAX_SAFE_REVISION
+            || !valid_content(&record.source_content)
             || !valid_content(&record.content)
             || !keys.insert((record.chat_id.as_str(), record.message_id.as_str()))
         {
@@ -483,11 +528,15 @@ impl DisplayNamespace {
 #[cfg(not(windows))]
 struct DisplayNamespace {
     root: PathBuf,
+    file: File,
+    device: u64,
+    inode: u64,
 }
 
 #[cfg(not(windows))]
 impl DisplayNamespace {
     fn confine(destination: &Path) -> std::io::Result<Self> {
+        use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
         let requested_root = exact_display_root(destination)?;
         for ancestor in requested_root
             .ancestors()
@@ -501,8 +550,17 @@ impl DisplayNamespace {
                 ));
             }
         }
+        let canonical = fs::canonicalize(requested_root)?;
+        let file = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+            .open(&canonical)?;
+        let opened = file.metadata()?;
         let namespace = Self {
-            root: fs::canonicalize(requested_root)?,
+            root: canonical,
+            device: opened.dev(),
+            inode: opened.ino(),
+            file,
         };
         namespace.revalidate_display_leaf()?;
         Ok(namespace)
@@ -513,8 +571,127 @@ impl DisplayNamespace {
     }
 
     fn revalidate_display_leaf(&self) -> std::io::Result<()> {
+        use std::os::unix::fs::MetadataExt;
+        let path = fs::symlink_metadata(&self.root)?;
+        let opened = self.file.metadata()?;
+        if path.file_type().is_symlink()
+            || !path.is_dir()
+            || path.dev() != self.device
+            || path.ino() != self.inode
+            || !opened.is_dir()
+            || opened.dev() != self.device
+            || opened.ino() != self.inode
+            || fs::canonicalize(&self.root)? != self.root
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "chat-display root namespace changed",
+            ));
+        }
+        for ancestor in self
+            .root
+            .ancestors()
+            .filter(|ancestor| !ancestor.as_os_str().is_empty())
+        {
+            let metadata = fs::symlink_metadata(ancestor)?;
+            if !metadata.is_dir() || metadata.file_type().is_symlink() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "chat-display ancestor changed",
+                ));
+            }
+        }
         validate_display_leaves(&self.root)
     }
+}
+
+#[cfg(unix)]
+fn read_snapshot_from_directory(
+    namespace: &DisplayNamespace,
+) -> Result<ChatDisplaySnapshot, ChatDisplayError> {
+    use std::io::Read;
+    use std::os::fd::{AsRawFd, FromRawFd};
+    let name = std::ffi::CString::new(CHAT_DISPLAY_FILE_NAME).expect("static filename has no nul");
+    let fd = unsafe {
+        libc::openat(
+            namespace.file.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+        )
+    };
+    if fd < 0 {
+        let error = std::io::Error::last_os_error();
+        return if error.kind() == std::io::ErrorKind::NotFound {
+            Ok(empty_snapshot())
+        } else {
+            Err(ChatDisplayError::recovery_required())
+        };
+    }
+    let mut file = unsafe { File::from_raw_fd(fd) };
+    let metadata = file
+        .metadata()
+        .map_err(|_| ChatDisplayError::recovery_required())?;
+    if !metadata.is_file() || metadata.len() > MAX_CHAT_DISPLAY_BYTES as u64 {
+        return Err(ChatDisplayError::recovery_required());
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    file.take((MAX_CHAT_DISPLAY_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|_| ChatDisplayError::recovery_required())?;
+    if bytes.len() > MAX_CHAT_DISPLAY_BYTES {
+        return Err(ChatDisplayError::recovery_required());
+    }
+    let snapshot: ChatDisplaySnapshot =
+        serde_json::from_slice(&bytes).map_err(|_| ChatDisplayError::recovery_required())?;
+    validate_snapshot(&snapshot).map_err(|_| ChatDisplayError::recovery_required())?;
+    Ok(snapshot)
+}
+
+#[cfg(unix)]
+fn persist_bytes_in_directory(namespace: &DisplayNamespace, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::fd::{AsRawFd, FromRawFd};
+    let temporary_name = format!(
+        ".chat-display-v1.{}.{}.tmp",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    );
+    let temporary = std::ffi::CString::new(temporary_name).expect("generated filename has no nul");
+    let destination =
+        std::ffi::CString::new(CHAT_DISPLAY_FILE_NAME).expect("static filename has no nul");
+    let root_fd = namespace.file.as_raw_fd();
+    let fd = unsafe {
+        libc::openat(
+            root_fd,
+            temporary.as_ptr(),
+            libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+            0o600,
+        )
+    };
+    if fd < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let result = (|| {
+        let mut file = unsafe { File::from_raw_fd(fd) };
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        if unsafe { libc::renameat(root_fd, temporary.as_ptr(), root_fd, destination.as_ptr()) }
+            != 0
+        {
+            return Err(std::io::Error::last_os_error());
+        }
+        if unsafe { libc::fsync(root_fd) } != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        unsafe {
+            libc::unlinkat(root_fd, temporary.as_ptr(), 0);
+        }
+    }
+    result
 }
 
 #[cfg(windows)]

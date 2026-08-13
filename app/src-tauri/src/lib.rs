@@ -16,6 +16,7 @@ pub mod browser;
 pub mod chat_display;
 pub mod commands;
 pub mod computer_use;
+mod durable_transaction;
 pub mod harness;
 mod process_env_policy;
 pub mod project_catalog;
@@ -2646,6 +2647,7 @@ struct AppState {
     scheduler: SchedulerService,
     harness: app_state::HarnessState,
     project_catalog: Arc<ProjectCatalog>,
+    durable_transaction: Arc<durable_transaction::DurableTransaction>,
     chat_display: ChatDisplayAuthority,
     attention_ledger: Arc<AttentionLedger>,
     artifacts: ArtifactAuthority,
@@ -2670,6 +2672,9 @@ impl AppState {
             harness: app_state::HarnessState::default(),
             chat_display: ChatDisplayAuthority::new(chat_display_path(), project_catalog.clone()),
             project_catalog,
+            durable_transaction: Arc::new(durable_transaction::DurableTransaction::new(
+                &config_dir(),
+            )),
             attention_ledger: Arc::new(AttentionLedger::new(attention_ledger_path())),
             artifacts: ArtifactAuthority::default(),
         }
@@ -2737,10 +2742,12 @@ fn project_catalog_apply(
     expected_revision: u64,
     command: project_catalog::ProjectChatCommand,
 ) -> Result<CatalogSnapshot, String> {
+    // Fixed order for every catalog/display mutation: resident mutex, process lock, authority lock.
     let coordinator = state.harness.resident_transaction();
     let _transaction = coordinator
         .lock()
         .map_err(|_| "Catalog transaction is unavailable".to_owned())?;
+    let _durable_transaction = state.durable_transaction.acquire().map_err(str::to_owned)?;
     state
         .project_catalog
         .apply(expected_revision, command)
@@ -2757,16 +2764,19 @@ fn chat_display_apply(
     state: State<AppState>,
     request: ChatDisplayApplyRequest,
 ) -> Result<ChatDisplayRecord, String> {
+    // Fixed order for every catalog/display mutation: resident mutex, process lock, authority lock.
     let coordinator = state.harness.resident_transaction();
     let _transaction = coordinator
         .lock()
         .map_err(|_| "Chat display transaction is unavailable".to_owned())?;
+    let _durable_transaction = state.durable_transaction.acquire().map_err(str::to_owned)?;
     state
         .chat_display
         .apply(
             request.expected_revision,
             &request.chat_id,
             &request.message_id,
+            &request.source_content,
             &request.content,
         )
         .map_err(|error| error.to_string())

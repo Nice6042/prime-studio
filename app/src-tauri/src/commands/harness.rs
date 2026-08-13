@@ -217,10 +217,13 @@ pub(crate) async fn harness_create_resident_chat(
         .ok_or_else(|| "Harness activation is unavailable".to_owned())?;
     let catalog = state.project_catalog.clone();
     let transaction = state.harness.resident_transaction();
+    let durable_transaction = state.durable_transaction.clone();
     tauri::async_runtime::spawn_blocking(move || {
+        // Fixed order for every catalog/display mutation: resident mutex, process lock, authority lock.
         let _transaction = transaction
             .lock()
             .map_err(|_| "Harness resident transaction is unavailable".to_owned())?;
+        let _durable_transaction = durable_transaction.acquire().map_err(str::to_owned)?;
         let current = catalog.load().map_err(|error| error.to_string())?;
         let project = current
             .state
@@ -303,10 +306,13 @@ pub(crate) async fn harness_branch_resident_chat(
         .ok_or_else(|| "Harness activation is unavailable".to_owned())?;
     let catalog = state.project_catalog.clone();
     let transaction = state.harness.resident_transaction();
+    let durable_transaction = state.durable_transaction.clone();
     tauri::async_runtime::spawn_blocking(move || {
+        // Fixed order for every catalog/display mutation: resident mutex, process lock, authority lock.
         let _transaction = transaction
             .lock()
             .map_err(|_| "Harness resident transaction is unavailable".to_owned())?;
+        let _durable_transaction = durable_transaction.acquire().map_err(str::to_owned)?;
         let current = catalog.load().map_err(|error| error.to_string())?;
         let project = current
             .state

@@ -194,7 +194,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const sidebarReplacementFocus = useRef<"rail.sidebar.toggle" | "sidebar.collapse" | null>(null);
   const sidebarHadFocus = useRef(false);
   const previousSidebarHost = useRef<"pane" | "rail" | "sheet" | null>(null);
-  const [canvas, setCanvas] = useState<Readonly<{ chatId: string; messageId: string; displayRevision: number; content: string }> | null>(null);
+  const [canvas, setCanvas] = useState<Readonly<{ chatId: string; messageId: string; displayRevision: number; sourceContent: string; content: string }> | null>(null);
   const canvasRef = useRef(canvas);
   canvasRef.current = canvas;
   const [editorArtifact, setEditorArtifact] = useState<ArtifactDocument | null>(null);
@@ -677,7 +677,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         ) return { status: "rejected", reason: "The Canvas display revision changed before Apply completed.", retryable: false };
         let nativeRecord;
         try {
-          nativeRecord = await applyChatDisplayRevision({ chatId, messageId, expectedRevision, content });
+          nativeRecord = await applyChatDisplayRevision({ chatId, messageId, expectedRevision, sourceContent: activeCanvas.sourceContent, content });
         } catch {
           return { status: "rejected", reason: "The Canvas display revision could not be durably confirmed.", retryable: false };
         }
@@ -685,7 +685,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         if ((beforeAdopt?.revision ?? expectedRevision) !== expectedRevision) {
           return { status: "rejected", reason: "The Canvas display revision changed before Apply completed.", retryable: false };
         }
-        store.dispatch({ type: "conversation/canvas-applied", chatId: nativeRecord.chatId, messageId: nativeRecord.messageId, expectedRevision, content: nativeRecord.content });
+        store.dispatch({ type: "conversation/canvas-applied", chatId: nativeRecord.chatId, messageId: nativeRecord.messageId, expectedRevision, sourceContent: nativeRecord.sourceContent, content: nativeRecord.content });
         const committed = store.getSnapshot().canvasRevisions[chatId]?.[messageId];
         if (!committed || committed.revision !== nativeRecord.revision || committed.content !== nativeRecord.content) {
           return { status: "rejected", reason: "The Canvas display revision changed before Apply completed.", retryable: false };
@@ -812,7 +812,9 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
           const source = message.blocks.filter((block) => block.kind === "text").map((block) => block.text).join("\n\n");
           const versionState = snapshot.conversationDisplay[chatId]?.messages[messageId];
           const selectedVersion = versionState?.kind === "assistant" ? versionState.versions[versionState.selected]?.text : null;
-          return (displayed?.revision ?? 1) === expectedRevision && (displayed?.content ?? selectedVersion ?? source) === content;
+          const selectedContent = selectedVersion ?? source;
+          const activeDisplay = displayed?.sourceContent === selectedContent ? displayed : undefined;
+          return (activeDisplay?.revision ?? 1) === expectedRevision && (activeDisplay?.content ?? selectedContent) === content;
         };
         if (!stillExact()) return { status: "rejected", reason: "The selected response changed before Canvas could open.", retryable: false };
         const admittedOpen = ++editorOpenAdmission.current;
@@ -828,7 +830,15 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         editorArtifactRef.current = null;
         setEditorArtifact(null);
         setEditorMode("edit");
-        const nextCanvas = Object.freeze({ chatId, messageId, displayRevision: expectedRevision, content });
+        const snapshot = store.getSnapshot();
+        const displayed = snapshot.canvasRevisions[chatId]?.[messageId];
+        const message = selectedSessionRef.current?.parentMessages.find((candidate) => candidate.kind === "assistant" && candidate.id === messageId);
+        const source = message?.kind === "assistant" ? message.blocks.filter((block) => block.kind === "text").map((block) => block.text).join("\n\n") : content;
+        const versionState = snapshot.conversationDisplay[chatId]?.messages[messageId];
+        const selectedVersion = versionState?.kind === "assistant" ? versionState.versions[versionState.selected]?.text : null;
+        const selectedContent = selectedVersion ?? source;
+        const activeDisplay = displayed?.sourceContent === selectedContent ? displayed : undefined;
+        const nextCanvas = Object.freeze({ chatId, messageId, displayRevision: expectedRevision, sourceContent: activeDisplay?.sourceContent ?? selectedContent, content });
         canvasRef.current = nextCanvas;
         setCanvas(nextCanvas);
         setActiveSheet("editor");
