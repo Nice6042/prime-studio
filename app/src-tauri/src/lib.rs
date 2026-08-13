@@ -13,6 +13,7 @@ pub mod attention_ledger;
 pub mod authority;
 mod bounded_io;
 pub mod browser;
+pub mod chat_display;
 pub mod commands;
 pub mod computer_use;
 pub mod harness;
@@ -37,6 +38,9 @@ use bounded_io::{
 };
 use browser::{
     BrowserBroker, BrowserIntentAdmission, BrowserIntentAdmissionRequest, BrowserSecurityStatus,
+};
+use chat_display::{
+    ChatDisplayApplyRequest, ChatDisplayAuthority, ChatDisplayRecord, ChatDisplaySnapshot,
 };
 use commands::editor::{
     editor_artifact_open, editor_artifact_reload, editor_artifact_save, editor_artifact_save_copy,
@@ -494,6 +498,10 @@ fn scheduler_state_path() -> PathBuf {
 
 fn project_catalog_path() -> PathBuf {
     config_dir().join("projects-v2.json")
+}
+
+fn chat_display_path() -> PathBuf {
+    config_dir().join("chat-display-v1.json")
 }
 
 fn attention_ledger_path() -> PathBuf {
@@ -2638,6 +2646,7 @@ struct AppState {
     scheduler: SchedulerService,
     harness: app_state::HarnessState,
     project_catalog: Arc<ProjectCatalog>,
+    chat_display: ChatDisplayAuthority,
     attention_ledger: Arc<AttentionLedger>,
     artifacts: ArtifactAuthority,
 }
@@ -2649,6 +2658,7 @@ impl AppState {
         let computer_use = verified
             .map(ComputerUseBroker::admit_verified_authority)
             .unwrap_or_else(ComputerUseBroker::phase_zero);
+        let project_catalog = Arc::new(ProjectCatalog::new(project_catalog_path()));
         Self {
             sessions: Mutex::new(HashMap::new()),
             roots: Mutex::new(HashSet::new()),
@@ -2658,7 +2668,8 @@ impl AppState {
             browser: BrowserBroker::admission_only(),
             scheduler: SchedulerService::open(scheduler_state_path()),
             harness: app_state::HarnessState::default(),
-            project_catalog: Arc::new(ProjectCatalog::new(project_catalog_path())),
+            chat_display: ChatDisplayAuthority::new(chat_display_path(), project_catalog.clone()),
+            project_catalog,
             attention_ledger: Arc::new(AttentionLedger::new(attention_ledger_path())),
             artifacts: ArtifactAuthority::default(),
         }
@@ -2733,6 +2744,31 @@ fn project_catalog_apply(
     state
         .project_catalog
         .apply(expected_revision, command)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn chat_display_load(state: State<AppState>) -> Result<ChatDisplaySnapshot, String> {
+    state.chat_display.load().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn chat_display_apply(
+    state: State<AppState>,
+    request: ChatDisplayApplyRequest,
+) -> Result<ChatDisplayRecord, String> {
+    let coordinator = state.harness.resident_transaction();
+    let _transaction = coordinator
+        .lock()
+        .map_err(|_| "Chat display transaction is unavailable".to_owned())?;
+    state
+        .chat_display
+        .apply(
+            request.expected_revision,
+            &request.chat_id,
+            &request.message_id,
+            &request.content,
+        )
         .map_err(|error| error.to_string())
 }
 
@@ -4162,6 +4198,8 @@ pub fn run() {
             get_app_settings,
             project_catalog_load,
             project_catalog_apply,
+            chat_display_load,
+            chat_display_apply,
             attention_load,
             attention_activity_evidence,
             attention_mark_seen,

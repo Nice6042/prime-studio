@@ -270,6 +270,8 @@ pub enum TauriCommand {
     GetAppSettings,
     ProjectCatalogLoad,
     ProjectCatalogApply,
+    ChatDisplayLoad,
+    ChatDisplayApply,
     AttentionLoad,
     AttentionActivityEvidence,
     AttentionMarkSeen,
@@ -277,6 +279,7 @@ pub enum TauriCommand {
     HarnessBootstrap,
     HarnessProjection,
     HarnessAttachSession,
+    HarnessRetryWorker,
     HarnessSessionCommand,
     HarnessInspector,
     HarnessChildDataPage,
@@ -304,7 +307,7 @@ pub enum TauriCommand {
     ComputerUseReadiness,
 }
 
-pub const ALL_TAURI_COMMANDS: [TauriCommand; 66] = [
+pub const ALL_TAURI_COMMANDS: [TauriCommand; 69] = [
     TauriCommand::StartSession,
     TauriCommand::AttachSession,
     TauriCommand::DetachSession,
@@ -339,6 +342,8 @@ pub const ALL_TAURI_COMMANDS: [TauriCommand; 66] = [
     TauriCommand::GetAppSettings,
     TauriCommand::ProjectCatalogLoad,
     TauriCommand::ProjectCatalogApply,
+    TauriCommand::ChatDisplayLoad,
+    TauriCommand::ChatDisplayApply,
     TauriCommand::AttentionLoad,
     TauriCommand::AttentionActivityEvidence,
     TauriCommand::AttentionMarkSeen,
@@ -346,6 +351,7 @@ pub const ALL_TAURI_COMMANDS: [TauriCommand; 66] = [
     TauriCommand::HarnessBootstrap,
     TauriCommand::HarnessProjection,
     TauriCommand::HarnessAttachSession,
+    TauriCommand::HarnessRetryWorker,
     TauriCommand::HarnessSessionCommand,
     TauriCommand::HarnessInspector,
     TauriCommand::HarnessChildDataPage,
@@ -417,6 +423,8 @@ impl TauriCommand {
             Self::GetAppSettings => "get_app_settings",
             Self::ProjectCatalogLoad => "project_catalog_load",
             Self::ProjectCatalogApply => "project_catalog_apply",
+            Self::ChatDisplayLoad => "chat_display_load",
+            Self::ChatDisplayApply => "chat_display_apply",
             Self::AttentionLoad => "attention_load",
             Self::AttentionActivityEvidence => "attention_activity_evidence",
             Self::AttentionMarkSeen => "attention_mark_seen",
@@ -424,6 +432,7 @@ impl TauriCommand {
             Self::HarnessBootstrap => "harness_bootstrap",
             Self::HarnessProjection => "harness_projection",
             Self::HarnessAttachSession => "harness_attach_session",
+            Self::HarnessRetryWorker => "harness_retry_worker",
             Self::HarnessSessionCommand => "harness_session_command",
             Self::HarnessInspector => "harness_inspector",
             Self::HarnessChildDataPage => "harness_child_data_page",
@@ -488,6 +497,7 @@ impl TauriCommand {
             Self::OpenExternal => CommandAuthority::Effects(&[ExternalNavigation]),
             Self::DetachSession | Self::StopSession => CommandAuthority::SafetyControl,
             Self::HarnessAttachSession
+            | Self::HarnessRetryWorker
             | Self::HarnessSessionCommand
             | Self::HarnessInspector
             | Self::HarnessChildDataPage
@@ -504,9 +514,10 @@ impl TauriCommand {
             | Self::EditorArtifactReload
             | Self::EditorArtifactSave
             | Self::EditorArtifactSaveCopy => CommandAuthority::VerifiedBroker,
-            Self::NoteAgent | Self::ProjectCatalogApply | Self::AttentionMarkSeen => {
-                CommandAuthority::LocalBookkeeping
-            }
+            Self::NoteAgent
+            | Self::ProjectCatalogApply
+            | Self::ChatDisplayApply
+            | Self::AttentionMarkSeen => CommandAuthority::LocalBookkeeping,
             Self::SendRpc => CommandAuthority::DynamicRawRpc,
             Self::GetProviderProductSnapshot
             | Self::ListAccounts
@@ -521,6 +532,7 @@ impl TauriCommand {
             | Self::BrowserCheckIntentAdmission
             | Self::GetAppSettings
             | Self::ProjectCatalogLoad
+            | Self::ChatDisplayLoad
             | Self::AttentionLoad
             | Self::SchedulerProjection
             | Self::HarnessBootstrap

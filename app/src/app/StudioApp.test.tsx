@@ -12,6 +12,7 @@ import * as operationDispatcher from "../contracts/dispatcher/studioOperationDis
 import type { HarnessInspectorAdapter } from "../features/harness/adapter";
 import * as rpc from "../rpc";
 import * as projectCatalogClient from "../features/navigation/projectCatalogClient";
+import * as chatDisplayClient from "../features/editor/chatDisplayClient";
 
 const nativeDocs = vi.hoisted(() => ({ getVersion: vi.fn(async () => "0.1.0") }));
 
@@ -731,6 +732,10 @@ describe("Studio application state", () => {
       activeDispatch = execute;
       return async (operation) => { operations.push(operation); return execute(operation); };
     });
+    const loadDisplay = vi.spyOn(chatDisplayClient, "loadChatDisplayRevisions").mockResolvedValue({ schemaVersion: 1, records: [] });
+    const applyDisplay = vi.spyOn(chatDisplayClient, "applyChatDisplayRevision").mockImplementation(async (request) => ({
+      chatId: request.chatId, messageId: request.messageId, revision: request.expectedRevision + 1, content: request.content,
+    }));
     try {
       const store = createStudioStore(initialStudioState({ projectCatalog: catalogBoundToRootSession(), sessions: [rootSession] }));
       const view = render(<AppProviders store={store}><StudioApp harnessAdapter={conversationAdapter([])} /></AppProviders>);
@@ -762,6 +767,8 @@ describe("Studio application state", () => {
       expect(rootSession.parentMessages[1]).toEqual(expect.objectContaining({ id: "a1", blocks: [{ kind: "text", text: "Original answer" }] }));
       expect(store.getSnapshot().sessions[rootSession.sessionId]?.parentMessages[1]).toEqual(rootSession.parentMessages[1]);
       expect(store.getSnapshot().canvasRevisions[chat.id]?.a1).toEqual({ revision: 2, content: "Studio-only revision" });
+      expect(applyDisplay).toHaveBeenCalledTimes(1);
+      expect(applyDisplay).toHaveBeenCalledWith({ chatId: chat.id, messageId: "a1", expectedRevision: 1, content: "Studio-only revision" });
 
       view.unmount();
       render(<AppProviders store={store}><StudioApp harnessAdapter={conversationAdapter([])} /></AppProviders>);
@@ -770,8 +777,27 @@ describe("Studio application state", () => {
       saveLayout.mockRestore();
       loadLayout.mockRestore();
       dispatcherSpy.mockRestore();
+      loadDisplay.mockRestore();
+      applyDisplay.mockRestore();
     }
   }, 20_000);
+
+  it("hydrates persisted Canvas revisions into a fresh store at startup", async () => {
+    mockAvailableLayoutPersistence();
+    const loadDisplay = vi.spyOn(chatDisplayClient, "loadChatDisplayRevisions").mockResolvedValue({
+      schemaVersion: 1,
+      records: [{ chatId: chat.id, messageId: "a1", revision: 4, content: "Persisted after restart" }],
+    });
+    try {
+      const freshStore = createStudioStore(initialStudioState({ projectCatalog: catalogBoundToRootSession(), sessions: [rootSession] }));
+      render(<AppProviders store={freshStore}><StudioApp harnessAdapter={conversationAdapter([])} /></AppProviders>);
+      expect(await screen.findByText("Persisted after restart", { selector: ".parent-assistant-copy p" })).toBeVisible();
+      expect(freshStore.getSnapshot().canvasRevisions[chat.id]?.a1).toEqual({ revision: 4, content: "Persisted after restart" });
+      expect(loadDisplay).toHaveBeenCalledOnce();
+    } finally {
+      loadDisplay.mockRestore();
+    }
+  });
 
   it("opens Canvas from the visibly selected assistant version", async () => {
     mockAvailableLayoutPersistence();

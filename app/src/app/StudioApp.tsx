@@ -33,6 +33,7 @@ import { CommandPalette } from "../features/command-palette/CommandPalette";
 import type { PaletteChat, PaletteMessage } from "../features/command-palette/searchIndex";
 import { commandPlacements, createStudioCommandExecutor, shortcutStudioCommand, studioCommand, type StudioCommandId } from "../entities/commands/commandRegistry";
 import { EditorPane, type EditorMode } from "../features/editor/EditorPane";
+import { applyChatDisplayRevision, loadChatDisplayRevisions } from "../features/editor/chatDisplayClient";
 import type { ArtifactDocument } from "../entities/editor/types";
 import type { StudioOperation, StudioOperationOutcome } from "../contracts/studioOperations";
 import { createStudioOperationDispatcher } from "../contracts/dispatcher/studioOperationDispatcher";
@@ -142,6 +143,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const store = useStudioStore();
   const navigation = useStudioSelector((state) => state.navigation);
   const projectCatalog = useStudioSelector((state) => state.projectCatalog);
+  const catalogRevision = useStudioSelector((state) => state.catalogRevision);
   const selectedChat = useStudioSelector((state) => navigation.selectedChatId ? state.chats[navigation.selectedChatId] : null);
   const sessions = useStudioSelector((state) => state.sessions);
   const selectedCatalogChat = navigation.selectedChatId
@@ -461,6 +463,18 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
 
   useEffect(() => {
     let active = true;
+    if (catalogRevision === null) return () => { active = false; };
+    void loadChatDisplayRevisions().then((snapshot) => {
+      if (active) store.dispatch({ type: "conversation/canvas-loaded", records: snapshot.records });
+    }).catch(() => {
+      // Native display authority is fail-closed. The transcript remains the
+      // visible source until a bounded, catalog-validated snapshot can load.
+    });
+    return () => { active = false; };
+  }, [catalogRevision, store]);
+
+  useEffect(() => {
+    let active = true;
     void loadAttentionSnapshot().then((snapshot) => {
       if (active) store.dispatch({ type: "attention/loaded", snapshot });
     }).catch((error) => {
@@ -661,15 +675,28 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
           || activeCanvas.displayRevision !== expectedRevision
           || currentRevision !== expectedRevision
         ) return { status: "rejected", reason: "The Canvas display revision changed before Apply completed.", retryable: false };
-        store.dispatch({ type: "conversation/canvas-applied", chatId, messageId, expectedRevision, content });
+        let nativeRecord;
+        try {
+          nativeRecord = await applyChatDisplayRevision({ chatId, messageId, expectedRevision, content });
+        } catch {
+          return { status: "rejected", reason: "The Canvas display revision could not be durably confirmed.", retryable: false };
+        }
+        const beforeAdopt = store.getSnapshot().canvasRevisions[chatId]?.[messageId];
+        if ((beforeAdopt?.revision ?? expectedRevision) !== expectedRevision) {
+          return { status: "rejected", reason: "The Canvas display revision changed before Apply completed.", retryable: false };
+        }
+        store.dispatch({ type: "conversation/canvas-applied", chatId: nativeRecord.chatId, messageId: nativeRecord.messageId, expectedRevision, content: nativeRecord.content });
         const committed = store.getSnapshot().canvasRevisions[chatId]?.[messageId];
-        if (!committed || committed.revision !== expectedRevision + 1 || committed.content !== content) {
+        if (!committed || committed.revision !== nativeRecord.revision || committed.content !== nativeRecord.content) {
           return { status: "rejected", reason: "The Canvas display revision changed before Apply completed.", retryable: false };
         }
         const revision = committed.revision;
-        const nextCanvas = Object.freeze({ ...activeCanvas, displayRevision: revision, content });
-        canvasRef.current = nextCanvas;
-        setCanvas(nextCanvas);
+        const currentCanvas = canvasRef.current;
+        if (navigationRef.current.selectedChatId === chatId && currentCanvas?.chatId === chatId && currentCanvas.messageId === messageId && currentCanvas.displayRevision === expectedRevision) {
+          const nextCanvas = Object.freeze({ ...currentCanvas, displayRevision: revision, content: nativeRecord.content });
+          canvasRef.current = nextCanvas;
+          setCanvas(nextCanvas);
+        }
         return { status: "updated", revision };
       }
       case "workspace.switch":
