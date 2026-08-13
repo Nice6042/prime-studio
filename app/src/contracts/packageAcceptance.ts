@@ -43,7 +43,7 @@ export const FEATURE_ACCEPTANCE: readonly PackageFeatureAcceptance[] = Object.fr
   row("CV-06", "user and assistant version selectors preserve independent version positions", "partial", ["conversation.user-version.select", "conversation.assistant-version.select"]),
   row("CV-07", "branch from a message creates a new chat bound to a Harness branch", "complete", ["conversation.branch.create"]),
   row("CV-08", "copy response reports clipboard success or failure", "complete", ["conversation.response.copy"]),
-  row("CV-09", "Canvas opens the selected response and applies a Studio display revision", "partial", ["conversation.canvas.open", "editor.canvas.apply"]),
+  row("CV-09", "Canvas opens the selected response and applies a Studio display revision", "complete", ["conversation.canvas.open", "editor.canvas.apply"]),
   row("CV-10", "edited-files card shows bounded paths and opens Review/editor", "partial", ["conversation.files.review", "activity.file.open"]),
   row("CV-11", "Undo edited files is visibly unavailable without verified reversible patch authority", "explicitly_unavailable", ["conversation.files.undo"]),
   row("CV-12", "Worked-for disclosure groups real steps under the owning root turn", "partial", ["conversation.work-details.toggle"]),
@@ -101,7 +101,7 @@ export const FEATURE_ACCEPTANCE: readonly PackageFeatureAcceptance[] = Object.fr
   row("ED-02", "Diff and Edit modes operate on one identity-bound artifact", "complete", ["editor.mode.select"]),
   row("ED-03", "structured diff rows render bounded numbers, markers, additions, deletions, and context", "complete"),
   row("ED-04", "dirty edits save with expected revision and conflict handling", "complete", ["editor.content.change", "editor.file.save", "editor.conflict.reload", "editor.conflict.save-copy"]),
-  row("ED-05", "Canvas edits apply a new Studio display revision without rewriting Harness history", "partial", ["editor.canvas.apply"]),
+  row("ED-05", "Canvas edits apply a new Studio display revision without rewriting Harness history", "complete", ["editor.canvas.apply"]),
   row("ED-06", "file and Canvas buffers persist per session and artifact identity", "partial"),
   row("ED-07", "narrow editor replaces center or opens as a focus-managed sheet", "complete", ["layout.editor.toggle"]),
 
@@ -144,12 +144,12 @@ export const FEATURE_ACCEPTANCE: readonly PackageFeatureAcceptance[] = Object.fr
  * session lifecycle, daemon projections, and identity-bound artifact hydration.
  */
 export const PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS = Object.freeze([
-  "CV-04", "CV-05", "CV-06", "CV-09", "CV-10", "CV-12",
+  "CV-04", "CV-05", "CV-06", "CV-10", "CV-12",
   "CP-03", "CP-04", "CP-05", "CP-07",
   "HR-02", "HR-03", "HR-04", "HR-07", "HR-08", "HR-10",
   "HR-13", "HR-14",
   "CU-02", "CU-03", "CU-06",
-  "ED-01", "ED-05", "ED-06",
+  "ED-01", "ED-06",
   "ST-06", "ST-07", "ST-09", "ST-13",
 ] as const);
 
