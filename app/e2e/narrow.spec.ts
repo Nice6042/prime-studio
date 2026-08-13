@@ -216,10 +216,15 @@ test("settings and palette use compact responsive surfaces", async ({ shellPage 
   await expect(shellPage.getByRole("searchbox", { name: "Search settings" })).toBeVisible();
   await shellPage.getByRole("button", { name: /^Usage/ }).click();
   await expect(shellPage.getByRole("heading", { name: "Usage", level: 1 })).toBeVisible();
+  await expect(shellPage.getByText("API-equivalent cost", { exact: true })).toBeVisible();
+  await expect(shellPage.getByText(/Codex CLI snapshot · pro/)).toBeVisible();
+  await expect(shellPage.getByText("42.5%")).toBeVisible();
+  await expect(shellPage.getByText(/^Current chat$/i)).toHaveCount(0);
   await shellPage.getByRole("note", { name: "Project breakdown unavailable" }).focus();
   await expect(shellPage.getByRole("note", { name: "Project breakdown unavailable" })).toBeFocused();
   const geometry = await shellPage.getByRole("main", { name: "Settings" }).evaluate((element) => ({ width: element.clientWidth, scrollWidth: element.scrollWidth }));
   expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width + 1);
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-settings-usage-narrow");
 });
 
 test("200 percent equivalent geometry keeps sheets and keyboard controls inside the physical screen", async ({ shellPage }) => {

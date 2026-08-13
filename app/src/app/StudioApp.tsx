@@ -4,6 +4,9 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 
 import * as rpc from "../rpc";
 import type { Account, AppSettings, LayoutPreferencesV1 } from "../types";
+import { projectSubscriptionQuota } from "../quotaProjection";
+import { rateLimitsSnapshot, subscribeRateLimits } from "../rateLimits";
+import { reconcileCodexQuotaRefresh, type CodexQuotaState } from "../quotaRefresh";
 import { RuntimeStatusBar } from "../features/shell/RuntimeStatusBar";
 import { TitleBar } from "../features/shell/TitleBar";
 import { WorkspaceShell } from "../features/shell/WorkspaceShell";
@@ -136,6 +139,11 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [settingsLoadFailed, setSettingsLoadFailed] = useState(false);
   const [accounts, setAccounts] = useState<readonly Account[]>([]);
+  const [codexQuota, setCodexQuota] = useState<CodexQuotaState>({ status: "loading", snapshot: null });
+  const codexQuotaRef = useRef(codexQuota);
+  codexQuotaRef.current = codexQuota;
+  const quotaRefreshGeneration = useRef(0);
+  const [, setRateLimitRevision] = useState(0);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [workspaceMenuHost, setWorkspaceMenuHost] = useState<"pane" | "rail" | "sheet" | null>(null);
   const workspaceMenuHostRef = useRef(workspaceMenuHost);
@@ -247,10 +255,51 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
 
   useEffect(() => {
     let active = true;
+    const quotaGeneration = ++quotaRefreshGeneration.current;
+    const previousQuota = codexQuotaRef.current;
     void rpc.getAppSettings().then((next) => { if (active) { setSettings(next); setSettingsLoaded(true); setSettingsLoadFailed(false); } }).catch(() => { if (active) setSettingsLoadFailed(true); });
     void rpc.listAccounts().then((next) => { if (active) setAccounts(next); });
+    void rpc.codexSubscriptionUsageStrict()
+      .then((snapshot) => {
+        if (!active) return;
+        const settlement = reconcileCodexQuotaRefresh(quotaGeneration, quotaRefreshGeneration.current, previousQuota, { status: "success", snapshot });
+        if (settlement) { codexQuotaRef.current = settlement.state; setCodexQuota(settlement.state); }
+      })
+      .catch(() => {
+        if (!active) return;
+        const settlement = reconcileCodexQuotaRefresh(quotaGeneration, quotaRefreshGeneration.current, previousQuota, { status: "failure" });
+        if (settlement) { codexQuotaRef.current = settlement.state; setCodexQuota(settlement.state); }
+      });
     return () => { active = false; };
   }, []);
+
+  useEffect(() => subscribeRateLimits(() => setRateLimitRevision((revision) => revision + 1)), []);
+
+  const quotaProjection = projectSubscriptionQuota(
+    accounts,
+    codexQuota.snapshot,
+    rateLimitsSnapshot(),
+    codexQuota.status === "unavailable" ? "codex_refresh_failed" : "codex_snapshot_missing",
+  );
+
+  const refreshQuota = async () => {
+    const generation = ++quotaRefreshGeneration.current;
+    const previous = codexQuotaRef.current;
+    try {
+      const snapshot = await rpc.codexSubscriptionUsageStrict();
+      const settlement = reconcileCodexQuotaRefresh(generation, quotaRefreshGeneration.current, previous, { status: "success", snapshot });
+      if (!settlement) return { status: "preserved" as const };
+      codexQuotaRef.current = settlement.state;
+      setCodexQuota(settlement.state);
+      return settlement.response;
+    } catch {
+      const settlement = reconcileCodexQuotaRefresh(generation, quotaRefreshGeneration.current, previous, { status: "failure" });
+      if (!settlement) return { status: "preserved" as const };
+      codexQuotaRef.current = settlement.state;
+      setCodexQuota(settlement.state);
+      return settlement.response;
+    }
+  };
 
   useEffect(
     () => installWorkspacePreferences(settings),
@@ -987,6 +1036,9 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       onToolSetting={writeToolSetting}
       onExportUsageCsv={rpc.exportAccountUsageCsv}
       composer={composerProjection}
+      quota={quotaProjection}
+      quotaStatus={codexQuota.status}
+      onRefreshQuota={refreshQuota}
     />{paletteOpen && <CommandPalette admissionConnected={admissionConnected} onRun={runCommand} onClose={() => { void dispatchOperation({ action: "palette.close", payload: {} }); }} restoreFocusTo={paletteOpener} chats={paletteChats} messages={paletteMessages} onOpenChat={openCatalogChat} onOpenMessage={(chatId) => openCatalogChat(chatId)} />}
     {createProjectOpen && <CreateProjectDialog restoreFocusTo={createProjectOpener} onCancel={() => { void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} onCreate={(name, folderPath) => { createProject(name, folderPath); void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} />}</>;
   }

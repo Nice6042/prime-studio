@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as rpc from "../../rpc";
 import type { Account } from "../../types";
+import type { SubscriptionQuotaProjection } from "../../quotaProjection";
 import { AccountUsageSettings, buildAccountUsageCsv } from "./AccountUsageSettings";
 
 vi.mock("../../rpc", () => ({ accountUsageSeriesStrict: vi.fn() }));
@@ -12,6 +13,17 @@ const accounts: Account[] = [
   { id: "work", label: "Work", provider: "openai-codex", agentDir: "C:\\profiles\\shared", createdAt: 1 },
   { id: "claude", label: "Claude", provider: "anthropic", agentDir: "C:\\profiles\\claude", createdAt: 2 },
 ];
+
+const quota: SubscriptionQuotaProjection = {
+  accountFacts: [{
+    scope: "account", accountId: "work", provider: "openai-codex", source: "codex_cli_snapshot",
+    availability: "available", percent: 42.5, windowMinutes: 300, planType: "pro", observedAt: 1_799_999_000_000,
+  }, {
+    scope: "account", accountId: "claude", provider: "anthropic", source: "anthropic_rate_limits",
+    availability: "unavailable", reason: "anthropic_not_reported",
+  }],
+  providerFacts: [],
+};
 
 describe("AccountUsageSettings", () => {
   beforeEach(() => {
@@ -51,20 +63,35 @@ describe("AccountUsageSettings", () => {
     expect(subagentPolicy).toHaveTextContent(/does not report subagent attribution/i);
   });
 
-  it("keeps unsupported chat, task, model, project, attribution, and quota facts explicit and keyboard reachable", async () => {
-    render(<AccountUsageSettings accounts={accounts} />);
+  it("keeps unsupported chat, task, model, project, and attribution facts explicit while rendering quota separately", async () => {
+    render(<AccountUsageSettings accounts={accounts} quota={quota} quotaStatus="ready" />);
     await screen.findByRole("img", { name: /Daily cost over 7 days/ });
 
-    for (const name of ["Chats", "Tasks", "Model breakdown", "Project breakdown", "Subscription quota"]) {
+    for (const name of ["Chats", "Tasks", "Model breakdown", "Project breakdown"]) {
       const unavailable = screen.getByRole("note", { name: `${name} unavailable` });
       expect(unavailable).toHaveAttribute("tabindex", "0");
       expect(unavailable).toHaveTextContent(/not reported|does not report/i);
     }
 
+    expect(screen.getByRole("heading", { name: "Subscription quota" })).toBeVisible();
+    expect(screen.getByText("42.5%")).toBeVisible();
+    expect(screen.getByText(/not reported by this prime build/i)).toBeVisible();
+    expect(screen.getByText("API-equivalent cost")).toBeVisible();
+
     const subagents = screen.getByRole("button", { name: "Subagents unavailable" });
     const tools = screen.getByRole("button", { name: "Tools unavailable" });
     expect(subagents).toBeDisabled();
     expect(tools).toBeDisabled();
+  });
+
+  it("refreshes cost and quota together while retaining proven quota after a failed refresh", async () => {
+    const onRefreshQuota = vi.fn(async () => ({ status: "preserved" as const, message: "Quota refresh failed; showing the last proven snapshot." }));
+    render(<AccountUsageSettings accounts={accounts} quota={quota} quotaStatus="ready" onRefreshQuota={onRefreshQuota} />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(onRefreshQuota).toHaveBeenCalledOnce());
+    expect(screen.getByText("42.5%")).toBeVisible();
+    expect(await screen.findByRole("status")).toHaveTextContent(/last proven snapshot/i);
   });
 
   it("does not present invented zero totals when no account ledger can be queried", async () => {

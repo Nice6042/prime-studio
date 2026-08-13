@@ -602,6 +602,43 @@ export async function accountUsageSeriesStrict(id: string, days: 7 | 30 | 90): P
 export const codexSubscriptionUsage = () =>
   safeInvoke<CodexSubscription | null>("codex_subscription_usage", {}, null);
 
+function readRateWindow(value: unknown): CodexSubscription["secondary"] {
+  const row = exactDataRecord(value, ["usedPercent", "windowMinutes", "resetsAt"]);
+  if (!row || typeof row.usedPercent !== "number" || !Number.isFinite(row.usedPercent) || row.usedPercent < 0 || row.usedPercent > 100
+    || !Number.isSafeInteger(row.windowMinutes) || (row.windowMinutes as number) <= 0
+    || !Number.isSafeInteger(row.resetsAt) || (row.resetsAt as number) < 0) throw new Error();
+  return Object.freeze({
+    usedPercent: row.usedPercent,
+    windowMinutes: row.windowMinutes,
+    resetsAt: row.resetsAt,
+  }) as CodexSubscription["secondary"];
+}
+
+/** Strict Codex projection: null means no log; bridge/malformed data remain failures. */
+export async function codexSubscriptionUsageStrict(): Promise<CodexSubscription | null> {
+  const value = await strictInvoke<unknown>("codex_subscription_usage", {});
+  if (value === null) return null;
+  try {
+    const row = exactDataRecord(value, ["usedPercent", "windowMinutes", "resetsAt", "planType", "secondary", "staleAsOf"]);
+    if (!row || (row.planType !== null && row.planType !== undefined && (typeof row.planType !== "string" || row.planType.length > 64))
+      || (row.secondary !== null && row.secondary !== undefined && typeof row.secondary !== "object")
+      || !Number.isSafeInteger(row.staleAsOf) || (row.staleAsOf as number) < 0) throw new Error();
+    const primary = readRateWindow({
+      usedPercent: row.usedPercent,
+      windowMinutes: row.windowMinutes,
+      resetsAt: row.resetsAt,
+    })!;
+    return Object.freeze({
+      ...primary,
+      planType: row.planType as string | null | undefined,
+      secondary: row.secondary === null || row.secondary === undefined ? row.secondary as null | undefined : readRateWindow(row.secondary),
+      staleAsOf: row.staleAsOf as number,
+    });
+  } catch {
+    throw new Error("Codex quota snapshot is invalid");
+  }
+}
+
 export const listModels = () => safeInvoke<ModelInfo[]>("list_models", {}, []);
 
 // ---- prime-agent CLI location -------------------------------------------

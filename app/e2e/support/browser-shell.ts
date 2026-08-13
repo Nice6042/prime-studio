@@ -196,6 +196,20 @@ export const test = base.extend<ShellFixtures>({
                 createdAt: 0,
               },
             ];
+          case "account_usage_series":
+            return [{
+              ts: Date.now(), provider: "openai-codex", cost: 1.25,
+              input: 100, output: 20, cacheRead: 30, cacheWrite: 0,
+            }];
+          case "codex_subscription_usage":
+            return {
+              usedPercent: 42.5,
+              windowMinutes: 300,
+              resetsAt: 1_800_000_000,
+              planType: "pro",
+              secondary: { usedPercent: 70, windowMinutes: 10_080, resetsAt: 1_800_600_000 },
+              staleAsOf: 1_799_999_000_000,
+            };
           case "get_app_settings":
             return {
               theme: "dark",

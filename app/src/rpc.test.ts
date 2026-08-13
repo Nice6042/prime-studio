@@ -5,6 +5,7 @@ import * as rpcSurface from "./rpc";
 import {
   AccountDeletionError,
   accountUsageSeriesStrict,
+  codexSubscriptionUsageStrict,
   accountStatuses,
   commitRemoveAccount,
   getComputerUseReadiness,
@@ -53,6 +54,18 @@ describe("account usage RPC", () => {
   ])("rejects malformed rows instead of projecting zero usage", async (rows) => {
     invokeMock.mockResolvedValueOnce(rows);
     await expect(accountUsageSeriesStrict("work", 7)).rejects.toThrow(/usage snapshot/i);
+  });
+
+  it("keeps Codex no-log separate from bridge failure and rejects malformed quota snapshots", async () => {
+    invokeMock.mockResolvedValueOnce(null);
+    await expect(codexSubscriptionUsageStrict()).resolves.toBeNull();
+
+    const bridge = new Error("bridge unavailable");
+    invokeMock.mockRejectedValueOnce(bridge);
+    await expect(codexSubscriptionUsageStrict()).rejects.toBe(bridge);
+
+    invokeMock.mockResolvedValueOnce({ usedPercent: 0, windowMinutes: 300, resetsAt: 1, staleAsOf: 1, secret: "x" });
+    await expect(codexSubscriptionUsageStrict()).rejects.toThrow(/quota snapshot/i);
   });
 
   it("exports only bounded CSV and range data through a user-selected native save", async () => {

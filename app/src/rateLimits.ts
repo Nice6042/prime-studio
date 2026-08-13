@@ -9,6 +9,7 @@ import type { RateLimits } from "./types";
 
 /** Keyed by account id. */
 const seen = new Map<string, RateLimits>();
+const listeners = new Set<() => void>();
 
 /** epoch seconds, epoch millis or an ISO string — the shape is unverified. */
 export function toMillis(v: unknown): number | null {
@@ -46,6 +47,7 @@ export function note(accountId: string | null, event: Record<string, unknown>): 
     windows: (body.windows ?? undefined) as RateLimits["windows"],
     seenAt: Date.now(),
   });
+  for (const listener of listeners) listener();
 }
 
 /**
@@ -53,3 +55,11 @@ export function note(accountId: string | null, event: Record<string, unknown>): 
  * re-renders every 2s off its auth poll. Add one if a passive surface ever needs it.
  */
 export const rateLimitsFor = (accountId: string): RateLimits | undefined => seen.get(accountId);
+
+/** Detached session-transient evidence for passive account-wide surfaces. */
+export const rateLimitsSnapshot = (): ReadonlyMap<string, RateLimits> => new Map(seen);
+
+export function subscribeRateLimits(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}

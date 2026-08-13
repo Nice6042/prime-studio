@@ -231,8 +231,15 @@ test("account usage routes to Settings and remains truthfully distinct", async (
   await harness.getByRole("button", { name: "Open account-wide usage in Settings" }).click();
   await expect(shellPage.getByRole("main", { name: "Settings" })).toBeVisible();
   await expect(shellPage.getByRole("heading", { name: "Usage", level: 1 })).toBeVisible();
-  await expect(shellPage.getByText(/No verified usage in this window/)).toBeVisible();
+  await expect(shellPage.getByText("API-equivalent cost", { exact: true })).toBeVisible();
+  await expect(shellPage.getByText("$1.25", { exact: true }).first()).toBeVisible();
+  await expect(shellPage.getByText(/Codex CLI snapshot · pro/)).toBeVisible();
+  await expect(shellPage.getByText("42.5%")).toBeVisible();
+  await expect(shellPage.getByText("70.0%")).toBeVisible();
+  await expect(shellPage.getByText(/As of/)).toBeVisible();
+  await expect(shellPage.getByText(/^Current chat$/i)).toHaveCount(0);
   await expect(shellPage.getByRole("button", { name: "Export CSV" })).toBeEnabled();
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-settings-usage-wide");
   await shellPage.getByRole("button", { name: "Back to chat" }).click();
   await expect(shellPage.getByRole("main", { name: "Prime Harness architecture" })).toBeVisible();
 });

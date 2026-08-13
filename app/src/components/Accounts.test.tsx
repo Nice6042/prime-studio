@@ -23,7 +23,6 @@ vi.mock("../rpc", () => {
     AccountDeletionError,
     accountStatuses: vi.fn(),
     accountUsage: vi.fn(),
-    codexSubscriptionUsage: vi.fn(),
     addAccount: vi.fn(),
     beginAccountLogin: vi.fn(),
     renameAccount: vi.fn(),
@@ -76,7 +75,6 @@ const removalPlan = (
 
 const accountStatusesMock = vi.mocked(rpc.accountStatuses);
 const accountUsageMock = vi.mocked(rpc.accountUsage);
-const codexUsageMock = vi.mocked(rpc.codexSubscriptionUsage);
 const prepareMock = vi.mocked(rpc.prepareRemoveAccount);
 const commitMock = vi.mocked(rpc.commitRemoveAccount);
 const listAccountsStrictMock = vi.mocked(rpc.listAccountsStrict);
@@ -101,6 +99,7 @@ function renderAccounts(defaultAccount: string | null = null) {
       onUse={vi.fn()}
       defaultAccount={defaultAccount}
       onDefaultAccount={onDefaultAccount}
+      quota={{ accountFacts: [{ scope: "account", accountId: account.id, provider: "anthropic", source: "anthropic_rate_limits", availability: "unavailable", reason: "anthropic_not_reported" }], providerFacts: [] }}
     />,
   );
   return { onChanged, onDefaultAccount };
@@ -245,7 +244,6 @@ describe("Accounts status polling", () => {
     vi.useFakeTimers();
     accountStatusesMock.mockReset();
     accountUsageMock.mockReset().mockResolvedValue(null);
-    codexUsageMock.mockReset().mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -465,7 +463,6 @@ describe("Accounts accessible controls", () => {
   beforeEach(() => {
     accountStatusesMock.mockReset().mockResolvedValue([]);
     accountUsageMock.mockReset().mockResolvedValue(null);
-    codexUsageMock.mockReset().mockResolvedValue(null);
   });
 
   it("names the Add-account provider picker", async () => {
@@ -490,7 +487,6 @@ describe("Accounts removal confirmation", () => {
   beforeEach(() => {
     accountStatusesMock.mockReset().mockResolvedValue([]);
     accountUsageMock.mockReset().mockResolvedValue(null);
-    codexUsageMock.mockReset().mockResolvedValue(null);
     prepareMock.mockReset();
     commitMock.mockReset();
     listAccountsStrictMock.mockReset();
