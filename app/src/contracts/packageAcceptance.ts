@@ -30,7 +30,7 @@ export const FEATURE_ACCEPTANCE: readonly PackageFeatureAcceptance[] = Object.fr
   row("NV-04", "expandable project tree groups chats and preserves expansion", "partial", ["catalog.project.toggle", "catalog.chat.select"]),
   row("NV-05", "Archived chats route lists and restores archived records", "complete", ["route.archived.open", "catalog.project.restore", "catalog.chat.restore"]),
   row("NV-06", "inactive-chat completion sets unread and selection clears it", "complete", ["catalog.chat.unread-clear"]),
-  row("NV-07", "chat rows show authoritative working, live, and error status", "partial"),
+  row("NV-07", "chat rows show authoritative working, live, and error status", "complete"),
   row("NV-08", "footer reports configured workspace identity and opens its menu", "complete", ["surface.popover.toggle", "workspace.switch", "route.settings.open", "workspace.sign-out"]),
   row("NV-09", "collapsed rail preserves expand, new, search, settings, avatar actions and tooltips", "partial", ["layout.sidebar.toggle", "catalog.chat.create", "palette.open", "route.settings.open"]),
   row("NV-10", "rename, duplicate, move, archive, restore, and delete are durable catalog commands", "complete", ["catalog.chat.rename", "catalog.chat.duplicate", "catalog.chat.move", "catalog.chat.archive", "catalog.chat.restore", "catalog.chat.delete"]),
@@ -80,7 +80,7 @@ export const FEATURE_ACCEPTANCE: readonly PackageFeatureAcceptance[] = Object.fr
   row("HR-15", "child composer is visibly locked with a Harness-owned explanation", "partial"),
   row("HR-16", "Stop child invokes verified cancellation and reconciles its actual result", "partial", ["harness.child.stop"]),
   row("HR-17", "Back and close restore focus to the selected child row", "complete", ["harness.child.back"]),
-  row("HR-18", "extension prompts exist only for verified runtime extension requests; no approvals dashboard", "partial", ["harness.extension.respond"]),
+  row("HR-18", "extension prompts exist only for verified runtime extension requests; no approvals dashboard", "complete", ["harness.extension.respond"]),
 
   row("CU-01", "right-panel usage contains only the active root session and its attributed children/tools", "complete"),
   row("CU-02", "context card includes authoritative window, use, and freshness", "partial"),
@@ -144,11 +144,10 @@ export const FEATURE_ACCEPTANCE: readonly PackageFeatureAcceptance[] = Object.fr
  * session lifecycle, daemon projections, and identity-bound artifact hydration.
  */
 export const PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS = Object.freeze([
-  "NV-07",
   "CV-04", "CV-05", "CV-06", "CV-10", "CV-12",
   "CP-03", "CP-04", "CP-05", "CP-07",
   "HR-02", "HR-03", "HR-04", "HR-07", "HR-08", "HR-10",
-  "HR-13", "HR-14", "HR-16", "HR-18",
+  "HR-13", "HR-14", "HR-16",
   "CU-02", "CU-03", "CU-06",
   "AC-03",
   "ED-01", "ED-02", "ED-06",

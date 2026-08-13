@@ -55,6 +55,8 @@ export async function expectWithinViewport(locator: Locator, page: Page, slack =
   await expect(locator).toBeVisible();
   await locator.evaluate(async (element) => {
     await Promise.all(element.getAnimations({ subtree: true }).map(async (animation) => {
+      const iterations = animation.effect?.getTiming().iterations;
+      if (iterations === Infinity) return;
       try { await animation.finished; } catch { /* A cancelled entrance animation is already settled. */ }
     }));
   });
