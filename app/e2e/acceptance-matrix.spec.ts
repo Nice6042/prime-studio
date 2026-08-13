@@ -79,6 +79,11 @@ test("runtime extension editor is inspector-only, focused, keyboard cancellable,
   await expect(parent.getByText("Private runtime prompt")).toHaveCount(0);
   await editor.press("Escape");
   await expect(harness.getByRole("heading", { name: "Extension instructions" })).toHaveCount(0);
+  const nextInput = harness.getByRole("textbox", { name: "Extension note" });
+  await expect(nextInput).toBeFocused();
+  await nextInput.press("Escape");
+  await expect(harness.getByRole("heading", { name: "Extension note" })).toHaveCount(0);
+  await expect(harness.getByRole("tab", { name: "Harness" })).toBeFocused();
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-runtime-extension-editor");
 });
 

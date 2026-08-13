@@ -295,7 +295,10 @@ export const test = base.extend<ShellFixtures>({
             if (!current?.cursor?.runtimeGeneration || !Number.isSafeInteger(current.cursor.sequence)) throw new Error("Harness inspector unavailable");
             return JSON.stringify({
               observedAtMs: 1_775_995_220_000, startedAtMs: null, context: null,
-              extensionUi: { status: "available", requests: settledExtensionRequests.has("editor-browser") ? [] : [{ id: "editor-browser", method: "editor", title: "Extension instructions", prefill: "Private runtime prompt", cursor: current.cursor }] },
+              extensionUi: { status: "available", requests: [
+                ...(!settledExtensionRequests.has("editor-browser") ? [{ id: "editor-browser", method: "editor", title: "Extension instructions", prefill: "Private runtime prompt", cursor: current.cursor }] : []),
+                ...(!settledExtensionRequests.has("input-browser") ? [{ id: "input-browser", method: "input", title: "Extension note", placeholder: "Private follow-up", cursor: current.cursor }] : []),
+              ] },
               turnUsage: {
                 totalTurns: 3, omittedTurns: 0,
                 rows: [

@@ -66,6 +66,7 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
   const [settledExtensionSnapshot, setSettledExtensionSnapshot] = useState<Readonly<{ scope: string; ids: ReadonlySet<string> }> | null>(null);
   const extensionAttempts = useRef<Readonly<{ scope: string | null; ids: Set<string> }>>({ scope: requestIdentity, ids: new Set() });
   const childReturnFocus = useRef<HTMLElement | null>(null);
+  const stableInspectorFocus = useRef<HTMLButtonElement | null>(null);
   const activitySeenAttempt = useRef<string | null>(null);
   const requestEpoch = useRef(0);
   const currentRequestIdentity = useRef<string | null>(requestIdentity);
@@ -207,10 +208,14 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
     if (!session || !requestIdentity || settledExtensionIds.has(requestId) || extensionAttempts.current.ids.has(requestId)) return;
     extensionAttempts.current.ids.add(requestId);
     setSettledExtensionSnapshot({ scope: requestIdentity, ids: new Set([...settledExtensionIds, requestId]) });
-    void runAction({ action: "harness.extension.respond", payload: { sessionId: session.sessionId, requestId, response } }, `extension:${requestId}`);
+    void runAction({ action: "harness.extension.respond", payload: { sessionId: session.sessionId, requestId, response } }, `extension:${requestId}`).then(() => {
+      requestAnimationFrame(() => {
+        if (document.activeElement === document.body || document.activeElement === null) stableInspectorFocus.current?.focus();
+      });
+    });
   };
   return <div className="harness-inspector" data-load-phase={loadPhase}>
-    {state.route.kind !== "child" && <><div className="harness-inspector-header"><div><strong>Harness</strong>{compatibility.status !== "ready" && <span className="harness-compatibility">{compatibility.status.replace("_", " ")}</span>}</div><button type="button" data-control-id={collapse.controlId} className="harness-collapse" aria-label="Collapse inspector" disabled={!onCollapse} title={onCollapse ? undefined : "Inspector layout control is unavailable in this host."} onClick={onCollapse}><HarnessIcon kind="collapse" /></button></div><InspectorTabs route={state.route} onSelect={selectTopRoute} activityAttention={activityAttention} /></>}
+    {state.route.kind !== "child" && <><div className="harness-inspector-header"><div><strong>Harness</strong>{compatibility.status !== "ready" && <span className="harness-compatibility">{compatibility.status.replace("_", " ")}</span>}</div><button type="button" data-control-id={collapse.controlId} className="harness-collapse" aria-label="Collapse inspector" disabled={!onCollapse} title={onCollapse ? undefined : "Inspector layout control is unavailable in this host."} onClick={onCollapse}><HarnessIcon kind="collapse" /></button></div><InspectorTabs route={state.route} onSelect={selectTopRoute} activityAttention={activityAttention} onOverviewButton={(button) => { stableInspectorFocus.current = button; }} /></>}
     {state.notice && <p className="harness-notice" role="status">{state.notice}</p>}
     {feedback && <p className="harness-operation-feedback" role={feedback.kind}>{feedback.text}</p>}
     {session && adapter.workerRecovery?.status === "unavailable" && <p className="harness-recovery-unavailable" role="status" aria-label="Silent worker recovery unavailable"><strong>Silent worker recovery unavailable.</strong> {adapter.workerRecovery.reason}</p>}

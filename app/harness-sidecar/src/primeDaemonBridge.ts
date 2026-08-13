@@ -260,8 +260,8 @@ function normalizeExtensionRequest(event: unknown): PendingExtensionRequest | nu
     projected = { id, method, title: boundedString(withoutTimeout.title, 200), options: Object.freeze(options) };
   } else if (method === "input" && (exactKeys(withoutTimeout, ["title"]) || exactKeys(withoutTimeout, ["title", "placeholder"]))) {
     projected = { id, method, title: boundedString(withoutTimeout.title, 200), placeholder: withoutTimeout.placeholder === undefined ? null : boundedString(withoutTimeout.placeholder, 500, true) };
-  } else if (method === "editor" && (exactKeys(payload, ["title"]) || exactKeys(payload, ["title", "prefill"]))) {
-    projected = { id, method, title: boundedString(payload.title, 200), prefill: payload.prefill === undefined ? "" : boundedString(payload.prefill, 32_768, true) };
+  } else if (method === "editor" && (exactKeys(withoutTimeout, ["title"]) || exactKeys(withoutTimeout, ["title", "prefill"]))) {
+    projected = { id, method, title: boundedString(withoutTimeout.title, 200), prefill: withoutTimeout.prefill === undefined ? "" : boundedString(withoutTimeout.prefill, 32_768, true) };
   } else if (["notify", "setStatus", "setWidget", "setTitle", "set_editor_text"].includes(method)) {
     return null;
   } else {

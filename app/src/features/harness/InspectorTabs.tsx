@@ -4,10 +4,11 @@ import { createControlBinding } from "../../contracts/studioOperations";
 import type { ActivityAttention } from "../../attention/attentionLedger";
 import type { InspectorRoute } from "./inspectorStore";
 
-export function InspectorTabs({ route, onSelect, activityAttention }: {
+export function InspectorTabs({ route, onSelect, activityAttention, onOverviewButton }: {
   readonly route: InspectorRoute;
   readonly onSelect: (route: "overview" | "usage" | "activity") => void;
   readonly activityAttention?: ActivityAttention;
+  readonly onOverviewButton?: (button: HTMLButtonElement | null) => void;
 }) {
   const refs = useRef<Array<HTMLButtonElement | null>>([]);
   const tabs = ["overview", "usage", "activity"] as const;
@@ -27,7 +28,7 @@ export function InspectorTabs({ route, onSelect, activityAttention }: {
       role="tab"
       aria-selected={active === tab}
       tabIndex={active === tab ? 0 : -1}
-      ref={(node) => { refs.current[index] = node; }}
+      ref={(node) => { refs.current[index] = node; if (index === 0) onOverviewButton?.(node); }}
       key={tab}
       aria-label={tab === "activity" && activityAttention?.status === "unseen" ? "Activity, unseen" : undefined}
       onClick={() => onSelect(tab)}

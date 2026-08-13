@@ -131,6 +131,7 @@ describe("HarnessInspector", () => {
 
     const select = screen.getByRole("combobox", { name: "Choose branch" });
     await waitFor(() => expect(select).not.toBeDisabled());
+    await waitFor(() => expect(select).toHaveFocus());
     await user.selectOptions(select, "release");
     await user.click(screen.getByRole("button", { name: "Submit Choose branch" }));
     await waitFor(() => expect(execute).toHaveBeenCalledWith({ action: "harness.extension.respond", payload: { sessionId: "root-a", requestId: "select-1", response: { value: "release" } } }));
@@ -148,6 +149,7 @@ describe("HarnessInspector", () => {
     await user.keyboard("{Control>}{Enter}{/Control}");
     await waitFor(() => expect(execute).toHaveBeenCalledWith({ action: "harness.extension.respond", payload: { sessionId: "root-a", requestId: "editor-1", response: { value: "Ship after review." } } }));
     expect(execute).toHaveBeenCalledTimes(4);
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Harness" })).toHaveFocus());
   });
 
   it("never renders extension prompts bound to another session cursor", async () => {

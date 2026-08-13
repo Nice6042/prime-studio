@@ -198,8 +198,18 @@ test("extension prompts project only verified dialog events and respond exactly 
   assert.equal(responses.filter((item) => item.requestId === "request-2").length, 1);
 
   upstreamSequence = 7;
+  failResponse = false;
+  for (const listener of listeners) listener({ type: "extension_ui_request", request: { id: "editor-timeout", method: "editor", payload: { title: "Instructions", prefill: "Review this.", timeout: 30_000 } } });
+  const editorSnapshot = await bridge.snapshot("root-a");
+  assert.deepEqual((await bridge.inspector("root-a")).extensionUi, { status: "available", requests: [{ id: "editor-timeout", method: "editor", title: "Instructions", prefill: "Review this.", cursor: editorSnapshot.cursor }] });
+  const editorCancelled = await bridge.executeOperation("root-a", { operationId: "cancel-editor", action: "harness.extension.respond", payload: { sessionId: "root-a", requestId: "editor-timeout", response: { cancelled: true } }, expectedCursor: editorSnapshot.cursor, idempotencyKey: "cancel-editor" });
+  assert.equal(editorCancelled.status, "updated");
+
+  upstreamSequence = 8;
   for (const listener of listeners) listener({ type: "extension_ui_request", request: { id: "invalid-input", method: "input", payload: { title: "Name", placeholder: null } } });
   for (const listener of listeners) listener({ type: "extension_ui_request", request: { id: "invalid-timeout", method: "confirm", payload: { title: "Continue?", message: "Proceed?", timeout: null } } });
+  for (const listener of listeners) listener({ type: "extension_ui_request", request: { id: "invalid-editor-null-timeout", method: "editor", payload: { title: "Instructions", timeout: null } } });
+  for (const listener of listeners) listener({ type: "extension_ui_request", request: { id: "invalid-editor-string-timeout", method: "editor", payload: { title: "Instructions", timeout: "soon" } } });
   await bridge.snapshot("root-a");
   assert.deepEqual((await bridge.inspector("root-a")).extensionUi, { status: "unavailable", reason: "The Harness emitted extension UI evidence that Studio could not verify safely." });
 });
