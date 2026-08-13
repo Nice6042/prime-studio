@@ -44,8 +44,8 @@ describe("Prime Studio package acceptance catalog", () => {
   it("derives the current implementation summary from the audited feature rows", () => {
     expect(PACKAGE_IMPLEMENTATION_SUMMARY).toEqual(summarizePackageImplementation(FEATURE_ACCEPTANCE));
     expect(PACKAGE_IMPLEMENTATION_SUMMARY).toEqual({
-      complete: 64,
-      partial: 49,
+      complete: 63,
+      partial: 50,
       placeholder: 0,
       missing: 0,
       explicitly_unavailable: 2,
@@ -55,12 +55,12 @@ describe("Prime Studio package acceptance catalog", () => {
   it("records merged production adapter, resident lifecycle, and artifact evidence truthfully", () => {
     const status = (id: string) => FEATURE_ACCEPTANCE.find((feature) => feature.id === id)?.current;
 
-    expect(["SH-01", "NV-01", "NV-03", "NV-05", "NV-10", "CV-09", "AU-02", "PL-02", "PL-03"]
-      .map(status)).toEqual(Array(9).fill("complete"));
-    expect(["CV-07", "AC-04", "ED-04", "SH-04"]
-      .map(status)).toEqual(Array(4).fill("complete"));
-    expect(["CV-05", "CP-03", "HR-07", "HR-16", "ED-01"]
-      .map(status)).toEqual(Array(5).fill("partial"));
+    expect(["SH-01", "NV-01", "NV-03", "NV-05", "NV-10", "AU-02", "PL-02", "PL-03"]
+      .map(status)).toEqual(Array(8).fill("complete"));
+    expect(["CV-07", "AC-04", "SH-04"]
+      .map(status)).toEqual(Array(3).fill("complete"));
+    expect(["CV-05", "CV-09", "CP-03", "HR-07", "HR-16", "ED-01", "ED-04", "ED-05"]
+      .map(status)).toEqual(Array(8).fill("partial"));
     expect(status("CP-01")).toBe("complete");
     expect(status("CV-15")).toBe("partial");
   });
@@ -121,6 +121,14 @@ describe("Prime Studio package acceptance catalog", () => {
     expect(status("CP-01")).toBe("complete");
     expect(status("HR-15")).toBe("complete");
     expect(status("NV-09")).toBe("complete");
+  });
+
+  it("records reviewed quota separation and command-registry ownership without hiding editor operation gaps", () => {
+    const status = (id: string) => FEATURE_ACCEPTANCE.find((feature) => feature.id === id)?.current;
+
+    expect(status("AU-06")).toBe("complete");
+    expect(status("PL-04")).toBe("complete");
+    expect(["CV-09", "ED-04", "ED-05"].map(status)).toEqual(Array(3).fill("partial"));
   });
 
   it("records reviewed project expansion, runtime identity, editor modes, and typed toast queue", () => {
