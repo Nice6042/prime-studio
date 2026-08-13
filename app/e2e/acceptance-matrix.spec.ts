@@ -87,6 +87,23 @@ test("runtime extension editor is inspector-only, focused, keyboard cancellable,
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-runtime-extension-editor");
 });
 
+test("child detail receives focus after its final runtime extension prompt", async ({ shellPage }) => {
+  const parent = shellPage.getByRole("main", { name: "Prime Harness architecture" });
+  const harness = shellPage.getByRole("complementary", { name: "Harness" });
+  await activateWithKeyboard(harness.getByRole("button", { name: "Verify runtime compatibility, running" }));
+  await expect(harness.getByRole("heading", { name: "Verify runtime compatibility" })).toBeVisible();
+
+  const editor = harness.getByRole("textbox", { name: "Extension instructions" });
+  await editor.focus();
+  await editor.press("Escape");
+  await expect(harness.getByRole("textbox", { name: "Extension note" })).toBeFocused();
+  await harness.getByRole("textbox", { name: "Extension note" }).press("Escape");
+
+  await expect(harness.getByRole("button", { name: "Back to Harness" })).toBeFocused();
+  await expect(parent.getByText("Private runtime prompt")).toHaveCount(0);
+  await expect(parent.getByText("Private follow-up")).toHaveCount(0);
+});
+
 test("Harness overview, usage, and activity expose every truthful fixture projection", async ({ shellPage }) => {
   const harness = shellPage.getByRole("complementary", { name: "Harness" });
   const tabs = harness.getByRole("tablist", { name: "Harness views" });

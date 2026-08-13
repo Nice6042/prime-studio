@@ -16,7 +16,7 @@ function elapsed(startedAtMs: number | null, observedAtMs: number): string {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
-export function ChildDetail({ sessionId, displayedCursor, child, details, observedAtMs, tab, pendingKey, onBack, onTab, onAction, onLoadPage }: {
+export function ChildDetail({ sessionId, displayedCursor, child, details, observedAtMs, tab, pendingKey, onBack, onBackButton, onTab, onAction, onLoadPage }: {
   readonly sessionId: string;
   readonly displayedCursor: HarnessCursor;
   readonly child: ChildAgentSummary;
@@ -25,6 +25,7 @@ export function ChildDetail({ sessionId, displayedCursor, child, details, observ
   readonly tab: "chat" | "activity" | "files";
   readonly pendingKey: string | null;
   readonly onBack: () => void;
+  readonly onBackButton?: (button: HTMLButtonElement | null) => void;
   readonly onTab: (tab: "chat" | "activity" | "files") => void;
   readonly onAction: (operation: StudioOperation, key: string) => void;
   readonly onLoadPage?: (sessionId: string, childId: string, tab: "chat" | "activity" | "files", displayedCursor: HarnessCursor, pageCursor: string | null) => Promise<HarnessChildDataPage>;
@@ -78,7 +79,7 @@ export function ChildDetail({ sessionId, displayedCursor, child, details, observ
     selectTab(tabs[next]!);
   };
   return <div className="child-detail">
-    <header className="child-detail-nav"><button type="button" data-control-id={back.controlId} aria-label="Back to Harness" onClick={onBack}><HarnessIcon kind="back" /></button><button type="button" data-control-id={crumb.controlId} onClick={onBack}>Harness</button><span>/</span><strong>{child.task}</strong><button type="button" data-control-id={close.controlId} aria-label="Close child detail" onClick={onBack}><HarnessIcon kind="close" /></button></header>
+    <header className="child-detail-nav"><button ref={onBackButton} type="button" data-control-id={back.controlId} aria-label="Back to Harness" onClick={onBack}><HarnessIcon kind="back" /></button><button type="button" data-control-id={crumb.controlId} onClick={onBack}>Harness</button><span>/</span><strong>{child.task}</strong><button type="button" data-control-id={close.controlId} aria-label="Close child detail" onClick={onBack}><HarnessIcon kind="close" /></button></header>
     <div className="child-detail-scroll">
       <section className="child-status-card"><span className="harness-agent-dot" data-status={child.status} aria-hidden="true" /><div><h2>{child.task}</h2><p>{child.status}</p></div><div><strong>{elapsed(details?.startedAtMs ?? null, observedAtMs)}</strong><span>Elapsed</span></div></section>
       <div className="child-facts"><div><span>Provider</span><strong>{child.provider ?? "Unavailable"}</strong></div><div><span>Model</span><strong>{child.model ?? "Unavailable"}</strong></div></div>

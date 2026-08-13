@@ -152,6 +152,31 @@ describe("HarnessInspector", () => {
     await waitFor(() => expect(screen.getByRole("tab", { name: "Harness" })).toHaveFocus());
   });
 
+  it("returns focus to child detail after its last extension prompt is cancelled", async () => {
+    const promptDetails: HarnessPanelDetails = {
+      ...details,
+      extensionUi: { status: "available", requests: [
+        { id: "child-editor", method: "editor", title: "Child instructions", prefill: "Private child direction.", cursor: session.cursor },
+      ] },
+    };
+    const source = adapter();
+    source.load = vi.fn(async () => promptDetails);
+    const execute = vi.fn(async () => ({ status: "updated" as const, revision: 11 }));
+    const user = userEvent.setup();
+    render(<HarnessInspector chatId="chat-a" session={session} compatibility={compatibility} adapter={source} onExecute={execute} />);
+
+    await screen.findByRole("textbox", { name: "Child instructions" });
+    await user.click(screen.getByRole("button", { name: /Review protocol/ }));
+    expect(screen.getByRole("heading", { name: "Review protocol" })).toBeVisible();
+
+    const editor = screen.getByRole("textbox", { name: "Child instructions" });
+    editor.focus();
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Child instructions" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Back to Harness" })).toHaveFocus());
+  });
+
   it("never renders extension prompts bound to another session cursor", async () => {
     const source = adapter();
     source.load = vi.fn(async (): Promise<HarnessPanelDetails> => ({ ...details, extensionUi: { status: "available", requests: [
