@@ -3,8 +3,9 @@ import { getVersion } from "@tauri-apps/api/app";
 
 import { Accounts } from "../../components/Accounts";
 import { createControlBinding, type StudioActionId, type StudioOperation, type StudioOperationOutcome } from "../../contracts/studioOperations";
-import { commandPlacements, studioCommand } from "../../entities/commands/commandRegistry";
+import { studioKeyboardShortcutGroups, type CommandAvailabilityContext } from "../../entities/commands/commandRegistry";
 import type { HarnessCompatibility, RuntimeIdentity } from "../../shared/ipc/harness.generated";
+import type { SendShortcut } from "../conversation/composerModel";
 import type { Account, AppSettings } from "../../types";
 import type { SubscriptionQuotaProjection } from "../../quotaProjection";
 import type { HarnessComposerProjection } from "../harness/adapter";
@@ -129,12 +130,13 @@ export function PrivacySettings({ compatibility, settings, onSetting }: { readon
   return <><Unavailable>{unappliedReason}</Unavailable><SettingGroup title="Privacy"><Row label="Telemetry" description="Share anonymous application diagnostics. Prompt and credential content is never included."><SettingSwitch label="Telemetry" enabled={boolValue(settings.telemetry, false)} setting="telemetry" onSetting={onSetting} disabled reason={unappliedReason} /></Row><Row label="Crash reports" description="Send bounded crash diagnostics after redaction."><SettingSwitch label="Crash reports" enabled={boolValue(settings.crashReports, false)} setting="crashReports" onSetting={onSetting} disabled reason={unappliedReason} /></Row><Row label="Local-only mode" description="Keep sessions, logs, and usage history on this machine."><SettingSwitch label="Local-only mode" enabled={boolValue(settings.localOnly)} setting="localOnly" onSetting={onSetting} disabled reason={unappliedReason} /></Row></SettingGroup><SettingGroup title="Runtime security"><Row label="Compatibility" description="Runtime behavior is bound to verified hashes, protocol schema, and capabilities."><span className="studio-setting-value">{compatibility.status.replace(/_/gu, " ")}</span></Row><Row label="Credentials" description="Credential values stay outside renderer projections and logs."><span className="studio-setting-value">Protected</span></Row></SettingGroup></>;
 }
 
-export function ShortcutsSettings() {
-  const composer = [{ label: "Send message", keys: "Enter" }, { label: "New line", keys: "Shift+Enter" }];
-  return <><SettingGroup title="Application"><div className="studio-shortcut-list">{commandPlacements("settings-shortcut").map((placement) => {
-    const command = studioCommand(placement.commandId);
-    return <div key={placement.id}><span>{placement.label ?? command.label}</span><kbd>{placement.hint ?? command.shortcuts[0]}</kbd></div>;
-  })}</div></SettingGroup><SettingGroup title="Composer"><div className="studio-shortcut-list">{composer.map((row) => <div key={row.label}><span>{row.label}</span><kbd>{row.keys}</kbd></div>)}</div></SettingGroup></>;
+export function ShortcutsSettings({ availability, sendShortcut, composerAvailability }: { readonly availability: CommandAvailabilityContext; readonly sendShortcut: SendShortcut; readonly composerAvailability: Readonly<{ enabled: boolean; reason?: string }> }) {
+  const groups = studioKeyboardShortcutGroups({ commands: availability, composer: { sendShortcut, availability: composerAvailability } });
+  const list = (rows: readonly (typeof groups.application)[number][]) => <ul className="studio-shortcut-list">{rows.map((row) => <li key={row.id} aria-disabled={!row.availability.enabled}>
+    <span><strong>{row.label}</strong><small className={row.availability.enabled ? "studio-shortcut-available" : "studio-shortcut-unavailable"}>{row.availability.enabled ? "Available" : "Unavailable"}{row.availability.reason && <span> — {row.availability.reason}</span>}</small></span>
+    <span className="studio-shortcut-chords">{row.shortcuts.map((shortcut) => <kbd key={shortcut}>{shortcut}</kbd>)}</span>
+  </li>)}</ul>;
+  return <><SettingGroup title="Application">{list(groups.application)}</SettingGroup><SettingGroup title="Composer">{list(groups.composer)}</SettingGroup></>;
 }
 
 export function AboutSettings({ compatibility, runtime, onExecute }: {

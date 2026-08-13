@@ -77,15 +77,37 @@ describe("SettingsShell", () => {
     expect(screen.getAllByText(/verified Harness connection/i).length).toBeGreaterThan(0);
   });
 
-  it("lists only explicitly placed application shortcuts from the command registry", () => {
-    render(<SettingsShell section="shortcuts" onBack={() => undefined} onSection={() => undefined} compatibility={unavailable} />);
+  it("lists every registry shortcut with the same truthful availability used by execution", () => {
+    render(<SettingsShell
+      section="shortcuts"
+      onBack={() => undefined}
+      onSection={() => undefined}
+      compatibility={unavailable}
+      commandAvailability={{
+        admissionConnected: false,
+        disabledActions: { "catalog.chat.create": "Select a writable project before creating a chat." },
+      }}
+      settings={{ sendShortcut: "ctrl-enter" }}
+      composerShortcutAvailability={{ enabled: false, reason: "Prompt admission is not connected." }}
+    />);
     const application = screen.getByRole("heading", { name: "Application" }).parentElement!;
-    expect(application).toHaveTextContent("New chatCtrl+N");
-    expect(application).toHaveTextContent("Open command paletteCtrl+K");
-    expect(application).toHaveTextContent("Toggle projectsCtrl+B");
-    expect(application).toHaveTextContent("Toggle HarnessCtrl+J");
-    expect(application).toHaveTextContent("Open settingsCtrl+,");
+    const rows = Array.from(application.querySelectorAll("li"));
+    expect(rows).toHaveLength(5);
+    expect(rows[0]).toHaveTextContent("New chat");
+    expect(rows[0]).toHaveTextContent("Ctrl+N");
+    expect(rows[0]).toHaveTextContent("Unavailable — Select a writable project before creating a chat.");
+    expect(rows[0]).toHaveAttribute("aria-disabled", "true");
+    expect(rows[1]).toHaveTextContent("Open command paletteAvailableCtrl+K");
+    expect(rows[2]).toHaveTextContent("Toggle projectsAvailableCtrl+B");
+    expect(rows[3]).toHaveTextContent("Toggle HarnessAvailableCtrl+J");
+    expect(rows[4]).toHaveTextContent("Open settingsAvailableCtrl+,");
     expect(application).not.toHaveTextContent("Undo");
+    const composer = screen.getByRole("heading", { name: "Composer" }).parentElement!;
+    const composerRows = Array.from(composer.querySelectorAll("li"));
+    expect(composerRows).toHaveLength(2);
+    expect(composerRows[0]).toHaveTextContent("Send messageUnavailable — Prompt admission is not connected.Ctrl+Enter");
+    expect(composerRows[0]).toHaveAttribute("aria-disabled", "true");
+    expect(composerRows[1]).toHaveTextContent("New lineAvailableEnterShift+Enter");
   });
 
   it("keeps Harness and tool policy controls unavailable without a verified operation adapter", () => {

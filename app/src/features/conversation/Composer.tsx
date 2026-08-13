@@ -6,6 +6,7 @@ import {
   approximateDraftTokens,
   acceptAttachmentMetadata,
   boundDraft,
+  composerSubmitAvailability,
   deriveSlashCommands,
   filterSlashCommands,
   keyboardComposerAction,
@@ -97,7 +98,7 @@ export function Composer({
   const enabledSlashCommands = useMemo(() => slashCommands.filter((command) => command.enabled), [slashCommands]);
   const activeSlash = enabledSlashCommands[Math.min(activeSlashIndex, Math.max(0, enabledSlashCommands.length - 1))] ?? null;
   const disabledReason = state.kind === "unavailable" ? state.reason : state.kind === "read_only" ? "Archived conversations are read-only." : null;
-  const canSubmit = state.kind === "idle" ? state.canSend : state.kind === "working" ? draft.trim().length > 0 && (state.canQueue || state.canSteer) : false;
+  const canSubmit = composerSubmitAvailability(state, draft).enabled;
   const busy = state.kind === "submitting" || state.kind === "aborting";
 
   useEffect(() => {

@@ -5,6 +5,7 @@ import {
   createStudioCommandExecutor,
   operationForStudioCommand,
   shortcutStudioCommand,
+  studioKeyboardShortcutGroups,
   studioCommand,
   studioCommands,
   validateStudioCommands,
@@ -50,9 +51,9 @@ describe("studio command registry", () => {
     expect(commandPlacements("sidebar").find((placement) => placement.id === "sidebar.collapse")?.commandId).toBe("sidebar.toggle");
   });
 
-  it("does not advertise menu-only commands in the palette or shortcut settings", () => {
+  it("does not advertise menu-only commands in the palette or keyboard shortcut projection", () => {
     expect(commandPlacements("palette").some((placement) => placement.commandId === "history.undo")).toBe(false);
-    expect(commandPlacements("settings-shortcut").some((placement) => placement.commandId === "history.undo")).toBe(false);
+    expect(studioCommand("history.undo").shortcuts).toEqual([]);
     expect(commandPlacements("palette").some((placement) => placement.commandId === "help.support")).toBe(false);
   });
 
@@ -100,11 +101,11 @@ describe("studio command registry", () => {
 
   it("keeps the shortcut consumer parity table on one label, chord, action and availability", () => {
     const expected = [
-      ["chat.new", "New chat", "Ctrl+N", "catalog.chat.create", "title-menu,settings-shortcut,sidebar,rail,palette"],
-      ["palette.open", "Open command palette", "Ctrl+K", "palette.open", "settings-shortcut,sidebar,rail,palette,title-action"],
-      ["sidebar.toggle", "Toggle projects", "Ctrl+B", "layout.sidebar.toggle", "title-menu,title-action,settings-shortcut,sidebar,rail,palette"],
-      ["inspector.toggle", "Toggle Harness", "Ctrl+J", "layout.inspector.toggle", "title-menu,title-action,settings-shortcut,palette"],
-      ["settings.open", "Open settings", "Ctrl+,", "route.settings.open", "title-menu,settings-shortcut,sidebar,rail,palette"],
+      ["chat.new", "New chat", "Ctrl+N", "catalog.chat.create", "title-menu,sidebar,rail,palette"],
+      ["palette.open", "Open command palette", "Ctrl+K", "palette.open", "sidebar,rail,palette,title-action"],
+      ["sidebar.toggle", "Toggle projects", "Ctrl+B", "layout.sidebar.toggle", "title-menu,title-action,sidebar,rail,palette"],
+      ["inspector.toggle", "Toggle Harness", "Ctrl+J", "layout.inspector.toggle", "title-menu,title-action,palette"],
+      ["settings.open", "Open settings", "Ctrl+,", "route.settings.open", "title-menu,sidebar,rail,palette"],
     ] as const;
     expect(studioCommands.filter((command) => command.shortcuts.length > 0).map((command) => [
       command.id,
@@ -116,6 +117,38 @@ describe("studio command registry", () => {
     for (const command of studioCommands.filter((candidate) => candidate.shortcuts.length > 0)) {
       expect(command.availability({ admissionConnected: false })).toEqual({ enabled: true });
     }
+  });
+
+  it("projects every application and configured composer shortcut from the registry that executes it", () => {
+    const groups = studioKeyboardShortcutGroups({
+      commands: {
+        admissionConnected: false,
+        disabledActions: { "catalog.chat.create": "Select a writable project before creating a chat." },
+      },
+      composer: {
+        sendShortcut: "ctrl-enter",
+        availability: { enabled: false, reason: "Prompt admission is not connected." },
+      },
+    });
+
+    expect(groups.application.map(({ id, label, shortcuts, action, availability }) => [
+      id,
+      label,
+      shortcuts.join(" / "),
+      action,
+      availability.enabled,
+      availability.reason ?? null,
+    ])).toEqual([
+      ["chat.new", "New chat", "Ctrl+N", "catalog.chat.create", false, "Select a writable project before creating a chat."],
+      ["palette.open", "Open command palette", "Ctrl+K", "palette.open", true, null],
+      ["sidebar.toggle", "Toggle projects", "Ctrl+B", "layout.sidebar.toggle", true, null],
+      ["inspector.toggle", "Toggle Harness", "Ctrl+J", "layout.inspector.toggle", true, null],
+      ["settings.open", "Open settings", "Ctrl+,", "route.settings.open", true, null],
+    ]);
+    expect(groups.composer.map(({ id, label, shortcuts, action, availability }) => [id, label, shortcuts, action, availability])).toEqual([
+      ["composer.submit", "Send message", ["Ctrl+Enter"], "harness.session.prompt", { enabled: false, reason: "Prompt admission is not connected." }],
+      ["composer.newline", "New line", ["Enter", "Shift+Enter"], "composer.draft.change", { enabled: true }],
+    ]);
   });
 
   it("labels New project as the presentation command that opens its verified creation dialog", () => {

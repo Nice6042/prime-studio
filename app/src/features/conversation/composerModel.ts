@@ -1,4 +1,6 @@
 import type { HarnessCompatibility, RootSessionSnapshot } from "../../shared/ipc/harness.generated";
+import { composerKeyboardShortcutAction, type SendShortcut } from "../../entities/commands/commandRegistry";
+export type { SendShortcut } from "../../entities/commands/commandRegistry";
 
 export const MAX_DRAFT_CODE_POINTS = 64 * 1024;
 export const MAX_ATTACHMENTS = 8;
@@ -27,7 +29,6 @@ export interface SlashCommand {
   readonly unavailableReason?: string;
 }
 
-export type SendShortcut = "enter" | "ctrl-enter";
 export type SlashAvailability = Readonly<Record<SlashCommand["id"], boolean>>;
 
 const SLASH_DEFINITIONS: readonly Omit<SlashCommand, "enabled" | "unavailableReason">[] = [
@@ -108,10 +109,16 @@ export function keyboardComposerAction(event: {
   readonly metaKey: boolean;
   readonly isComposing: boolean;
 }, sendShortcut: SendShortcut = "enter"): "submit" | "newline" | "ignore" {
-  if (event.key !== "Enter") return "ignore";
-  if (event.shiftKey || event.isComposing) return "newline";
-  if (sendShortcut === "ctrl-enter" && !event.ctrlKey && !event.metaKey) return "newline";
-  return "submit";
+  return composerKeyboardShortcutAction({ ...event, altKey: false }, sendShortcut);
+}
+
+export function composerSubmitAvailability(state: ComposerState, draft: string): Readonly<{ enabled: boolean; reason?: string }> {
+  if (state.kind === "unavailable") return { enabled: false, reason: state.reason };
+  if (state.kind === "read_only") return { enabled: false, reason: "Archived conversations are read-only." };
+  if (state.kind === "submitting" || state.kind === "aborting") return { enabled: false, reason: "A prompt operation is already in progress." };
+  if (state.kind === "idle" && state.canSend) return { enabled: true };
+  if (state.kind === "working" && draft.trim().length > 0 && (state.canQueue || state.canSteer)) return { enabled: true };
+  return { enabled: false, reason: "Write a message before sending." };
 }
 
 export function filterSlashCommands(query: string, commands: readonly SlashCommand[] = SLASH_COMMANDS): readonly SlashCommand[] {

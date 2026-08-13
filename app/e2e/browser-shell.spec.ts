@@ -297,6 +297,8 @@ test("registry keeps Ctrl+N K comma B J in parity with visible commands and Sett
   const beforeNew = await requestCount("project_catalog_apply");
   const newChat = shellPage.getByRole("button", { name: "New chat" });
   await expect(newChat).toBeDisabled();
+  const newChatDisabledReason = await newChat.getAttribute("title");
+  expect(newChatDisabledReason).toBeTruthy();
   await shellPage.keyboard.press("Control+N");
   await expect.poll(() => requestCount("project_catalog_apply")).toBe(beforeNew);
   await newChat.click({ force: true });
@@ -315,10 +317,26 @@ test("registry keeps Ctrl+N K comma B J in parity with visible commands and Sett
   await shellPage.getByRole("button", { name: "Settings" }).click();
   await shellPage.getByRole("button", { name: /^Keyboard shortcuts/ }).click();
   const application = shellPage.getByRole("heading", { name: "Application" }).locator("..");
+  const shortcutRows = application.getByRole("listitem");
+  await expect(shortcutRows).toHaveCount(5);
   for (const row of [["New chat", "Ctrl+N"], ["Open command palette", "Ctrl+K"], ["Toggle projects", "Ctrl+B"], ["Toggle Harness", "Ctrl+J"], ["Open settings", "Ctrl+,"]] as const) {
     await expect(application).toContainText(row[0]);
     await expect(application).toContainText(row[1]);
   }
+  const newChatShortcut = shortcutRows.filter({ hasText: "New chat" });
+  await expect(newChatShortcut).toHaveAttribute("aria-disabled", "true");
+  await expect(newChatShortcut).toContainText("Unavailable");
+  await expect(newChatShortcut).toContainText(newChatDisabledReason!);
+  const composerShortcuts = shellPage.getByRole("heading", { name: "Composer" }).locator("..").getByRole("listitem");
+  await expect(composerShortcuts).toHaveCount(2);
+  await expect(composerShortcuts.nth(0)).toContainText("Send message");
+  await expect(composerShortcuts.nth(1)).toContainText("New line");
+  await expect(composerShortcuts.nth(1)).toContainText("Shift+Enter");
+
+  await shellPage.setViewportSize({ width: 520, height: 800 });
+  const narrowGeometry = await shellPage.getByRole("main", { name: "Settings" }).evaluate((element) => ({ width: element.clientWidth, scrollWidth: element.scrollWidth }));
+  expect(narrowGeometry.scrollWidth).toBeLessThanOrEqual(narrowGeometry.width + 1);
+  await shellPage.setViewportSize({ width: 1280, height: 800 });
   await shellPage.getByRole("button", { name: "Back to chat" }).click();
 
   const beforeSidebar = await requestCount("set_layout_preferences");

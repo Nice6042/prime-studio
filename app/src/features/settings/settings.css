@@ -40,8 +40,15 @@
 .studio-theme-preview { display:block; height:66px; border:1px solid #555; border-radius:7px; background:linear-gradient(90deg,#202020 0 27%,#171717 27% 100%); }
 .studio-theme-light { background:linear-gradient(90deg,#e6e6e6 0 27%,#fff 27% 100%); }
 .studio-theme-system { background:linear-gradient(135deg,#fff 0 50%,#171717 50%); }
-.studio-shortcut-list > div { display:flex; align-items:center; justify-content:space-between; min-height:46px; padding:0 14px; border-top:1px solid var(--line,#343434); font-size:13px; }
-.studio-shortcut-list > div:first-child { border-top:0; }
+.studio-shortcut-list { margin:0; padding:0; list-style:none; }
+.studio-shortcut-list > li { display:flex; gap:16px; align-items:center; justify-content:space-between; min-height:52px; padding:8px 14px; border-top:1px solid var(--line,#343434); font-size:13px; }
+.studio-shortcut-list > li:first-child { border-top:0; }
+.studio-shortcut-list strong,.studio-shortcut-list small { display:block; }
+.studio-shortcut-list strong { font-size:13px; }
+.studio-shortcut-list small { margin-top:2px; color:var(--muted,#999); font-size:10.5px; }
+.studio-shortcut-list small > span { display:block; margin-top:2px; }
+.studio-shortcut-unavailable { color:#e2b34e!important; }
+.studio-shortcut-chords { display:flex; flex:none; flex-wrap:wrap; gap:5px; justify-content:flex-end; }
 .studio-shortcut-list kbd { padding:3px 7px; border:1px solid var(--line,#484848); border-radius:6px; color:var(--muted,#bbb); font:11px/1.4 inherit; }
 .studio-usage-summary { display:flex; gap:20px; align-items:end; justify-content:space-between; padding:18px; border:1px solid var(--line,#343434); border-radius:12px; }
 .studio-usage-summary span,.studio-usage-summary small { display:block; color:var(--muted,#aaa); font-size:12px; }
@@ -81,7 +88,7 @@
 .studio-usage-breakdown th { color:var(--muted,#999); font-weight:500; }
 .studio-usage-footnote { color:var(--muted,#999); font-size:11px; line-height:1.5; }
 @media (max-width:980px){.studio-usage-stats{grid-template-columns:repeat(4,minmax(0,1fr));}.studio-usage-stats>div:nth-child(5){border-left:0;border-top:1px solid var(--line,#343434)}}
-@media (max-width:760px) { .studio-settings { grid-template-columns:1fr; overflow:auto; }.studio-settings-nav { border-right:0; border-bottom:1px solid var(--line,#323232); max-height:42vh; }.studio-settings-page { width:calc(100% - 28px); padding-top:28px; }.studio-setting-row { align-items:flex-start; flex-direction:column; gap:10px; }.studio-theme-options { grid-template-columns:1fr; }.studio-usage-summary { align-items:flex-start; flex-direction:column; }.studio-usage-controls { align-items:flex-start; flex-direction:column; }.studio-usage-stats { grid-template-columns:repeat(2,minmax(0,1fr)); }.studio-usage-stats > div:nth-child(odd) { border-left:0; }.studio-usage-chart svg { height:130px; }.studio-usage-chart>header{align-items:flex-start;flex-direction:column}.studio-chart-legend{flex-wrap:wrap}.studio-usage-series-policies,.studio-usage-unsupported{grid-template-columns:1fr}.studio-usage-breakdown{overflow-x:auto}.studio-usage-breakdown table{min-width:420px} }
+@media (max-width:760px) { .studio-settings { grid-template-columns:1fr; overflow:auto; }.studio-settings-nav { border-right:0; border-bottom:1px solid var(--line,#323232); max-height:42vh; }.studio-settings-page { width:calc(100% - 28px); padding-top:28px; }.studio-setting-row { align-items:flex-start; flex-direction:column; gap:10px; }.studio-shortcut-list > li { align-items:flex-start; }.studio-theme-options { grid-template-columns:1fr; }.studio-usage-summary { align-items:flex-start; flex-direction:column; }.studio-usage-controls { align-items:flex-start; flex-direction:column; }.studio-usage-stats { grid-template-columns:repeat(2,minmax(0,1fr)); }.studio-usage-stats > div:nth-child(odd) { border-left:0; }.studio-usage-chart svg { height:130px; }.studio-usage-chart>header{align-items:flex-start;flex-direction:column}.studio-chart-legend{flex-wrap:wrap}.studio-usage-series-policies,.studio-usage-unsupported{grid-template-columns:1fr}.studio-usage-breakdown{overflow-x:auto}.studio-usage-breakdown table{min-width:420px} }
 @media(prefers-reduced-motion:reduce){.studio-settings *{transition-duration:.001ms!important}}
 @media(forced-colors:active){.studio-switch[aria-checked=true]{border:2px solid Highlight!important;background:Canvas!important}.studio-switch[aria-checked=true] span{background:Highlight}.studio-chart-line{stroke:CanvasText}.studio-chart-area{fill:transparent}}
 .studio-archived-catalog { display: grid; gap: 22px; }

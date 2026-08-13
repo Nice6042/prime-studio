@@ -22,7 +22,7 @@ import { controlBinding } from "../features/conversation/controlBinding";
 import { Composer } from "../features/conversation/Composer";
 import { WorkspaceHeader } from "../features/conversation/WorkspaceHeader";
 import type { WorkspaceOperationState } from "../features/conversation/workspacePresentation";
-import { deriveComposerState, deriveSlashCommands, type SlashCommand } from "../features/conversation/composerModel";
+import { composerSubmitAvailability, deriveComposerState, deriveSlashCommands, type SlashCommand } from "../features/conversation/composerModel";
 import { projectConversationPresentations } from "../features/conversation/conversationDisplay";
 import { routeSlashCommand } from "../features/conversation/conversationRouting";
 import { HarnessInspector } from "../features/harness/HarnessInspector";
@@ -1217,6 +1217,18 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     onCommand={runCommand}
     onExecuteWorkspaceOperation={dispatchOperation}
   />;
+  const archived = projectCatalog.projects.some((project) => project.chats.some(
+    (chat) => chat.id === navigation.selectedChatId && chat.archived,
+  ));
+  const draft = navigation.selectedChatId ? (drafts[navigation.selectedChatId] ?? "") : "";
+  const composerState = deriveComposerState({
+    compatibility,
+    sessionState: selectedSession?.state ?? null,
+    archived,
+    draft,
+    phase: admissionPhase,
+    admissionConnected,
+  });
 
   if (navigation.route === "settings") {
     if (navigation.settingsSection === "archived") {
@@ -1233,6 +1245,8 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       compatibility={compatibility}
       runtime={runtime}
       onExecute={dispatchOperation}
+      commandAvailability={commandAvailability}
+      composerShortcutAvailability={composerSubmitAvailability(composerState, draft)}
       settings={settings}
       accounts={accounts}
       onAccountsChanged={(next) => {
@@ -1252,18 +1266,6 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   }
 
   const title = selectedChat?.title ?? "Prime Studio";
-  const archived = projectCatalog.projects.some((project) => project.chats.some(
-    (chat) => chat.id === navigation.selectedChatId && chat.archived,
-  ));
-  const draft = navigation.selectedChatId ? (drafts[navigation.selectedChatId] ?? "") : "";
-  const composerState = deriveComposerState({
-    compatibility,
-    sessionState: selectedSession?.state ?? null,
-    archived,
-    draft,
-    phase: admissionPhase,
-    admissionConnected,
-  });
   const supportsComposerCommand = (command: "model" | "effort" | "compact" | "fork" | "export") => Boolean(composerProjection?.supportedCommands.includes(command));
   const latestMessageId = selectedSession?.parentMessages[selectedSession.parentMessages.length - 1]?.id ?? null;
   const slashCommands = deriveSlashCommands({
