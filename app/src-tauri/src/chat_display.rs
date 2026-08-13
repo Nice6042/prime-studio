@@ -131,7 +131,7 @@ impl ChatDisplayAuthority {
     }
 
     pub fn load(&self) -> Result<ChatDisplaySnapshot, ChatDisplayError> {
-        self.with_locked_snapshot(|snapshot| Ok(snapshot))
+        self.with_locked_snapshot(Ok)
     }
 
     pub fn apply(
@@ -141,8 +141,7 @@ impl ChatDisplayAuthority {
         message_id: &str,
         content: &str,
     ) -> Result<ChatDisplayRecord, ChatDisplayError> {
-        if expected_revision < 1
-            || expected_revision >= MAX_SAFE_REVISION
+        if !(1..MAX_SAFE_REVISION).contains(&expected_revision)
             || !valid_id(chat_id)
             || !valid_id(message_id)
             || !valid_content(content)
