@@ -321,7 +321,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["status", "closureReason", "observationId", "automaticRetryCount", "detail"],
       "properties": {
-        "status": { "type": "string", "enum": ["starting", "ready", "recovering", "retryable_failure", "retrying", "recovered", "terminal_failure"] },
+        "status": { "type": "string", "enum": ["starting", "stopping", "ready", "recovering", "retryable_failure", "retrying", "recovered", "terminal_failure"] },
         "closureReason": { "oneOf": [{ "type": "string", "enum": ["unexpected_worker_disconnect", "supervisor_recovery_exhausted"] }, { "type": "null" }] },
         "observationId": { "oneOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }] },
         "automaticRetryCount": { "type": "integer", "minimum": 0, "maximum": 1 },

@@ -1,4 +1,4 @@
-// Generated from harness-v1.schema.json; SHA-256: 94e7905fc31b07702e413a0dabd4ea784978d689f4502754b6346c0207503c39
+// Generated from harness-v1.schema.json; SHA-256: a918ed36ce9588644c6eb26e6ea1cfddc13f1e5ac4fff4f8f18a7c9a8500665b
 // Do not edit by hand. Run npm run generate:harness-contract.
 
 export const STUDIO_HARNESS_PROTOCOL = 1 as const;
@@ -92,7 +92,7 @@ export interface CurrentChatUsage {
 }
 
 export interface WorkerRecoveryProjection {
-  status: "starting" | "ready" | "recovering" | "retryable_failure" | "retrying" | "recovered" | "terminal_failure";
+  status: "starting" | "stopping" | "ready" | "recovering" | "retryable_failure" | "retrying" | "recovered" | "terminal_failure";
   closureReason: "unexpected_worker_disconnect" | "supervisor_recovery_exhausted" | null;
   observationId: string | null;
   automaticRetryCount: 0 | 1;

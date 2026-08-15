@@ -168,7 +168,7 @@ export interface CurrentChatUsage {
 }
 
 export interface WorkerRecoveryProjection {
-  status: "starting" | "ready" | "recovering" | "retryable_failure" | "retrying" | "recovered" | "terminal_failure";
+  status: "starting" | "stopping" | "ready" | "recovering" | "retryable_failure" | "retrying" | "recovered" | "terminal_failure";
   closureReason: "unexpected_worker_disconnect" | "supervisor_recovery_exhausted" | null;
   observationId: string | null;
   automaticRetryCount: 0 | 1;
@@ -393,7 +393,7 @@ pub struct CurrentChatUsage {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum WorkerRecoveryStatus { Starting, Ready, Recovering, RetryableFailure, Retrying, Recovered, TerminalFailure }
+pub enum WorkerRecoveryStatus { Starting, Stopping, Ready, Recovering, RetryableFailure, Retrying, Recovered, TerminalFailure }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]

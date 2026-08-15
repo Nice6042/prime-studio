@@ -278,6 +278,7 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
     {feedback && <p className="harness-operation-feedback" role={feedback.kind}>{feedback.text}</p>}
     {session && adapter.workerRecovery?.status === "unavailable" && <p className="harness-recovery-unavailable" role="status" aria-label="Silent worker recovery unavailable"><strong>Silent worker recovery unavailable.</strong> {adapter.workerRecovery.reason}</p>}
     {session?.workerRecovery.status === "starting" && <p className="harness-recovery-status" role="status"><strong>Worker starting.</strong> The verified supervisor has not reported this worker ready yet.</p>}
+    {session?.workerRecovery.status === "stopping" && <p className="harness-recovery-status" role="status"><strong>Worker stopping.</strong> The verified supervisor is closing this worker and Studio will not report it ready.</p>}
     {session?.workerRecovery.status === "recovering" && <p className="harness-recovery-status" role="status"><strong>Worker stopped unexpectedly.</strong> The verified supervisor is recovering this session.</p>}
     {session?.workerRecovery.status === "retryable_failure" && <p className="harness-recovery-status" role="status"><strong>Supervisor recovery exhausted.</strong> Prime Studio will make the one permitted automatic retry.</p>}
     {session?.workerRecovery.status === "retrying" && <p className="harness-recovery-status" role="status"><strong>Retrying worker.</strong> Automatic retry 1 of 1 is in progress.</p>}

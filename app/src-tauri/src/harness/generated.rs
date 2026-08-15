@@ -1,4 +1,4 @@
-// Generated from harness-v1.schema.json; SHA-256: 94e7905fc31b07702e413a0dabd4ea784978d689f4502754b6346c0207503c39
+// Generated from harness-v1.schema.json; SHA-256: a918ed36ce9588644c6eb26e6ea1cfddc13f1e5ac4fff4f8f18a7c9a8500665b
 // Do not edit by hand. Run npm run generate:harness-contract.
 
 use std::collections::HashSet;
@@ -133,7 +133,7 @@ pub struct CurrentChatUsage {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum WorkerRecoveryStatus { Starting, Ready, Recovering, RetryableFailure, Retrying, Recovered, TerminalFailure }
+pub enum WorkerRecoveryStatus { Starting, Stopping, Ready, Recovering, RetryableFailure, Retrying, Recovered, TerminalFailure }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
