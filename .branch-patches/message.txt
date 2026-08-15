@@ -1,0 +1,1 @@
+test(privacy): admit reviewed schema-16 adapter
