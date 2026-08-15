@@ -7,6 +7,7 @@ pub mod broker;
 pub mod compatibility;
 #[rustfmt::skip]
 pub mod generated;
+pub mod profiles;
 pub mod projections;
 pub mod recovery;
 pub mod sidecar;
