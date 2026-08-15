@@ -11,7 +11,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run build:harness-sidecar && tsc && vite build",
+    "build": "npm run build:harness-sidecar && node scripts/measure-harness-resources.mjs && tsc && vite build",
     "build:harness-sidecar": "tsc -p harness-sidecar/tsconfig.json && node scripts/copy-harness-owned-resources.mjs",
     "build:reviewed-prime-adapter": "node scripts/build-reviewed-prime-adapter.mjs",
     "check:harness-boundaries": "node scripts/check-harness-boundaries.mjs",
