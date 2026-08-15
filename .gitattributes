@@ -35,6 +35,7 @@ app/src-tauri/tests/fixtures/runtime-manifest/runtime/** -text -eol
 # Generated reviewed adapter contains upstream template literals whose spaces
 # are executable data; preserve the hashed bytes and skip whitespace linting.
 app/harness-sidecar/vendor/*.mjs -text -eol -whitespace
+app/harness-sidecar/vendor/**/*.mjs -text -eol -whitespace
 
 *.png     binary
 *.ico     binary
