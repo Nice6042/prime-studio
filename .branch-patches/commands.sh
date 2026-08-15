@@ -57,6 +57,16 @@ replace_once(
     'readonly status: "starting" | "stopping" | "ready" | "recovering" | "retryable_failure" | "retrying" | "recovered" | "terminal_failure";',
 )
 replace_once(
+    "app/scripts/generate-harness-contract.mjs",
+    '  status: "starting" | "ready" | "recovering" | "retryable_failure" | "retrying" | "recovered" | "terminal_failure";',
+    '  status: "starting" | "stopping" | "ready" | "recovering" | "retryable_failure" | "retrying" | "recovered" | "terminal_failure";',
+)
+replace_once(
+    "app/scripts/generate-harness-contract.mjs",
+    'pub enum WorkerRecoveryStatus { Starting, Ready, Recovering, RetryableFailure, Retrying, Recovered, TerminalFailure }',
+    'pub enum WorkerRecoveryStatus { Starting, Stopping, Ready, Recovering, RetryableFailure, Retrying, Recovered, TerminalFailure }',
+)
+replace_once(
     "app/src/features/harness/HarnessInspector.tsx",
     '{session?.workerRecovery.status === "starting" && <p className="harness-recovery-status" role="status"><strong>Worker starting.</strong> The verified supervisor has not reported this worker ready yet.</p>}\n',
     '{session?.workerRecovery.status === "starting" && <p className="harness-recovery-status" role="status"><strong>Worker starting.</strong> The verified supervisor has not reported this worker ready yet.</p>}\n    {session?.workerRecovery.status === "stopping" && <p className="harness-recovery-status" role="status"><strong>Worker stopping.</strong> The verified supervisor is closing this worker and Studio will not report it ready.</p>}\n',
