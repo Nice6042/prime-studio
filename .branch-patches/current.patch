@@ -2,14 +2,7 @@ diff --git a/app/src-tauri/src/harness/sidecar.rs b/app/src-tauri/src/harness/si
 index a02b2b6..0000000 100644
 --- a/app/src-tauri/src/harness/sidecar.rs
 +++ b/app/src-tauri/src/harness/sidecar.rs
-@@ -656,7 +656,8 @@ pub fn validate_root_snapshot(snapshot: &RootSessionSnapshot) -> bool {
-         && snapshot.worker_recovery.automatic_retry_count <= 1
-         && snapshot
-             .worker_recovery
-             .observation_id
-             .as_ref()
-             .is_none_or(|value| valid_id(value))
-@@ -664,7 +665,8 @@ pub fn validate_root_snapshot(snapshot: &RootSessionSnapshot) -> bool {
+@@ -664,7 +664,8 @@ pub fn validate_root_snapshot(snapshot: &RootSessionSnapshot) -> bool {
              .detail
              .as_ref()
              .is_none_or(|value| valid_label(value))
