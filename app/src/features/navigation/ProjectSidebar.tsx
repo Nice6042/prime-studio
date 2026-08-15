@@ -193,7 +193,18 @@ export function ProjectSidebar({
     <div className="project-sidebar-brand">
       <span className="project-mark" aria-hidden="true"><span /></span>
       <strong>Prime Studio</strong>
-      {onCollapse && <button type="button" className="project-brand-action" {...controlBinding(sidebarCommands.collapse.id, sidebarCommands.collapse.action)} aria-label={sidebarCommands.collapse.label} onClick={onCollapse}><NavigationIcon kind="collapse" /></button>}
+      {onCollapse && <button
+        type="button"
+        className="project-brand-action"
+        {...controlBinding(sidebarCommands.collapse.id, sidebarCommands.collapse.action)}
+        aria-label={sidebarCommands.collapse.label}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          onCollapse();
+        }}
+        onClick={onCollapse}
+      ><NavigationIcon kind="collapse" /></button>}
     </div>
     <button
       className="project-primary-action"
