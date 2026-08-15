@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type KeyboardEvent } from "react";
+import { useRef, type KeyboardEvent } from "react";
 
 import { createControlBinding } from "../../contracts/studioOperations";
 import type { ActivityAttention } from "../../attention/attentionLedger";
@@ -13,15 +13,6 @@ export function InspectorTabs({ route, onSelect, activityAttention, onOverviewBu
   const refs = useRef<Array<HTMLButtonElement | null>>([]);
   const tabs = ["overview", "usage", "activity"] as const;
   const active = route.kind === "child" ? "overview" : route.kind;
-
-  useLayoutEffect(() => {
-    if (active !== "overview") return;
-    const focused = document.activeElement;
-    if (focused === document.body || focused === null || (focused instanceof HTMLElement && !focused.isConnected)) {
-      refs.current[0]?.focus();
-    }
-  }, [active]);
-
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     const delta = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
     const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : delta ? (index + delta + tabs.length) % tabs.length : -1;
