@@ -654,7 +654,8 @@ pub(crate) fn validate_root_snapshot(snapshot: &RootSessionSnapshot) -> bool {
             .as_ref()
             .is_none_or(|value| valid_label(value))
         && match snapshot.worker_recovery.status {
-            WorkerRecoveryStatus::Starting => {
+            WorkerRecoveryStatus::Starting
+            | WorkerRecoveryStatus::Stopping => {
                 snapshot.worker_recovery.closure_reason.is_none()
                     && snapshot.worker_recovery.observation_id.is_none()
                     && snapshot.worker_recovery.automatic_retry_count == 0
