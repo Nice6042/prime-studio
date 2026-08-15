@@ -28,8 +28,13 @@ replace_once(
 )
 replace_once(
     "app/harness-sidecar/src/primeDaemonBridge.ts",
-    '    if (state === "starting") {\n      projection = { status: "starting", closureReason: null, observationId: null, automaticRetryCount: 0, detail: "The verified supervisor has not reported this worker ready yet." };\n    } else if (state === "ready") {',
-    '    if (state === "starting") {\n      projection = { status: "starting", closureReason: null, observationId: null, automaticRetryCount: 0, detail: "The verified supervisor has not reported this worker ready yet." };\n    } else if (state === "stopping") {\n      projection = { status: "stopping", closureReason: null, observationId: null, automaticRetryCount: 0, detail: "The verified supervisor is stopping this worker." };\n    } else if (state === "ready") {',
+    '    if (state === "starting") {\n      projection = { status: "starting", closureReason: null, observationId: null, automaticRetryCount: 0, detail: "The verified supervisor is starting this worker." };\n    } else if (state === "ready") {',
+    '    if (state === "starting") {\n      projection = { status: "starting", closureReason: null, observationId: null, automaticRetryCount: 0, detail: "The verified supervisor is starting this worker." };\n    } else if (state === "stopping") {\n      projection = { status: "stopping", closureReason: null, observationId: null, automaticRetryCount: 0, detail: "The verified supervisor is stopping this worker." };\n    } else if (state === "ready") {',
+)
+replace_once(
+    "app/harness-sidecar/src/primeDaemonBridge.ts",
+    '      state: "failed" as const,\n      workerRecovery: Object.freeze({ ...recovery }),',
+    '      state: recovery.status === "stopping" ? "stopped" as const : "failed" as const,\n      workerRecovery: Object.freeze({ ...recovery }),',
 )
 replace_once(
     "app/harness-sidecar/src/primeDaemonBridge.ts",
