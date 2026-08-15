@@ -16,7 +16,7 @@ new file mode 100644
 new file mode 100644
 --- /dev/null
 +++ b/app/harness-sidecar/vendor/v0.7.2/REVIEW.md
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,24 @@
 +# Reviewed Prime adapter 0.7.2
 +
 +This directory contains the Studio-owned adapter bundle generated from the exact
