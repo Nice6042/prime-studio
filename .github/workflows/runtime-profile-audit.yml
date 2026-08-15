@@ -21,7 +21,7 @@ jobs:
   audit-prime-release:
     name: Audit official Prime runtime profile
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -53,6 +53,10 @@ jobs:
       - name: Install exact upstream runtime dependency graph
         working-directory: upstream-prime
         run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Build exact upstream workspace packages
+        working-directory: upstream-prime
+        run: npm run build
 
       - name: Audit upstream release without activation
         working-directory: app
