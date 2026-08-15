@@ -3,7 +3,7 @@ import { lstat, readFile, realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
 import { parseClosedJson } from "./framing.js";
-import { DAEMON_V7_SCHEMA13_PROFILE } from "./profiles/daemon-v7-schema13.js";
+import { profileForPackageIdentity, type PrimeDaemonProfile } from "./profiles/index.js";
 
 const MANIFEST_MAX_BYTES = 256 * 1024;
 const ENTRYPOINT_MAX_BYTES = 16 * 1024 * 1024;
@@ -100,9 +100,26 @@ function within(root: string, child: string): boolean {
   return path !== "" && path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path);
 }
 
+function selectedProfile(
+  packageVersion: string,
+  packageDigest: string,
+  entrypointDigest: string,
+  expected: RuntimeIdentityProfile | undefined,
+): RuntimeIdentityProfile {
+  const observed = { packageName: EXPECTED_PACKAGE, packageVersion, packageDigest, entrypointDigest } as const;
+  const profile = expected ?? profileForPackageIdentity(observed);
+  if (!profile
+    || packageVersion !== profile.packageVersion
+    || packageDigest !== profile.packageDigest
+    || entrypointDigest !== profile.entrypointDigest) {
+    throw new RuntimeDiscoveryError("runtime_identity_mismatch", "runtime bytes do not match a reviewed profile");
+  }
+  return profile;
+}
+
 export async function discoverRuntime(
   packageRoot: string,
-  expected: RuntimeIdentityProfile = DAEMON_V7_SCHEMA13_PROFILE,
+  expected?: RuntimeIdentityProfile | PrimeDaemonProfile,
 ): Promise<RuntimeIdentity> {
   if (!isAbsolute(packageRoot)) throw new RuntimeDiscoveryError("runtime_path_untrusted", "runtime root must be absolute");
   const rootMetadata = await lstat(packageRoot).catch(() => { throw new RuntimeDiscoveryError("runtime_path_untrusted", "runtime root is missing"); });
@@ -128,13 +145,9 @@ export async function discoverRuntime(
   const entrypointBytes = await readRegularBounded(canonicalEntrypoint, ENTRYPOINT_MAX_BYTES, "unsupported_runtime");
   const entrypointDigest = digest(entrypointBytes);
   const packageDigest = digest(manifestBytes);
-  if (
-    packageVersion !== expected.packageVersion
-    || packageDigest !== expected.packageDigest
-    || entrypointDigest !== expected.entrypointDigest
-  ) throw new RuntimeDiscoveryError("runtime_identity_mismatch", "runtime bytes do not match the reviewed profile");
+  const profile = selectedProfile(packageVersion, packageDigest, entrypointDigest, expected);
 
-  const capabilities = [...expected.supportedCapabilities].sort();
+  const capabilities = [...profile.supportedCapabilities].sort();
   if (capabilities.some((capability) => !KNOWN_CAPABILITIES.has(capability))) {
     throw new RuntimeDiscoveryError("unsupported_runtime", "runtime reports an unknown capability");
   }
@@ -144,10 +157,10 @@ export async function discoverRuntime(
     packageVersion,
     packageDigest,
     entrypointDigest,
-    protocolName: expected.protocolName,
-    protocolVersion: expected.protocolVersion,
-    schemaRevision: expected.schemaRevision,
-    schemaId: expected.schemaId,
+    protocolName: profile.protocolName,
+    protocolVersion: profile.protocolVersion,
+    schemaRevision: profile.schemaRevision,
+    schemaId: profile.schemaId,
     capabilities,
   };
 }
