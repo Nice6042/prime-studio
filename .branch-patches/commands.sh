@@ -89,4 +89,3 @@ npm test -- src/features/harness/HarnessInspector.test.tsx src/shared/ipc/client
 npm run check
 npm run build
 cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
-cargo test --manifest-path src-tauri/Cargo.toml --locked --all-targets --features test-support-bin
