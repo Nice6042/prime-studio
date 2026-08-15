@@ -1,1 +1,1 @@
-feat(accounts): project truthful provider capabilities
+feat(accounts): project truthful provider and usage capabilities
