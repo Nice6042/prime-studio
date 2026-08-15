@@ -5,16 +5,19 @@ import { isAbsolute, relative, resolve } from "node:path";
 
 import { build } from "esbuild";
 
-const [rootArgument, expectedVersion, expectedManifestDigest, expectedPublicDigest, outputArgument] = process.argv.slice(2);
-if (!rootArgument || !expectedVersion || !expectedManifestDigest || !expectedPublicDigest || !outputArgument
-  || !isAbsolute(rootArgument) || !isAbsolute(outputArgument)
+const [rootArgument, expectedVersion, expectedManifestDigest, expectedPublicDigest, outputArgument, dependencyRootArgument] = process.argv.slice(2);
+if (!rootArgument || !expectedVersion || !expectedManifestDigest || !expectedPublicDigest || !outputArgument || !dependencyRootArgument
+  || !isAbsolute(rootArgument) || !isAbsolute(outputArgument) || !isAbsolute(dependencyRootArgument)
   || !/^\d+\.\d+\.\d+$/.test(expectedVersion)
   || !/^sha256:[a-f0-9]{64}$/.test(expectedManifestDigest)
   || !/^sha256:[a-f0-9]{64}$/.test(expectedPublicDigest)) {
-  throw new Error("usage: node audit-reviewed-prime-adapter-candidate.mjs <absolute-package-root> <version> <manifest-digest> <public-digest> <absolute-output>");
+  throw new Error("usage: node audit-reviewed-prime-adapter-candidate.mjs <absolute-package-root> <version> <manifest-digest> <public-digest> <absolute-output> <absolute-dependency-root>");
 }
 
 const packageRoot = await realpath(rootArgument);
+const dependencyRoot = await realpath(dependencyRootArgument);
+const dependencyModules = await realpath(resolve(dependencyRoot, "node_modules"));
+if (relative(dependencyRoot, dependencyModules).startsWith("..")) throw new Error("dependency modules escaped the locked source root");
 const manifestBytes = await readFile(resolve(packageRoot, "package.json"));
 const manifest = JSON.parse(manifestBytes.toString("utf8"));
 const digest = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
@@ -37,7 +40,7 @@ await build({
   platform: "node",
   format: "esm",
   target: "node22",
-  nodePaths: [resolve(process.cwd(), "node_modules")],
+  nodePaths: [dependencyModules],
   minify: true,
   define: { "import.meta.url": JSON.stringify("file:///C:/prime-studio-owned/prime-daemon-adapter-v0.7.1.mjs") },
   legalComments: "external",
