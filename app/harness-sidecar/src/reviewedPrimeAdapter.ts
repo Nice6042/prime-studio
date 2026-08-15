@@ -2,11 +2,11 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-export const REVIEWED_PRIME_ADAPTER_DIGEST =
-  "sha256:8097d080916562ffb8c1c80e2cc4a0640418fa5ec8e09456077d3cffb9c785e3";
+import { DAEMON_V7_SCHEMA13_PROFILE } from "./profiles/daemon-v7-schema13.js";
+import type { PrimeDaemonProfile } from "./profiles/index.js";
 
-const ADAPTER_DIRECTORY = new URL("./vendor/", import.meta.url);
-const ADAPTER_RESOURCE = new URL("prime-daemon-adapter-v0.7.1.mjs", ADAPTER_DIRECTORY);
+export const REVIEWED_PRIME_ADAPTER_DIGEST = DAEMON_V7_SCHEMA13_PROFILE.adapterDigest;
+
 const MAX_ADAPTER_BYTES = 8 * 1024 * 1024;
 
 export interface ReviewedPrimeAdapter {
@@ -50,6 +50,17 @@ function validate(namespace: Record<string, unknown>): ReviewedPrimeAdapter {
   });
 }
 
+function profileResource(profile: PrimeDaemonProfile): Readonly<{ resource: URL; packageDirectory: URL }> {
+  if (!/^vendor\/(?:v\d+\.\d+\.\d+\/)?[A-Za-z0-9._-]+\.mjs$/u.test(profile.adapterRelativePath)
+    || !/^vendor(?:\/v\d+\.\d+\.\d+)?$/u.test(profile.adapterPackageDirectory)) {
+    throw new Error("reviewed Prime adapter resource identity is invalid");
+  }
+  return Object.freeze({
+    resource: new URL(profile.adapterRelativePath, import.meta.url),
+    packageDirectory: new URL(`${profile.adapterPackageDirectory}/`, import.meta.url),
+  });
+}
+
 /**
  * Evaluates only the exact bytes whose digest was checked. A data URL avoids
  * the check-then-import path race that exists when importing a mutable file.
@@ -57,6 +68,7 @@ function validate(namespace: Record<string, unknown>): ReviewedPrimeAdapter {
 export async function loadReviewedPrimeAdapterBytes(
   bytes: Uint8Array,
   expectedDigest: string = REVIEWED_PRIME_ADAPTER_DIGEST,
+  packageDirectory: URL = new URL("./vendor/", import.meta.url),
 ): Promise<ReviewedPrimeAdapter> {
   if (bytes.byteLength === 0 || bytes.byteLength > MAX_ADAPTER_BYTES) {
     throw new Error("reviewed Prime adapter size is invalid");
@@ -64,7 +76,7 @@ export async function loadReviewedPrimeAdapterBytes(
   if (digest(bytes) !== expectedDigest) throw new Error("reviewed Prime adapter integrity mismatch");
   const source = Buffer.from(bytes).toString("base64");
   const priorPackageDirectory = process.env.PI_PACKAGE_DIR;
-  process.env.PI_PACKAGE_DIR = fileURLToPath(ADAPTER_DIRECTORY);
+  process.env.PI_PACKAGE_DIR = fileURLToPath(packageDirectory);
   try {
     const namespace = await import(`data:text/javascript;base64,${source}`) as Record<string, unknown>;
     return validate(namespace);
@@ -74,6 +86,9 @@ export async function loadReviewedPrimeAdapterBytes(
   }
 }
 
-export async function loadReviewedPrimeAdapter(): Promise<ReviewedPrimeAdapter> {
-  return loadReviewedPrimeAdapterBytes(await readFile(ADAPTER_RESOURCE));
+export async function loadReviewedPrimeAdapter(
+  profile: PrimeDaemonProfile = DAEMON_V7_SCHEMA13_PROFILE,
+): Promise<ReviewedPrimeAdapter> {
+  const { resource, packageDirectory } = profileResource(profile);
+  return loadReviewedPrimeAdapterBytes(await readFile(resource), profile.adapterDigest, packageDirectory);
 }
