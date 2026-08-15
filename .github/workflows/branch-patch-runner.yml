@@ -1,0 +1,68 @@
+name: Branch Patch Runner
+
+on:
+  push:
+    branches:
+      - "work/complete-waves-0-6"
+    paths:
+      - ".branch-patches/current.patch"
+      - ".branch-patches/message.txt"
+      - ".branch-patches/commands.sh"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: branch-patch-runner-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  apply-reviewed-patch:
+    name: Apply reviewed branch patch
+    if: github.actor == 'Nice6042'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact branch head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: work/complete-waves-0-6
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up pinned Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.12.0
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+          check-latest: false
+
+      - name: Apply deterministic patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f .branch-patches/current.patch || ! -f .branch-patches/message.txt ]]; then
+            echo "No queued patch remains at this revision."
+            exit 0
+          fi
+          message="$(cat .branch-patches/message.txt)"
+          if [[ -z "$message" || "$message" == *$'\n'* || ${#message} -gt 120 ]]; then
+            echo "Invalid patch commit message" >&2
+            exit 1
+          fi
+          git apply --check --whitespace=error-all .branch-patches/current.patch
+          git apply --index --whitespace=error-all .branch-patches/current.patch
+          if [[ -f .branch-patches/commands.sh ]]; then
+            bash -euo pipefail .branch-patches/commands.sh
+          fi
+          git rm .branch-patches/current.patch .branch-patches/message.txt
+          if [[ -f .branch-patches/commands.sh ]]; then
+            git rm .branch-patches/commands.sh
+          fi
+          git add -A
+          git diff --cached --check
+          git config user.name "Prime Studio Contributors"
+          git config user.email "contributors@prime-studio.invalid"
+          git commit -m "$message"
+          git push origin HEAD:work/complete-waves-0-6
