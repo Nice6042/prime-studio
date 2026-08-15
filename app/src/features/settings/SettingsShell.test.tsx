@@ -160,7 +160,7 @@ describe("SettingsShell", () => {
     expect(use).toBeDisabled();
     expect(use).toHaveAttribute("title", expect.stringMatching(/accepts workspace and title only/i));
     expect(onSetting).not.toHaveBeenCalled();
-    expect(screen.getByText(/does not accept an account or profile identity/i)).toBeVisible();
+    expect(screen.getAllByText(/does not accept an account or profile identity/i)).toHaveLength(2);
     expect(screen.getByRole("textbox", { name: "Account name" })).toBeVisible();
   });
 
