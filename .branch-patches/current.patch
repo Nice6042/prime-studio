@@ -1,7 +1,0 @@
-diff --git a/.branch-patches/activation-marker b/.branch-patches/activation-marker
-new file mode 100644
-index 0000000..3d09f44
---- /dev/null
-+++ b/.branch-patches/activation-marker
-@@ -0,0 +1 @@
-+wave-1-native-profile-activation

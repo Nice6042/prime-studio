@@ -88,7 +88,8 @@ pub fn decide_compatibility(runtime: &RuntimeIdentity) -> HarnessCompatibility {
     {
         return unavailable(HarnessUnavailableReason::UnsupportedProtocol);
     }
-    if runtime.schema_revision != profile.schema_revision || runtime.schema_id != profile.schema_id {
+    if runtime.schema_revision != profile.schema_revision || runtime.schema_id != profile.schema_id
+    {
         return unavailable(HarnessUnavailableReason::UnsupportedSchema);
     }
     compatibility_for_profile(runtime, profile)

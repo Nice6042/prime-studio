@@ -46,7 +46,8 @@ pub static DAEMON_V7_SCHEMA16: RuntimeProfile = RuntimeProfile {
     package_version: "0.7.2",
     package_digest: "sha256:0b45bc86527fcdb73dae76d319f6f50f6d40827a63614303664a57e8fe41c8cf",
     entrypoint_digest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b",
-    daemon_entrypoint_digest: "sha256:a6144570af2554b537530372cb3080b4f7713875e8d9d4677e453bb1040f1ec5",
+    daemon_entrypoint_digest:
+        "sha256:a6144570af2554b537530372cb3080b4f7713875e8d9d4677e453bb1040f1ec5",
     protocol_name: "prime-agent.daemon",
     protocol_version: 7,
     schema_revision: 16,
@@ -60,7 +61,8 @@ pub static DAEMON_V7_SCHEMA13: RuntimeProfile = RuntimeProfile {
     package_version: "0.7.1",
     package_digest: "sha256:0bf756952f21542fa814acf301e0e868745b095eaf190b3457c729b41239a900",
     entrypoint_digest: "sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b",
-    daemon_entrypoint_digest: "sha256:16e2324a4e3aa13305c437168d44d7395bab317e292218a52d1c61a7ebdf0993",
+    daemon_entrypoint_digest:
+        "sha256:16e2324a4e3aa13305c437168d44d7395bab317e292218a52d1c61a7ebdf0993",
     protocol_name: "prime-agent.daemon",
     protocol_version: 7,
     schema_revision: 13,
