@@ -1,4 +1,4 @@
-# Multi-account design (verified against prime-agent 0.7.1)
+# Multi-account design (reviewed against prime-agent 0.7.1 and 0.7.2)
 
 ## The constraint
 
@@ -100,15 +100,27 @@ command table); there is no RPC login command. So:
   command to run instead: `PRIME_AGENT_CODING_AGENT_DIR=<dir> prime-agent`, then `/login`.
 - Poll `<agentDir>/auth.json` for the provider key to flip the account to "authed".
 
-## Concurrency (multiple accounts at once)
+## Resident-session account selection
 
-Prime Studio spawns `--mode rpc` per session — no daemon involved — so N sessions on N different
-profiles run in parallel; each child just gets its own `PRIME_AGENT_CODING_AGENT_DIR`. (Only the
-`--mode daemon` path would need distinct `--daemon-socket` values.)
+The hardened account registry, isolated agent homes, interactive login handoff, status polling,
+quota projection, local usage ledger, rename, and removal flows are available independently of
+session creation.
+
+The reviewed Prime daemon resident-create command currently accepts only lifecycle, title/name,
+and `config.cwd`. It does not accept an account ID, profile ID, agent directory, provider, model,
+or thinking default. Prime Studio therefore does not claim that an account row can select the
+identity used by a new resident session. The corresponding controls are disabled with a shared
+upstream reason, and any stale persisted account preference must be cleared before New chat is
+admitted.
+
+The older direct-process foundation can construct a per-profile environment, but that dormant path
+is not production authority and is not used as an unverified fallback. Multi-account resident
+execution remains unavailable until a reviewed daemon contract exposes an identity-bound account
+selector and the native broker verifies the returned principal.
 
 ## Per-account usage
 
-Prime does not expose subscription quota. What is available, per profile:
+Prime does not expose one uniform subscription-quota API. What is available, per profile:
 
 - Live session: `get_session_stats` → `tokens`, `cost`, `contextUsage`.
 - Historical: sum assistant `message.usage` + `child_usage_attributed.childUsage` across
