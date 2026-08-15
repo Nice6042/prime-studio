@@ -29,6 +29,7 @@ if (releaseUrl.protocol !== "https:" || releaseUrl.hostname !== "github.com" || 
 
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const decodeText = (bytes) => new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+const comparePath = (left, right) => left.localeCompare(right, "en-US");
 const readCString = (header, start, length) => {
   const field = header.subarray(start, start + length);
   const end = field.indexOf(0);
@@ -147,6 +148,18 @@ const daemonBytes = files.get(daemonPath);
 if (!daemonBytes) throw new Error("release daemon CLI entry is missing");
 const publicText = decodeText(publicBytes);
 const exportMarkers = Object.fromEntries(REQUIRED_EXPORT_MARKERS.map((marker) => [marker, publicText.includes(marker)]));
+const distJavaScript = [...files.entries()]
+  .filter(([path]) => path.startsWith("package/dist/") && path.endsWith(".js"))
+  .map(([path, bytes]) => [path.slice("package/dist/".length), bytes])
+  .sort(([left], [right]) => comparePath(left, right));
+if (distJavaScript.length === 0) throw new Error("release JavaScript closure is empty");
+const closureHasher = createHash("sha256");
+let closureBytes = 0;
+for (const [path, bytes] of distJavaScript) {
+  closureHasher.update(`${path}\0${bytes.byteLength}\0`, "utf8");
+  closureHasher.update(bytes);
+  closureBytes += bytes.byteLength;
+}
 
 const result = Object.freeze({
   source: releaseUrl.toString(),
@@ -159,6 +172,7 @@ const result = Object.freeze({
     manifest: { path: "package/package.json", bytes: manifestBytes.byteLength, sha256: digest(manifestBytes) },
     publicEntrypoint: { path: publicPath.slice("package/".length), bytes: publicBytes.byteLength, sha256: digest(publicBytes) },
     daemonEntrypoint: { path: daemonPath.slice("package/".length), bytes: daemonBytes.byteLength, sha256: digest(daemonBytes) },
+    distJavaScriptClosure: { files: distJavaScript.length, bytes: closureBytes, sha256: closureHasher.digest("hex") },
     reviewedExportMarkers: exportMarkers,
   },
 });
