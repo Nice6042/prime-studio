@@ -1,0 +1,39 @@
+name: Branch Source Export
+
+on:
+  push:
+    branches:
+      - "work/complete-waves-0-6"
+    paths:
+      - ".github/workflows/branch-source-export.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  export-source:
+    name: Export public branch source
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Create source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar --exclude=.git --exclude=app/node_modules --exclude=app/dist --exclude=app/test-results -czf /tmp/prime-studio-source.tar.gz .
+          sha256sum /tmp/prime-studio-source.tar.gz
+
+      - name: Upload source archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: prime-studio-source-${{ github.sha }}
+          path: /tmp/prime-studio-source.tar.gz
+          retention-days: 1
+          if-no-files-found: error
+          compression-level: 0
