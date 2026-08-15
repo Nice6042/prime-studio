@@ -21,11 +21,19 @@ jobs:
   audit-prime-release:
     name: Audit official Prime runtime profile
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
+
+      - name: Check out exact upstream dependency graph
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: PrimeIntellect-ai/prime-agent
+          ref: 83a0f9f9566219551fcb6ffaf7f519a815749a58
+          path: upstream-prime
           persist-credentials: false
 
       - name: Set up Node.js
@@ -33,12 +41,18 @@ jobs:
         with:
           node-version: 22.12.0
           cache: npm
-          cache-dependency-path: app/package-lock.json
+          cache-dependency-path: |
+            app/package-lock.json
+            upstream-prime/package-lock.json
           check-latest: false
 
-      - name: Install locked adapter build dependencies
+      - name: Install locked Studio audit dependencies
         working-directory: app
         run: npm ci
+
+      - name: Install exact upstream runtime dependency graph
+        working-directory: upstream-prime
+        run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Audit upstream release without activation
         working-directory: app
@@ -68,7 +82,8 @@ jobs:
             0.7.2 \
             sha256:0b45bc86527fcdb73dae76d319f6f50f6d40827a63614303664a57e8fe41c8cf \
             sha256:0555400963ce5c9fa3059c3ed571748715d3ddda3830085eb8f12da00708d49b \
-            "$candidate" | tee "$report"
+            "$candidate" \
+            "$GITHUB_WORKSPACE/upstream-prime" | tee "$report"
           node --input-type=module -e '
             import { readFileSync } from "node:fs";
             const report = JSON.parse(readFileSync(process.argv[1], "utf8"));
