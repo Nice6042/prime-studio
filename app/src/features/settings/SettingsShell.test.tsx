@@ -158,9 +158,9 @@ describe("SettingsShell", () => {
     expect(screen.getByText("Work")).toBeVisible();
     const use = screen.getByRole("button", { name: "Use for new sessions" });
     expect(use).toBeDisabled();
-    expect(use).toHaveAttribute("title", expect.stringMatching(/cannot bind a selected account/i));
+    expect(use).toHaveAttribute("title", expect.stringMatching(/accepts workspace and title only/i));
     expect(onSetting).not.toHaveBeenCalled();
-    expect(screen.getByText(/cannot bind a selected account/i)).toBeVisible();
+    expect(screen.getByText(/does not accept an account or profile identity/i)).toBeVisible();
     expect(screen.getByRole("textbox", { name: "Account name" })).toBeVisible();
   });
 
