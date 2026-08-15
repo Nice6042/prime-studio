@@ -58,7 +58,7 @@ jobs:
           fi
           git rm .branch-patches/current.patch .branch-patches/message.txt
           if [[ -f .branch-patches/commands.sh ]]; then
-            git rm .branch-patches/commands.sh
+            git rm -f .branch-patches/commands.sh
           fi
           git add -A
           git diff --cached --check
