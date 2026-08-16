@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 
 const STUDIO_SURFACE_SELECTOR = ".modal-backdrop, [data-studio-overlay]";
+const STUDIO_GLOBAL_SHORTCUT_KEYS = new Set(["n", "k", ",", "b", "j"]);
 
 export function hasOpenStudioOverlay(): boolean {
   return document.querySelector(STUDIO_SURFACE_SELECTOR) !== null;
@@ -11,11 +12,19 @@ function isTopmostSurface(surface: HTMLElement): boolean {
   return surfaces.item(surfaces.length - 1) === surface;
 }
 
+function isStudioGlobalShortcut(event: KeyboardEvent): boolean {
+  return !event.isComposing
+    && event.ctrlKey
+    && !event.altKey
+    && !event.shiftKey
+    && STUDIO_GLOBAL_SHORTCUT_KEYS.has(event.key.toLocaleLowerCase());
+}
+
 function focusEligible(element: HTMLElement | null): void {
   if (element?.isConnected && !element.matches(":disabled") && !element.closest("[inert]")) element.focus();
 }
 
-/** Give Escape to exactly one modal surface: the last rendered backdrop. */
+/** Give keyboard ownership to exactly one surface: the last rendered backdrop. */
 export function useTopmostSurfaceEscape(
   backdropRef: RefObject<HTMLElement | null>,
   onClose: (() => void) | undefined,
@@ -23,26 +32,31 @@ export function useTopmostSurfaceEscape(
 ) {
   useEffect(() => {
     if (!enabled || !onClose) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+    const handleTopmostKey = (event: KeyboardEvent) => {
       const backdrop = backdropRef.current;
-      if (!backdrop || backdrop.querySelector("dialog[open]")) return;
-      if (!isTopmostSurface(backdrop)) return;
+      if (!backdrop || !isTopmostSurface(backdrop)) return;
+      if (isStudioGlobalShortcut(event)) {
+        event.stopPropagation();
+        event.preventDefault();
+        return;
+      }
+      if (event.key !== "Escape" || backdrop.querySelector("dialog[open]")) return;
       event.stopPropagation();
       event.preventDefault();
       onClose();
     };
-    window.addEventListener("keydown", closeOnEscape, true);
-    return () => window.removeEventListener("keydown", closeOnEscape, true);
+    window.addEventListener("keydown", handleTopmostKey, true);
+    return () => window.removeEventListener("keydown", handleTopmostKey, true);
   }, [backdropRef, enabled, onClose]);
 }
 
 /**
- * Shared Escape, outside-pointer, and focus behavior for non-modal menus and
- * popovers. Only the topmost Studio surface may dismiss itself. Pointer
- * dismissal preserves the newly clicked target; Escape restores the opener.
- * If the clicked target removes itself, focus falls back to the admitted opener.
- * Returns a one-close restoration suppressor for native Tab progression.
+ * Shared Escape, outside-pointer, shortcut, and focus behavior for non-modal
+ * menus and popovers. Only the topmost Studio surface may dismiss itself or
+ * consume application-global shortcuts. Pointer dismissal preserves the newly
+ * clicked target; Escape restores the opener. If the clicked target removes
+ * itself, focus falls back to the admitted opener. Returns a one-close
+ * restoration suppressor for native Tab progression.
  */
 export function usePopoverSurface(
   surfaceRef: RefObject<HTMLElement | null>,
