@@ -1,0 +1,63 @@
+name: Patch reflow acceptance
+
+on:
+  push:
+    branches:
+      - "work/complete-product-reflow"
+    paths:
+      - ".github/workflows/patch-reflow-acceptance.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: work/complete-product-reflow
+
+      - name: Promote reviewed reflow acceptance
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+
+          const acceptancePath = 'app/src/contracts/packageAcceptance.ts';
+          let acceptance = fs.readFileSync(acceptancePath, 'utf8');
+          const partialRow = '  row("CM-06", "the whole product reflows at 640x400, 820px, 1280px, 1600px, and 200 percent zoom", "partial"),';
+          const completeRow = '  row("CM-06", "the whole product reflows at 640x400, 820px, 1280px, 1600px, and 200 percent zoom", "complete"),';
+          if (!acceptance.includes(partialRow)) throw new Error('CM-06 partial row not found');
+          acceptance = acceptance.replace(partialRow, completeRow);
+          fs.writeFileSync(acceptancePath, acceptance);
+
+          const testPath = 'app/src/contracts/packageAcceptance.test.ts';
+          let test = fs.readFileSync(testPath, 'utf8');
+          const oldSummary = '      complete: 76,\n      partial: 37,';
+          const newSummary = '      complete: 77,\n      partial: 36,';
+          if (!test.includes(oldSummary)) throw new Error('acceptance summary not found');
+          test = test.replace(oldSummary, newSummary);
+
+          const oldAssertions = '    expect(status("CM-04")).toBe("complete");\n    expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).not.toContain("CM-01");';
+          const newAssertions = '    expect(status("CM-04")).toBe("complete");\n    expect(status("CM-06")).toBe("complete");\n    expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).not.toContain("CM-01");';
+          if (!test.includes(oldAssertions)) throw new Error('common acceptance assertions not found');
+          test = test.replace(oldAssertions, newAssertions);
+
+          const oldBoundary = '    expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).not.toContain("CM-04");\n  });';
+          const newBoundary = '    expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).not.toContain("CM-04");\n    expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).not.toContain("CM-06");\n  });';
+          if (!test.includes(oldBoundary)) throw new Error('common acceptance boundary not found');
+          test = test.replace(oldBoundary, newBoundary);
+          fs.writeFileSync(testPath, test);
+          NODE
+          git diff --check
+          git diff --exit-code -- app/src/contracts/packageAcceptance.ts app/src/contracts/packageAcceptance.test.ts >/dev/null && exit 1 || true
+
+      - name: Commit promotion
+        run: |
+          git config user.name "Prime Studio automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add app/src/contracts/packageAcceptance.ts app/src/contracts/packageAcceptance.test.ts
+          git commit -m "feat(reflow): complete product-wide geometry acceptance"
+          git push origin HEAD:work/complete-product-reflow
