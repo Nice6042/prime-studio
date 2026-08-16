@@ -64,20 +64,13 @@ export function WorkspaceHeader({
   const moveSelect = useRef<HTMLSelectElement>(null);
   const busy = operation.phase === "pending";
 
-  usePopoverSurface(menuSurface, () => setMenu(null), menu !== null);
+  usePopoverSurface(menuSurface, () => setMenu(null), menu !== null, menuRoot);
   useTopmostSurfaceEscape(renameBackdrop, () => { setRenameDraft(chat.title); setRenaming(false); }, renaming);
   useTopmostSurfaceEscape(moveBackdrop, () => { setMoveTargetId(""); setMoving(false); }, moving);
   const keepRenameFocus = useModalSurfaceFocus(renameBackdrop, renameDialog, renameInput, optionsButton, renaming);
   const keepMoveFocus = useModalSurfaceFocus(moveBackdrop, moveDialog, moveSelect, optionsButton, moving);
 
   useEffect(() => setRenameDraft(chat.title), [chat.title]);
-  useEffect(() => {
-    const close = (event: PointerEvent) => {
-      if (menuRoot.current && event.target instanceof Node && !menuRoot.current.contains(event.target)) setMenu(null);
-    };
-    window.addEventListener("pointerdown", close);
-    return () => window.removeEventListener("pointerdown", close);
-  }, []);
 
   const run = (callback: () => void) => {
     setMenu(null);
