@@ -25,4 +25,19 @@ describe("default project folder confirmation", () => {
     expect(onCreate).toHaveBeenCalledOnce();
     expect(onCreate).toHaveBeenCalledWith("Confirmed project", "D:\\work\\prime");
   });
+
+  it("keeps a prefilled folder side-effect free when the user cancels", async () => {
+    const onCreate = vi.fn();
+    const onCancel = vi.fn();
+    render(<CreateProjectDialog
+      initialFolderPath="D:\\work\\prime"
+      onCreate={onCreate}
+      onCancel={onCancel}
+    />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(onCancel).toHaveBeenCalledOnce();
+    expect(onCreate).not.toHaveBeenCalled();
+  });
 });
