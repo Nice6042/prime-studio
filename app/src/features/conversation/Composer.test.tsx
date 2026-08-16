@@ -129,19 +129,36 @@ describe("Composer", () => {
     expect(screen.queryByRole("button", { name: /Thinking/ })).not.toBeInTheDocument();
   });
 
-  it("honors token-estimate visibility while keeping voice explicitly unavailable", () => {
-    render(<Composer
+  it("applies token-estimate, voice-visibility, and spell-check preferences without enabling capture", () => {
+    const { rerender } = render(<Composer
       draft="A bounded draft"
       state={{ kind: "idle", draft: "A bounded draft", canSend: true }}
       showTokenEstimate={false}
+      spellCheck={false}
       onDraftChange={vi.fn()}
       onSubmit={vi.fn()}
       onAbort={vi.fn()}
       onOpenUsage={vi.fn()}
     />);
 
+    const input = screen.getByRole("textbox", { name: "Message Prime Studio" });
     expect(screen.queryByTitle("Approximate draft tokens")).not.toBeInTheDocument();
+    expect(input).toHaveAttribute("spellcheck", "false");
     expect(screen.getByRole("button", { name: "Voice input" })).toBeDisabled();
+
+    rerender(<Composer
+      draft="A bounded draft"
+      state={{ kind: "idle", draft: "A bounded draft", canSend: true }}
+      showVoiceControl={false}
+      spellCheck
+      onDraftChange={vi.fn()}
+      onSubmit={vi.fn()}
+      onAbort={vi.fn()}
+      onOpenUsage={vi.fn()}
+    />);
+
+    expect(screen.getByRole("textbox", { name: "Message Prime Studio" })).toHaveAttribute("spellcheck", "true");
+    expect(screen.queryByRole("button", { name: "Voice input" })).not.toBeInTheDocument();
   });
 
   it("closes the thinking menu with Escape and restores its trigger", async () => {

@@ -53,6 +53,8 @@
 .parent-user-turn { display: grid; justify-items: end; }
 .parent-user-turn > time { margin-block-end: 4px; color: #9a9aa6; font-size: 11px; }
 .parent-user-bubble { max-inline-size: min(78%, 620px); padding: 11px 15px; border-radius: 14px; color: #e9e9ee; background: #1e1e25; }
+:root[data-bubbles="compact"] .parent-user-bubble { padding: 7px 11px; border-radius: 10px; }
+:root[data-bubbles="compact"] .parent-turn { margin-block-end: 10px; }
 .parent-user-bubble p { margin: 0; }
 .parent-assistant-turn { padding-inline: 0; }
 .parent-assistant-header { display: flex; align-items: center; gap: 8px; margin-block-end: 8px; }

@@ -288,6 +288,33 @@ test("command palette, settings search, theme, and editor are keyboard reachable
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-settings-editor");
 });
 
+test("appearance and composer preferences persist through the native settings authority", async ({ shellPage }) => {
+  await shellPage.keyboard.press("Control+,");
+  await shellPage.getByRole("button", { name: /^Appearance/ }).click();
+  await shellPage.getByRole("combobox", { name: "Accent" }).selectOption("ember");
+  await shellPage.getByRole("combobox", { name: "Font size" }).selectOption("large");
+  await shellPage.getByRole("switch", { name: "Show timestamps" }).click();
+  await shellPage.getByRole("switch", { name: "Compact message bubbles" }).click();
+
+  await shellPage.getByRole("button", { name: /^Composer/ }).click();
+  await shellPage.getByRole("switch", { name: "Voice control" }).click();
+  await shellPage.getByRole("switch", { name: "Spell check" }).click();
+  await shellPage.getByRole("button", { name: "Back to chat" }).click();
+
+  await expect(shellPage.locator("html")).toHaveAttribute("data-accent", "ember");
+  await expect(shellPage.locator("html")).toHaveAttribute("data-font-size", "large");
+  await expect(shellPage.locator("html")).toHaveAttribute("data-bubbles", "compact");
+  await expect(shellPage.locator(".parent-turn time")).toHaveCount(0);
+  await expect(shellPage.getByRole("textbox", { name: "Message Prime Studio" })).toHaveAttribute("spellcheck", "false");
+  await expect(shellPage.getByRole("button", { name: "Voice input" })).toHaveCount(0);
+
+  const settingWrites = await shellPage.evaluate(() => (window as typeof window & { __PRIME_STUDIO_BROWSER_REQUESTS__?: Array<{ command: string; args: Record<string, unknown> }> }).__PRIME_STUDIO_BROWSER_REQUESTS__
+    ?.filter((request) => request.command === "set_app_setting")
+    .map((request) => request.args.key) ?? []);
+  expect(settingWrites).toEqual(expect.arrayContaining(["accent", "fontSize", "timestamps", "bubbles", "voice", "spell"]));
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-local-preferences");
+});
+
 test("registry keeps Ctrl+N K comma B J in parity with visible commands and Settings rows", async ({ shellPage }) => {
   const requestCount = (command: string) => shellPage.evaluate((name) => {
     const requests = (window as typeof window & { __PRIME_STUDIO_BROWSER_REQUESTS__?: Array<{ command: string }> }).__PRIME_STUDIO_BROWSER_REQUESTS__ ?? [];

@@ -289,6 +289,12 @@ export interface AppSettings {
   bottomPanel?: string | null;
   density?: string | null;
   reducedMotion?: string | null;
+  accent?: string | null;
+  fontSize?: string | null;
+  timestamps?: string | null;
+  bubbles?: string | null;
+  voice?: string | null;
+  spell?: string | null;
   sendShortcut?: string | null;
   promptSuggestions?: string | null;
   tokenEstimate?: string | null;

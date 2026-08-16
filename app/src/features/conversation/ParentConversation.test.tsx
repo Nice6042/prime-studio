@@ -46,6 +46,17 @@ describe("ParentConversation", () => {
     expect(screen.queryByText("inspect")).not.toBeInTheDocument();
   });
 
+  it("can hide presentation timestamps without changing transcript content", () => {
+    const { rerender } = render(<ParentConversation title="Harness architecture" session={session} archived={false} showTimestamps={false} />);
+
+    expect(document.querySelectorAll("time")).toHaveLength(0);
+    expect(screen.getByText("Map the runtime")).toBeVisible();
+    expect(screen.getByText("The adapter is versioned.")).toBeVisible();
+
+    rerender(<ParentConversation title="Harness architecture" session={session} archived={false} showTimestamps />);
+    expect(document.querySelectorAll("time")).toHaveLength(2);
+  });
+
   it("states empty and archived truth without inventing a session", () => {
     const { rerender } = render(<ParentConversation title="New chat" session={null} archived={false} />);
     expect(screen.getByText("Start a conversation when the verified Harness is available.")).toBeVisible();

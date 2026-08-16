@@ -32,6 +32,9 @@ export function installWorkspacePreferences(
     root.dataset.theme = theme;
     root.dataset.density = settings.density === "compact" ? "compact" : "comfortable";
     root.dataset.reducedMotion = settings.reducedMotion === "enabled" || reducedMotion.matches ? "true" : "false";
+    root.dataset.accent = settings.accent === "slate" || settings.accent === "ember" ? settings.accent : "prime-violet";
+    root.dataset.fontSize = settings.fontSize === "small" || settings.fontSize === "large" ? settings.fontSize : "medium";
+    root.dataset.bubbles = settings.bubbles === "enabled" ? "compact" : "comfortable";
   };
 
   apply();
