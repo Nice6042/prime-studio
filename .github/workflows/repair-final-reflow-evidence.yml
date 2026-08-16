@@ -1,0 +1,176 @@
+name: Repair final reflow evidence
+
+on:
+  push:
+    branches:
+      - work/complete-product-reflow
+    paths:
+      - .github/workflows/repair-final-reflow-evidence.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out reflow branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: work/complete-product-reflow
+          persist-credentials: true
+
+      - name: Apply reviewed final repairs
+        shell: python
+        run: |
+          from pathlib import Path
+
+          spec = Path("app/e2e/product-reflow.spec.ts")
+          text = spec.read_text(encoding="utf-8")
+          text = text.replace('const REFLOW_HARNESS_DEFAULTS_FLAG = "prime-studio-reflow-harness-defaults";\n', '')
+          streaming_flag = '''  await page.evaluate(() => {
+            const global = window as typeof window & { __PRIME_STUDIO_REFLOW_STREAMING__?: boolean };
+            global.__PRIME_STUDIO_REFLOW_STREAMING__ = true;
+          });
+          '''
+          if text.count(streaming_flag) != 1:
+              raise SystemExit("expected one product reflow streaming flag block")
+          text = text.replace(streaming_flag, "")
+          start = text.index("async function exerciseEmptyConversation(")
+          end = text.index("\n\ntest.describe.configure", start)
+          empty_helper = '''async function exerciseEmptyConversation(page: Page, target: ProductReflowGeometry): Promise<void> {
+            await resetProductAtGeometry(page, target);
+            const idleChatName = /Inactive planning notes.*status: Idle/i;
+            const sidebar = page.getByRole("navigation", { name: "Projects and chats" });
+            if (await sidebar.getAttribute("data-mode") === "rail") {
+              await page.getByRole("button", { name: "Projects" }).click();
+              const projectSheet = page.locator('[data-studio-sheet="sidebar"]');
+              await expect(projectSheet).toBeVisible();
+              await projectSheet.getByRole("button", { name: idleChatName }).click();
+              if (await projectSheet.isVisible()) await page.keyboard.press("Escape");
+            } else {
+              await sidebar.getByRole("button", { name: idleChatName }).click();
+            }
+            await expect(page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
+            await expect(page.getByRole("textbox", { name: "Message Prime Studio" })).toBeVisible();
+            await expectProductViewport(page, `${target.id} empty conversation`);
+          }'''
+          text = text[:start] + empty_helper + text[end:]
+          spec.write_text(text, encoding="utf-8", newline="\n")
+
+          admission = Path("app/e2e/streaming-reflow-admission.spec.ts")
+          text = admission.read_text(encoding="utf-8")
+          admission_flag = '''  await shellPage.evaluate(() => {
+            const global = window as typeof window & { __PRIME_STUDIO_REFLOW_STREAMING__?: boolean };
+            global.__PRIME_STUDIO_REFLOW_STREAMING__ = true;
+          });
+          '''
+          if text.count(admission_flag) != 1:
+              raise SystemExit("expected one streaming admission flag block")
+          admission.write_text(text.replace(admission_flag, ""), encoding="utf-8", newline="\n")
+
+          fixture = Path("app/e2e/support/browser-shell.ts")
+          text = fixture.read_text(encoding="utf-8")
+          replacements = {
+            '        __PRIME_STUDIO_REFLOW_STREAMING__?: boolean;\n': '',
+            '      global.__PRIME_STUDIO_REFLOW_STREAMING__ = false;\n': '',
+            '      const reflowHarnessDefaults = window.sessionStorage.getItem("prime-studio-reflow-harness-defaults") === "1";\n': '',
+            '        defaultAccount: reflowHarnessDefaults ? null : "account-e2e",': '        defaultAccount: "account-e2e",',
+            '        defaultProvider: reflowHarnessDefaults ? null : "openai-codex",': '        defaultProvider: "openai-codex",',
+            '        defaultModel: reflowHarnessDefaults ? null : "gpt-5",': '        defaultModel: "gpt-5",',
+            '        defaultThinking: reflowHarnessDefaults ? null : "high",': '        defaultThinking: "high",',
+            '            const streamingFixture = request.kind !== "abort" && (request.text === "PRIME_STUDIO_REFLOW_STREAMING_FIXTURE" || global.__PRIME_STUDIO_REFLOW_STREAMING__ === true);\n            global.__PRIME_STUDIO_REFLOW_STREAMING__ = false;': '            const streamingFixture = request.kind !== "abort" && request.text === "PRIME_STUDIO_REFLOW_STREAMING_FIXTURE";',
+            '              const streamingFixture = sessionKind !== "abort" && (text === "PRIME_STUDIO_REFLOW_STREAMING_FIXTURE" || global.__PRIME_STUDIO_REFLOW_STREAMING__ === true);\n              global.__PRIME_STUDIO_REFLOW_STREAMING__ = false;': '              const streamingFixture = sessionKind !== "abort" && text === "PRIME_STUDIO_REFLOW_STREAMING_FIXTURE";',
+          }
+          for before, after in replacements.items():
+              if text.count(before) != 1:
+                  raise SystemExit(f"fixture anchor is not unique: {before[:80]}")
+              text = text.replace(before, after)
+          fixture.write_text(text, encoding="utf-8", newline="\n")
+
+          contract = Path("app/src/contracts/productReflowAcceptance.ts")
+          text = contract.read_text(encoding="utf-8")
+          evidence_line = '  const evidence = new Map<string, Set<ProductReflowGeometryId>>();'
+          if text.count(evidence_line) != 1:
+              raise SystemExit("evidence map anchor is not unique")
+          text = text.replace(
+              evidence_line,
+              evidence_line + '\n  const cellOwners = new Map<string, ProductReflowScenarioId>();',
+          )
+          old_loop = '''    for (const screenId of scenario.screenIds) {
+            if (!packageSet.has(screenId)) {
+              errors.push(`Reflow scenario references unknown package screen ${screenId}.`);
+              continue;
+            }
+            const cells = evidence.get(screenId) ?? new Set<ProductReflowGeometryId>();
+            for (const geometryId of scenario.geometryIds) {
+              if (geometrySet.has(geometryId)) cells.add(geometryId);
+            }
+            evidence.set(screenId, cells);
+          }'''
+          new_loop = '''    for (const screenId of new Set(scenario.screenIds)) {
+            if (!packageSet.has(screenId)) {
+              errors.push(`Reflow scenario references unknown package screen ${screenId}.`);
+              continue;
+            }
+            const cells = evidence.get(screenId) ?? new Set<ProductReflowGeometryId>();
+            for (const geometryId of new Set(scenario.geometryIds)) {
+              if (!geometrySet.has(geometryId)) continue;
+              const cellKey = JSON.stringify([screenId, geometryId]);
+              const owner = cellOwners.get(cellKey);
+              if (owner && owner !== scenario.id) {
+                errors.push(`Reflow evidence cell ${screenId} at ${geometryId} is assigned to both ${owner} and ${scenario.id}.`);
+              } else {
+                cellOwners.set(cellKey, scenario.id);
+              }
+              cells.add(geometryId);
+            }
+            evidence.set(screenId, cells);
+          }'''
+          if text.count(old_loop) != 1:
+              raise SystemExit("scenario evidence loop anchor is not unique")
+          contract.write_text(text.replace(old_loop, new_loop), encoding="utf-8", newline="\n")
+
+          test = Path("app/src/contracts/productReflowAcceptance.test.ts")
+          text = test.read_text(encoding="utf-8")
+          repeated_geometry = '''    expect(validateProductReflowAcceptance([screen], [geometry], [{ ...scenario, geometryIds: [geometry.id, geometry.id], screenIds: [screen.id] }]).errors)
+            .toContain("Reflow scenario workspace-wide repeats a geometry.");'''
+          duplicate_cell = '''    expect(validateProductReflowAcceptance([screen], [geometry], [{ ...scenario, geometryIds: [geometry.id, geometry.id], screenIds: [screen.id] }]).errors)
+            .toContain("Reflow scenario workspace-wide repeats a geometry.");
+            const duplicateCellScenario = { ...scenario, id: "workspace-compact" as const, geometryIds: [geometry.id], screenIds: [screen.id] };
+            expect(validateProductReflowAcceptance(
+              [screen],
+              [geometry],
+              [
+                { ...scenario, geometryIds: [geometry.id], screenIds: [screen.id] },
+                duplicateCellScenario,
+              ],
+            ).errors).toContain(
+              `Reflow evidence cell ${screen.id} at ${geometry.id} is assigned to both workspace-wide and workspace-compact.`,
+            );'''
+          if text.count(repeated_geometry) != 1:
+              raise SystemExit("repeated geometry test anchor is not unique")
+          test.write_text(text.replace(repeated_geometry, duplicate_cell), encoding="utf-8", newline="\n")
+
+          Path(".github/workflows/repair-final-reflow-evidence.yml").unlink()
+
+      - name: Validate final tree
+        shell: bash
+        run: |
+          grep -F 'Inactive planning notes.*status: Idle' app/e2e/product-reflow.spec.ts
+          grep -F 'const cellOwners = new Map<string, ProductReflowScenarioId>();' app/src/contracts/productReflowAcceptance.ts
+          grep -F 'assigned to both workspace-wide and workspace-compact' app/src/contracts/productReflowAcceptance.test.ts
+          ! grep -R -F '__PRIME_STUDIO_REFLOW_STREAMING__' app/e2e
+          ! grep -R -F 'prime-studio-reflow-harness-defaults' app/e2e
+          test ! -e .github/workflows/repair-final-reflow-evidence.yml
+          git diff --check
+
+      - name: Commit repaired evidence and remove this workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/e2e/product-reflow.spec.ts app/e2e/streaming-reflow-admission.spec.ts app/e2e/support/browser-shell.ts app/src/contracts/productReflowAcceptance.ts app/src/contracts/productReflowAcceptance.test.ts .github/workflows/repair-final-reflow-evidence.yml
+          git commit -m "test(reflow): use authoritative empty-chat and unique evidence cells"
+          git push origin HEAD:work/complete-product-reflow
