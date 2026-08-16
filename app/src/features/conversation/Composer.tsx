@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
-
 import { AttachmentChips } from "./AttachmentChips";
 import {
   approximateDraftTokens,
@@ -81,14 +80,18 @@ export function Composer({
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [focusedModelId, setFocusedModelId] = useState<string | null>(null);
+  const [focusedThinking, setFocusedThinking] = useState<ThinkingLevel | null>(null);
   const [activeSlashIndex, setActiveSlashIndex] = useState(0);
   const [dragging, setDragging] = useState(false);
+  const thinkingRoot = useRef<HTMLDivElement>(null);
   const thinkingMenu = useRef<HTMLDivElement>(null);
+  const thinkingInitialFocus = useRef<"first" | "last" | "selected">("selected");
+  const modelRoot = useRef<HTMLDivElement>(null);
   const modelMenu = useRef<HTMLDivElement>(null);
   const modelTrigger = useRef<HTMLButtonElement>(null);
   const modelInitialFocus = useRef<"first" | "last" | "selected">("selected");
-  usePopoverSurface(thinkingMenu, () => setThinkingOpen(false), thinkingOpen);
-  const closeModelWithoutFocusRestore = usePopoverSurface(modelMenu, () => setModelOpen(false), modelOpen);
+  const closeThinkingWithoutFocusRestore = usePopoverSurface(thinkingMenu, () => setThinkingOpen(false), thinkingOpen, thinkingRoot);
+  const closeModelWithoutFocusRestore = usePopoverSurface(modelMenu, () => setModelOpen(false), modelOpen, modelRoot);
   const commandCatalog = useMemo(() => suppliedSlashCommands ?? deriveSlashCommands({
     model: models.length > 0 && Boolean(onSelectModel),
     effort: thinkingLevels.length > 0 && Boolean(onSelectThinking),
@@ -114,6 +117,16 @@ export function Composer({
     target?.focus();
   }, [modelOpen]);
 
+  useEffect(() => {
+    if (!thinkingOpen) return;
+    const items = Array.from(thinkingMenu.current?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]:not(:disabled)') ?? []);
+    const selected = items.find((item) => item.getAttribute("aria-checked") === "true");
+    const target = thinkingInitialFocus.current === "last" ? items[items.length - 1] : thinkingInitialFocus.current === "first" ? items[0] : selected ?? items[0];
+    const level = target?.dataset.thinkingLevel as ThinkingLevel | undefined;
+    setFocusedThinking(level ?? null);
+    target?.focus();
+  }, [thinkingOpen]);
+
   const moveModelFocus = (key: string) => {
     const items = Array.from(modelMenu.current?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]:not(:disabled)') ?? []);
     if (items.length === 0) return;
@@ -126,13 +139,28 @@ export function Composer({
     target?.focus();
   };
 
+  const moveThinkingFocus = (key: string) => {
+    const items = Array.from(thinkingMenu.current?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]:not(:disabled)') ?? []);
+    if (items.length === 0) return;
+    const current = items.indexOf(document.activeElement as HTMLButtonElement);
+    const target = key === "Home" ? items[0]
+      : key === "End" ? items[items.length - 1]
+        : key === "ArrowDown" ? items[(Math.max(0, current) + 1) % items.length]
+          : items[(current <= 0 ? items.length : current) - 1];
+    const level = target?.dataset.thinkingLevel as ThinkingLevel | undefined;
+    setFocusedThinking(level ?? null);
+    target?.focus();
+  };
+
   const runSlashCommand = (command: SlashCommand) => {
     if (command.id === "model") {
+      modelInitialFocus.current = "selected";
       setModelOpen(true);
       onSlashCommand?.(command.id);
       return;
     }
     if (command.id === "effort") {
+      thinkingInitialFocus.current = "selected";
       setThinkingOpen(true);
       onSlashCommand?.(command.id);
       return;
@@ -215,7 +243,7 @@ export function Composer({
             return <button key={model.id} type="button" {...controlBinding(`composer-model-${model.id}`, "composer.model.select", model.enabled ? null : (model.disabledReason ?? "This model is unavailable."))} aria-label={`Use ${model.label}`} aria-pressed={model.id === selectedModel} disabled={!model.enabled} title={model.disabledReason} onClick={() => onSelectModel?.(model.id)}>{model.shortLabel ?? model.label}</button>;
           })}
         </div> : null}
-        {models.length > 0 && onSelectModel ? <div className="composer-model-root">
+        {models.length > 0 && onSelectModel ? <div ref={modelRoot} className="composer-model-root">
           <button ref={modelTrigger} type="button" {...controlBinding("composer-model-catalog", "composer.model.select")} className="composer-model-catalog" aria-label={`Choose model ${models.find((model) => model.id === selectedModel)?.label ?? "unavailable"}`} aria-haspopup="menu" aria-expanded={modelOpen} onClick={() => { modelInitialFocus.current = "selected"; setModelOpen((value) => !value); }} onKeyDown={(event) => {
             if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
             event.preventDefault();
@@ -232,9 +260,22 @@ export function Composer({
             }
           }}>{models.map((model) => <button key={model.id} type="button" {...controlBinding(`composer-model-catalog-${model.id}`, "composer.model.select", model.enabled ? null : (model.disabledReason ?? "This model is unavailable."))} role="menuitemradio" aria-checked={model.id === selectedModel} aria-label={model.label} data-model-id={model.id} tabIndex={model.enabled && model.id === focusedModelId ? 0 : -1} disabled={!model.enabled} title={model.disabledReason} onFocus={() => setFocusedModelId(model.id)} onClick={() => { setModelOpen(false); onSelectModel(model.id); }}>{model.label}</button>)}</div>}
         </div> : null}
-        {thinkingLevels.length > 0 && onSelectThinking && <div className="composer-thinking-root">
-          <button className="composer-thinking" type="button" {...controlBinding("composer-thinking", "composer.thinking.select")} aria-label={`Thinking ${thinking}`} aria-haspopup="menu" aria-expanded={thinkingOpen} disabled={!onSelectThinking} onClick={() => setThinkingOpen((value) => !value)}><span>Thinking</span><strong>{thinking}</strong><span aria-hidden="true">⌄</span></button>
-          {thinkingOpen && <div ref={thinkingMenu} data-studio-overlay="menu" className="composer-thinking-menu" role="menu" aria-label="Thinking level">{thinkingLevels.map((level) => <button key={level} type="button" {...controlBinding(`composer-thinking-${level}`, "composer.thinking.select")} role="menuitemradio" aria-checked={thinking === level} onClick={() => { setThinkingOpen(false); onSelectThinking(level); }}>{level[0].toUpperCase() + level.slice(1)}{thinking === level && <span aria-hidden="true">✓</span>}</button>)}</div>}
+        {thinkingLevels.length > 0 && onSelectThinking && <div ref={thinkingRoot} className="composer-thinking-root">
+          <button className="composer-thinking" type="button" {...controlBinding("composer-thinking", "composer.thinking.select")} aria-label={`Thinking ${thinking}`} aria-haspopup="menu" aria-expanded={thinkingOpen} onClick={() => { thinkingInitialFocus.current = "selected"; setThinkingOpen((value) => !value); }} onKeyDown={(event) => {
+            if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+            event.preventDefault();
+            thinkingInitialFocus.current = event.key === "ArrowUp" || event.key === "End" ? "last" : "first";
+            setThinkingOpen(true);
+          }}><span>Thinking</span><strong>{thinking}</strong><span aria-hidden="true">⌄</span></button>
+          {thinkingOpen && <div ref={thinkingMenu} data-studio-overlay="menu" className="composer-thinking-menu" role="menu" aria-label="Thinking level" onKeyDown={(event) => {
+            if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+              event.preventDefault();
+              moveThinkingFocus(event.key);
+            } else if (event.key === "Tab") {
+              closeThinkingWithoutFocusRestore();
+              window.setTimeout(() => setThinkingOpen(false), 0);
+            }
+          }}>{thinkingLevels.map((level) => <button key={level} type="button" {...controlBinding(`composer-thinking-${level}`, "composer.thinking.select")} role="menuitemradio" aria-checked={thinking === level} data-thinking-level={level} tabIndex={level === focusedThinking ? 0 : -1} onFocus={() => setFocusedThinking(level)} onClick={() => { setThinkingOpen(false); onSelectThinking(level); }}>{level[0].toUpperCase() + level.slice(1)}{thinking === level && <span aria-hidden="true">✓</span>}</button>)}</div>}
         </div>}
         {showTokenEstimate && <span className="composer-context" title="Approximate draft tokens">≈ {approximateDraftTokens(draft).toLocaleString()} tokens</span>}
         {showVoiceControl && <button className="composer-voice" type="button" {...controlBinding("composer-voice", "composer.voice.start", "Voice capture is unavailable until the native privacy contract is implemented.")} aria-label="Voice input" disabled={!onVoiceInput} title={onVoiceInput ? "Voice input" : "Voice capture is unavailable until the native privacy contract is implemented."} onClick={onVoiceInput}><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3zM19 10v1a7 7 0 0 1-14 0v-1M12 18v4" /></svg></button>}
