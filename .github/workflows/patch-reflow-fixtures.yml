@@ -27,36 +27,44 @@ jobs:
 
           const supportPath = 'app/e2e/support/browser-shell.ts';
           let support = fs.readFileSync(supportPath, 'utf8');
-          const oldSettings = `      let appSettings: Record<string, string | null> = {
-        theme: "dark",
-        defaultAccount: "account-e2e",
-        defaultProvider: "openai-codex",
-        defaultModel: "gpt-5",
-        defaultThinking: "high",
-        defaultCwd: "D:\\\\fixture\\\\Prime Studio",
-        lastSection: "accounts",
-      };`;
-          const newSettings = `      const reflowHarnessDefaults = window.sessionStorage.getItem("prime-studio-reflow-harness-defaults") === "1";
-      let appSettings: Record<string, string | null> = {
-        theme: "dark",
-        defaultAccount: reflowHarnessDefaults ? null : "account-e2e",
-        defaultProvider: reflowHarnessDefaults ? null : "openai-codex",
-        defaultModel: reflowHarnessDefaults ? null : "gpt-5",
-        defaultThinking: reflowHarnessDefaults ? null : "high",
-        defaultCwd: "D:\\\\fixture\\\\Prime Studio",
-        lastSection: "accounts",
-      };`;
+          const oldSettings = [
+            '      let appSettings: Record<string, string | null> = {',
+            '        theme: "dark",',
+            '        defaultAccount: "account-e2e",',
+            '        defaultProvider: "openai-codex",',
+            '        defaultModel: "gpt-5",',
+            '        defaultThinking: "high",',
+            '        defaultCwd: "D:\\\\fixture\\\\Prime Studio",',
+            '        lastSection: "accounts",',
+            '      };',
+          ].join('\n');
+          const newSettings = [
+            '      const reflowHarnessDefaults = window.sessionStorage.getItem("prime-studio-reflow-harness-defaults") === "1";',
+            '      let appSettings: Record<string, string | null> = {',
+            '        theme: "dark",',
+            '        defaultAccount: reflowHarnessDefaults ? null : "account-e2e",',
+            '        defaultProvider: reflowHarnessDefaults ? null : "openai-codex",',
+            '        defaultModel: reflowHarnessDefaults ? null : "gpt-5",',
+            '        defaultThinking: reflowHarnessDefaults ? null : "high",',
+            '        defaultCwd: "D:\\\\fixture\\\\Prime Studio",',
+            '        lastSection: "accounts",',
+            '      };',
+          ].join('\n');
           if (!support.includes(oldSettings)) throw new Error('browser settings fixture not found');
           support = support.replace(oldSettings, newSettings);
           fs.writeFileSync(supportPath, support);
 
           const specPath = 'app/e2e/browser-shell.spec.ts';
           let spec = fs.readFileSync(specPath, 'utf8');
-          const oldTransition = `  await shellPage.setViewportSize({ width: 1280, height: 800 });
-  const expandedCollapse = shellPage.locator('[data-control-id="sidebar.collapse"]');`;
-          const newTransition = `  await shellPage.setViewportSize({ width: 1280, height: 800 });
-  await expect(shellPage.getByRole("navigation", { name: "Projects and chats" })).toHaveAttribute("data-mode", "pane");
-  const expandedCollapse = shellPage.locator('[data-control-id="sidebar.collapse"]');`;
+          const oldTransition = [
+            '  await shellPage.setViewportSize({ width: 1280, height: 800 });',
+            '  const expandedCollapse = shellPage.locator(\'[data-control-id="sidebar.collapse"]\');',
+          ].join('\n');
+          const newTransition = [
+            '  await shellPage.setViewportSize({ width: 1280, height: 800 });',
+            '  await expect(shellPage.getByRole("navigation", { name: "Projects and chats" })).toHaveAttribute("data-mode", "pane");',
+            '  const expandedCollapse = shellPage.locator(\'[data-control-id="sidebar.collapse"]\');',
+          ].join('\n');
           if (!spec.includes(oldTransition)) throw new Error('adaptive focus transition not found');
           spec = spec.replace(oldTransition, newTransition);
           fs.writeFileSync(specPath, spec);
