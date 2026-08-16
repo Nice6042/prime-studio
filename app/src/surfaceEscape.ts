@@ -3,13 +3,24 @@ import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 const STUDIO_SURFACE_SELECTOR = ".modal-backdrop, [data-studio-overlay]";
 const STUDIO_GLOBAL_SHORTCUT_KEYS = new Set(["n", "k", ",", "b", "j"]);
 
+function isPresentedSurface(surface: HTMLElement): boolean {
+  return surface.isConnected
+    && !surface.hidden
+    && surface.getAttribute("aria-hidden") !== "true"
+    && surface.closest("[hidden], [aria-hidden='true']") === null;
+}
+
+function studioSurfaceElements(root: ParentNode = document): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(STUDIO_SURFACE_SELECTOR)).filter(isPresentedSurface);
+}
+
 export function hasOpenStudioOverlay(): boolean {
-  return document.querySelector(STUDIO_SURFACE_SELECTOR) !== null;
+  return studioSurfaceElements().length > 0;
 }
 
 function isTopmostSurface(surface: HTMLElement): boolean {
-  const surfaces = document.querySelectorAll<HTMLElement>(STUDIO_SURFACE_SELECTOR);
-  return surfaces.item(surfaces.length - 1) === surface;
+  const surfaces = studioSurfaceElements();
+  return surfaces[surfaces.length - 1] === surface;
 }
 
 function isStudioGlobalShortcut(event: KeyboardEvent): boolean {
@@ -20,11 +31,30 @@ function isStudioGlobalShortcut(event: KeyboardEvent): boolean {
     && STUDIO_GLOBAL_SHORTCUT_KEYS.has(event.key.toLocaleLowerCase());
 }
 
-function focusEligible(element: HTMLElement | null): void {
-  if (element?.isConnected && !element.matches(":disabled") && !element.closest("[inert]")) element.focus();
+function eventTargetsElement(event: Event, element: HTMLElement | null): boolean {
+  if (!element) return false;
+  if (typeof event.composedPath === "function" && event.composedPath().includes(element)) return true;
+  return event.target instanceof Node && element.contains(event.target);
 }
 
-/** Give keyboard ownership to exactly one surface: the last rendered backdrop. */
+function focusEligible(element: HTMLElement | null): void {
+  if (
+    element?.isConnected
+    && !element.matches(":disabled")
+    && element.getAttribute("aria-disabled") !== "true"
+    && !element.closest("[inert], [hidden], [aria-hidden='true']")
+  ) element.focus();
+}
+
+function activeSurfaceOwnsFocus(): boolean {
+  const active = document.activeElement;
+  return active instanceof HTMLElement
+    && active !== document.body
+    && active !== document.documentElement
+    && active.closest(STUDIO_SURFACE_SELECTOR) !== null;
+}
+
+/** Give keyboard ownership to exactly one surface: the last presented backdrop. */
 export function useTopmostSurfaceEscape(
   backdropRef: RefObject<HTMLElement | null>,
   onClose: (() => void) | undefined,
@@ -51,14 +81,13 @@ export function useTopmostSurfaceEscape(
 }
 
 /**
- * Shared Escape, outside-pointer, shortcut, and focus behavior for non-modal
- * menus and popovers. Only the topmost Studio surface may dismiss itself or
- * consume application-global shortcuts. Pointer dismissal preserves the newly
- * clicked target; Escape restores the opener. If the clicked target removes
- * itself, focus falls back to the admitted opener. A shared boundary may host
- * sibling triggers; focus moving between those triggers updates the exact
- * opener without requiring the popover to close first. Returns a one-close
- * restoration suppressor for native Tab progression.
+ * Shared Escape, outside-pointer, focus-transfer, shortcut, and restoration
+ * behavior for non-modal menus and popovers. Only the topmost presented Studio
+ * surface may dismiss itself or consume application-global shortcuts. Pointer
+ * and focus dismissal preserve the destination; Escape and an evaporated
+ * pointer target restore the admitted opener. A shared boundary may host sibling
+ * triggers, so focus moving between them updates the exact restoration target.
+ * Returns a one-close restoration suppressor for native Tab progression.
  */
 export function usePopoverSurface(
   surfaceRef: RefObject<HTMLElement | null>,
@@ -68,14 +97,23 @@ export function usePopoverSurface(
 ) {
   const openerRef = useRef<HTMLElement | null>(null);
   const restoreFocusRef = useRef(true);
+  const closingRef = useRef(false);
+  const closeOnce = () => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    onClose();
+  };
 
   useLayoutEffect(() => {
     if (!enabled) return;
     restoreFocusRef.current = true;
+    closingRef.current = false;
     return () => {
       if (!restoreFocusRef.current) return;
       const opener = openerRef.current;
-      queueMicrotask(() => focusEligible(opener));
+      queueMicrotask(() => {
+        if (!activeSurfaceOwnsFocus()) focusEligible(opener);
+      });
     };
   }, [enabled]);
 
@@ -107,24 +145,42 @@ export function usePopoverSurface(
 
   useEffect(() => {
     if (!enabled) return;
+    const boundaryFor = (surface: HTMLElement) => boundaryRef?.current ?? surface;
+    const closeForTransfer = () => {
+      restoreFocusRef.current = false;
+      closeOnce();
+    };
     const closeOnOutsidePointer = (event: PointerEvent) => {
       const surface = surfaceRef.current;
+      if (!surface || !isTopmostSurface(surface)) return;
+      const boundary = boundaryFor(surface);
+      if (eventTargetsElement(event, boundary)) return;
       const target = event.target;
-      if (!surface || !(target instanceof Node) || !isTopmostSurface(surface)) return;
-      const boundary = boundaryRef?.current ?? surface;
-      if (boundary.contains(target)) return;
-      const clickedTarget = target instanceof HTMLElement ? target : target.parentElement;
+      const clickedTarget = target instanceof HTMLElement
+        ? target
+        : target instanceof Node
+          ? target.parentElement
+          : null;
       const fallbackOpener = openerRef.current;
-      restoreFocusRef.current = false;
-      onClose();
+      closeForTransfer();
       window.requestAnimationFrame(() => {
         if (!clickedTarget?.isConnected) focusEligible(fallbackOpener);
       });
     };
+    const closeOnOutsideFocus = (event: FocusEvent) => {
+      const surface = surfaceRef.current;
+      if (!surface || !isTopmostSurface(surface)) return;
+      if (eventTargetsElement(event, boundaryFor(surface))) return;
+      closeForTransfer();
+    };
     window.addEventListener("pointerdown", closeOnOutsidePointer, true);
-    return () => window.removeEventListener("pointerdown", closeOnOutsidePointer, true);
+    document.addEventListener("focusin", closeOnOutsideFocus, true);
+    return () => {
+      window.removeEventListener("pointerdown", closeOnOutsidePointer, true);
+      document.removeEventListener("focusin", closeOnOutsideFocus, true);
+    };
   }, [boundaryRef, enabled, onClose, surfaceRef]);
 
-  useTopmostSurfaceEscape(surfaceRef, onClose, enabled);
+  useTopmostSurfaceEscape(surfaceRef, closeOnce, enabled);
   return () => { restoreFocusRef.current = false; };
 }
