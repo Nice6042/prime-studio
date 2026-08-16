@@ -198,11 +198,6 @@ export function ProjectSidebar({
         className="project-brand-action"
         {...controlBinding(sidebarCommands.collapse.id, sidebarCommands.collapse.action)}
         aria-label={sidebarCommands.collapse.label}
-        onKeyDown={(event) => {
-          if (event.key !== "Enter") return;
-          event.preventDefault();
-          onCollapse();
-        }}
         onClick={onCollapse}
       ><NavigationIcon kind="collapse" /></button>}
     </div>

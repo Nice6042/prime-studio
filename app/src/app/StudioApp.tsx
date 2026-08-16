@@ -1222,15 +1222,29 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   useLayoutEffect(() => {
     const hostChanged = previousSidebarHost.current !== workspaceFooterHost;
     previousSidebarHost.current = workspaceFooterHost;
-    if (workspaceMenuHostRef.current === null) {
-      const controlId = sidebarReplacementFocus.current ?? (hostChanged && sidebarHadFocus.current
-        ? workspaceFooterHost === "rail" ? "rail.sidebar.toggle" : workspaceFooterHost === "pane" || workspaceFooterHost === "sheet" ? "sidebar.collapse" : null
-        : null);
-      const target = controlId ? document.querySelector<HTMLButtonElement>(`[data-control-id="${controlId}"]`) : null;
-      if (target) target.focus();
-    }
-    sidebarReplacementFocus.current = null;
-  }, [workspaceFooterHost]);
+    if (workspaceMenuHostRef.current !== null) return;
+
+    const controlId = sidebarReplacementFocus.current ?? (hostChanged && sidebarHadFocus.current
+      ? workspaceFooterHost === "rail" ? "rail.sidebar.toggle" : workspaceFooterHost === "pane" || workspaceFooterHost === "sheet" ? "sidebar.collapse" : null
+      : null);
+    if (!controlId) return;
+
+    let cancelled = false;
+    const focusReplacement = () => {
+      if (cancelled) return false;
+      const target = document.querySelector<HTMLButtonElement>(`[data-control-id="${controlId}"]`);
+      if (!target?.isConnected) return false;
+      target.focus();
+      if (sidebarReplacementFocus.current === controlId) sidebarReplacementFocus.current = null;
+      return true;
+    };
+    if (focusReplacement()) return;
+    const frame = window.requestAnimationFrame(() => { focusReplacement(); });
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frame);
+    };
+  }, [activeSheet, layout.sidebarOpen, workspaceFooterHost]);
   const executeSettingOperation = (operation: StudioOperation, key: keyof AppSettings, value: string | null) => {
     void harnessAdapter.execute(operation).then((outcome) => {
       if (operationAccepted(outcome.status)) void rpc.setAppSetting(key, value).then(setSettings).catch(() => undefined);
