@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 
 import {
   commandAvailability,
@@ -30,15 +30,9 @@ export function TitleBar({ title, actions, availability, onCommand }: {
   readonly onCommand?: (id: StudioCommandId) => void;
 }) {
   const [open, setOpen] = useState<string | null>(null);
-  const root = useRef<HTMLDivElement>(null);
   const openMenu = useRef<HTMLSpanElement>(null);
   usePopoverSurface(openMenu, () => setOpen(null), open !== null);
-  useEffect(() => {
-    const close = (event: PointerEvent) => { if (root.current && event.target instanceof Node && !root.current.contains(event.target)) setOpen(null); };
-    window.addEventListener("pointerdown", close);
-    return () => window.removeEventListener("pointerdown", close);
-  }, []);
-  return <div className="studio-titlebar" ref={root}>
+  return <div className="studio-titlebar">
     <span className="studio-title-mark" aria-hidden="true"><i /></span><strong>Prime Studio</strong>
     <nav className="studio-title-menus" aria-label="Application menu">{menuNames.map((menu) => <span className="studio-title-menu-root" key={menu}>
       <button type="button" {...controlBinding(`title-menu-${menu.toLocaleLowerCase()}`, "surface.popover.toggle")} aria-label={menu} aria-haspopup="menu" aria-expanded={open === menu} onClick={() => setOpen((value) => value === menu ? null : menu)} onPointerEnter={() => { if (open) setOpen(menu); }}>{menu}</button>
