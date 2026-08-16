@@ -29,8 +29,9 @@ test("topmost menus own global shortcuts without leaking workspace commands", as
 
 test("composer and title popovers dismiss outside without stealing the clicked target", async ({ shellPage }) => {
   const composer = shellPage.getByRole("textbox", { name: "Message Prime Studio" });
+  const file = shellPage.getByRole("button", { name: "File", exact: true });
 
-  await shellPage.getByRole("button", { name: "File", exact: true }).click();
+  await file.click();
   await expect(shellPage.getByRole("menu", { name: "File menu" })).toBeVisible();
   await composer.click();
   await expect(shellPage.getByRole("menu", { name: "File menu" })).toHaveCount(0);
@@ -48,9 +49,12 @@ test("composer and title popovers dismiss outside without stealing the clicked t
   const thinkingMenu = shellPage.getByRole("menu", { name: "Thinking level" });
   await expect(thinkingMenu).toBeVisible();
   await expect(thinkingMenu.getByRole("menuitemradio", { checked: true })).toBeFocused();
-  const pin = shellPage.locator('[data-control-id="chat-pin-toggle"]');
-  await pin.click();
+  await file.click();
   await expect(thinkingMenu).toHaveCount(0);
-  await expect(pin).toBeFocused();
+  await expect(shellPage.getByRole("menu", { name: "File menu" })).toBeVisible();
+  await expect(file).toBeFocused();
+  await shellPage.keyboard.press("Escape");
+  await expect(shellPage.getByRole("menu", { name: "File menu" })).toHaveCount(0);
+  await expect(file).toBeFocused();
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-shared-popover-dismissal");
 });
