@@ -102,7 +102,7 @@
 .conversation-empty .parent-prime-mark { inline-size: 34px; block-size: 34px; margin-block-end: 14px; }
 .conversation-empty h1 { margin: 0 0 8px; color: #e9e9ee; font-size: 17px; font-weight: 600; }
 .conversation-empty p { max-inline-size: 380px; margin: 0; line-height: 1.5; }
-.conversation-empty small { margin-block-start: 10px; color: #6d6d78; }
+.conversation-empty small { margin-block-start: 10px; color: #9a9aa6; }
 .conversation-suggestions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-block-start: 16px; }
 .conversation-suggestions button { min-block-size: 32px; padding: 7px 13px; border: 1px solid rgb(255 255 255 / 10%); border-radius: 99px; color: #c9c9d1; background: transparent; font: 12.5px/1.2 inherit; }
 .conversation-suggestions button:hover { border-color: rgb(142 133 240 / 50%); background: #1d1d22; }
