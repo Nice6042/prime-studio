@@ -13,6 +13,8 @@ import {
   resetProductAtGeometry,
 } from "./support/product-reflow";
 
+const STREAMING_REFLOW_FIXTURE = "PRIME_STUDIO_REFLOW_STREAMING_FIXTURE";
+
 const geometry = (id: ProductReflowGeometry["id"]) => {
   const found = PRODUCT_REFLOW_GEOMETRIES.find((candidate) => candidate.id === id);
   if (!found) throw new Error(`Missing reflow geometry ${id}.`);
@@ -52,6 +54,15 @@ test("workspace, inspector, child, and editor screen families reflow at 1280 and
     await expect(sidebar.getByRole("button", { name: /Prime Harness architecture.*status: Working/i }).first()).toHaveAttribute("data-session-status", "working");
     await expect(workspace.getByText("The parent conversation stays focused on decisions and final results.", { exact: false })).toBeVisible();
     await expectProductViewport(shellPage, `${target.id} active and working conversation`);
+
+    const composer = shellPage.getByPlaceholder("Message Prime Studio — try / for commands");
+    await composer.fill(STREAMING_REFLOW_FIXTURE);
+    await composer.press("Enter");
+    const streamingTurn = workspace.locator('.parent-assistant-turn[aria-busy="true"]').last();
+    await expect(streamingTurn).toContainText("Synthetic streaming response retained for deterministic reflow evidence.");
+    await expect(streamingTurn.getByRole("status")).toHaveText("Responding");
+    await expect(composer).toHaveValue("");
+    await expectProductViewport(shellPage, `${target.id} streaming conversation`);
 
     await harness.getByRole("tab", { name: "Usage" }).click();
     await expect(harness.getByText("Current chat", { exact: true })).toBeVisible();
