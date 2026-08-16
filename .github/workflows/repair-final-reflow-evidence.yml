@@ -28,17 +28,16 @@ jobs:
 
           spec = Path("app/e2e/product-reflow.spec.ts")
           text = spec.read_text(encoding="utf-8")
-          text = text.replace('const REFLOW_HARNESS_DEFAULTS_FLAG = "prime-studio-reflow-harness-defaults";\n', '')
-          streaming_flag = '''  await page.evaluate(() => {
-            const global = window as typeof window & { __PRIME_STUDIO_REFLOW_STREAMING__?: boolean };
-            global.__PRIME_STUDIO_REFLOW_STREAMING__ = true;
-          });
-          '''
-          if text.count(streaming_flag) != 1:
-              raise SystemExit("expected one product reflow streaming flag block")
-          text = text.replace(streaming_flag, "")
-          start = text.index("async function exerciseEmptyConversation(")
-          end = text.index("\n\ntest.describe.configure", start)
+          defaults_line = 'const REFLOW_HARNESS_DEFAULTS_FLAG = "prime-studio-reflow-harness-defaults";\n'
+          if text.count(defaults_line) != 1:
+              raise SystemExit("expected one reflow Harness-defaults constant")
+          text = text.replace(defaults_line, "")
+          helper_start = text.index("async function exerciseStreamingConversation(")
+          flag_start = text.index("  await page.evaluate(() => {", helper_start)
+          flag_end = text.index("  await composer.fill", flag_start)
+          text = text[:flag_start] + text[flag_end:]
+          empty_start = text.index("async function exerciseEmptyConversation(")
+          empty_end = text.index("\n\ntest.describe.configure", empty_start)
           empty_helper = '''async function exerciseEmptyConversation(page: Page, target: ProductReflowGeometry): Promise<void> {
             await resetProductAtGeometry(page, target);
             const idleChatName = /Inactive planning notes.*status: Idle/i;
@@ -56,19 +55,14 @@ jobs:
             await expect(page.getByRole("textbox", { name: "Message Prime Studio" })).toBeVisible();
             await expectProductViewport(page, `${target.id} empty conversation`);
           }'''
-          text = text[:start] + empty_helper + text[end:]
+          text = text[:empty_start] + empty_helper + text[empty_end:]
           spec.write_text(text, encoding="utf-8", newline="\n")
 
           admission = Path("app/e2e/streaming-reflow-admission.spec.ts")
           text = admission.read_text(encoding="utf-8")
-          admission_flag = '''  await shellPage.evaluate(() => {
-            const global = window as typeof window & { __PRIME_STUDIO_REFLOW_STREAMING__?: boolean };
-            global.__PRIME_STUDIO_REFLOW_STREAMING__ = true;
-          });
-          '''
-          if text.count(admission_flag) != 1:
-              raise SystemExit("expected one streaming admission flag block")
-          admission.write_text(text.replace(admission_flag, ""), encoding="utf-8", newline="\n")
+          flag_start = text.index("  await shellPage.evaluate(() => {")
+          flag_end = text.index("  await composer.fill", flag_start)
+          admission.write_text(text[:flag_start] + text[flag_end:], encoding="utf-8", newline="\n")
 
           fixture = Path("app/e2e/support/browser-shell.ts")
           text = fixture.read_text(encoding="utf-8")
@@ -98,17 +92,8 @@ jobs:
               evidence_line,
               evidence_line + '\n  const cellOwners = new Map<string, ProductReflowScenarioId>();',
           )
-          old_loop = '''    for (const screenId of scenario.screenIds) {
-            if (!packageSet.has(screenId)) {
-              errors.push(`Reflow scenario references unknown package screen ${screenId}.`);
-              continue;
-            }
-            const cells = evidence.get(screenId) ?? new Set<ProductReflowGeometryId>();
-            for (const geometryId of scenario.geometryIds) {
-              if (geometrySet.has(geometryId)) cells.add(geometryId);
-            }
-            evidence.set(screenId, cells);
-          }'''
+          loop_start = text.index("    for (const screenId of scenario.screenIds) {")
+          loop_end = text.index("\n  }\n\n  for (const screenId of packageSet)", loop_start)
           new_loop = '''    for (const screenId of new Set(scenario.screenIds)) {
             if (!packageSet.has(screenId)) {
               errors.push(`Reflow scenario references unknown package screen ${screenId}.`);
@@ -128,16 +113,15 @@ jobs:
             }
             evidence.set(screenId, cells);
           }'''
-          if text.count(old_loop) != 1:
-              raise SystemExit("scenario evidence loop anchor is not unique")
-          contract.write_text(text.replace(old_loop, new_loop), encoding="utf-8", newline="\n")
+          contract.write_text(text[:loop_start] + new_loop + text[loop_end:], encoding="utf-8", newline="\n")
 
           test = Path("app/src/contracts/productReflowAcceptance.test.ts")
           text = test.read_text(encoding="utf-8")
-          repeated_geometry = '''    expect(validateProductReflowAcceptance([screen], [geometry], [{ ...scenario, geometryIds: [geometry.id, geometry.id], screenIds: [screen.id] }]).errors)
-            .toContain("Reflow scenario workspace-wide repeats a geometry.");'''
-          duplicate_cell = '''    expect(validateProductReflowAcceptance([screen], [geometry], [{ ...scenario, geometryIds: [geometry.id, geometry.id], screenIds: [screen.id] }]).errors)
-            .toContain("Reflow scenario workspace-wide repeats a geometry.");
+          needle = '      .toContain("Reflow scenario workspace-wide repeats a geometry.");'
+          if text.count(needle) != 1:
+              raise SystemExit("repeated geometry test anchor is not unique")
+          insert_at = text.index(needle) + len(needle)
+          duplicate_cell = '''
             const duplicateCellScenario = { ...scenario, id: "workspace-compact" as const, geometryIds: [geometry.id], screenIds: [screen.id] };
             expect(validateProductReflowAcceptance(
               [screen],
@@ -149,9 +133,7 @@ jobs:
             ).errors).toContain(
               `Reflow evidence cell ${screen.id} at ${geometry.id} is assigned to both workspace-wide and workspace-compact.`,
             );'''
-          if text.count(repeated_geometry) != 1:
-              raise SystemExit("repeated geometry test anchor is not unique")
-          test.write_text(text.replace(repeated_geometry, duplicate_cell), encoding="utf-8", newline="\n")
+          test.write_text(text[:insert_at] + duplicate_cell + text[insert_at:], encoding="utf-8", newline="\n")
 
           Path(".github/workflows/repair-final-reflow-evidence.yml").unlink()
 
