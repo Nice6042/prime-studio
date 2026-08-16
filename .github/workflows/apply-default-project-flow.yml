@@ -1,0 +1,147 @@
+name: Apply reviewed default project flow
+
+on:
+  push:
+    branches:
+      - work/complete-general-settings
+    paths:
+      - .github/workflows/apply-default-project-flow.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out General settings branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: work/complete-general-settings
+          persist-credentials: true
+
+      - name: Apply the reviewed default-project flow
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path: str, before: str, after: str) -> None:
+              target = Path(path)
+              text = target.read_text(encoding="utf-8")
+              count = text.count(before)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one patch anchor, found {count}")
+              target.write_text(text.replace(before, after), encoding="utf-8", newline="\n")
+
+          # A configured default is an explicit prefill for future folder projects,
+          # never a silent override of an existing project's identity-bound cwd.
+          replace_once(
+              "app/src/features/navigation/ProjectSidebar.tsx",
+              'export function CreateProjectDialog({ onCreate, onCancel, restoreFocusTo }: {\n  readonly onCreate: (name: string, folderPath: string) => void;\n  readonly onCancel: () => void;\n  readonly restoreFocusTo?: HTMLElement | null;\n}) {\n  const [projectName, setProjectName] = useState("");\n  const [folderPath, setFolderPath] = useState("");',
+              'export function CreateProjectDialog({ onCreate, onCancel, restoreFocusTo, initialFolderPath = "" }: {\n  readonly onCreate: (name: string, folderPath: string) => void;\n  readonly onCancel: () => void;\n  readonly restoreFocusTo?: HTMLElement | null;\n  readonly initialFolderPath?: string;\n}) {\n  const [projectName, setProjectName] = useState("");\n  const [folderPath, setFolderPath] = useState(initialFolderPath);',
+          )
+          replace_once(
+              "app/src/features/navigation/ProjectSidebar.tsx",
+              '  onExecuteWorkspaceOperation,\n  onCollapse,\n  newChatDisabledReason,\n}: {',
+              '  onExecuteWorkspaceOperation,\n  onCollapse,\n  newChatDisabledReason,\n  defaultProjectFolder = "",\n}: {',
+          )
+          replace_once(
+              "app/src/features/navigation/ProjectSidebar.tsx",
+              '  readonly newChatDisabledReason?: string;\n}) {',
+              '  readonly newChatDisabledReason?: string;\n  readonly defaultProjectFolder?: string;\n}) {',
+          )
+          replace_once(
+              "app/src/features/navigation/ProjectSidebar.tsx",
+              '{creatingProject && <CreateProjectDialog restoreFocusTo={newProjectRef.current} onCancel={() => setCreatingProject(false)} onCreate={(name, path) => { onNewProject?.(name, path); setCreatingProject(false); }} />}',
+              '{creatingProject && <CreateProjectDialog initialFolderPath={defaultProjectFolder} restoreFocusTo={newProjectRef.current} onCancel={() => setCreatingProject(false)} onCreate={(name, path) => { onNewProject?.(name, path); setCreatingProject(false); }} />}',
+          )
+
+          replace_once(
+              "app/src/app/StudioApp.tsx",
+              '        onNewProject={createProject}\n        newChatDisabledReason={newChatDisabledReason}',
+              '        onNewProject={createProject}\n        defaultProjectFolder={settings.defaultCwd ?? ""}\n        newChatDisabledReason={newChatDisabledReason}',
+          )
+          create_dialog = '{createProjectOpen && <CreateProjectDialog restoreFocusTo={createProjectOpener} onCancel={() => { void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} onCreate={(name, folderPath) => { createProject(name, folderPath); void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} />}'
+          replacement = '{createProjectOpen && <CreateProjectDialog initialFolderPath={settings.defaultCwd ?? ""} restoreFocusTo={createProjectOpener} onCancel={() => { void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} onCreate={(name, folderPath) => { createProject(name, folderPath); void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} />}'
+          studio = Path("app/src/app/StudioApp.tsx")
+          studio_text = studio.read_text(encoding="utf-8")
+          if studio_text.count(create_dialog) != 2:
+              raise SystemExit(f"StudioApp.tsx: expected two create-project overlays, found {studio_text.count(create_dialog)}")
+          studio.write_text(studio_text.replace(create_dialog, replacement), encoding="utf-8", newline="\n")
+
+          # Correct the General copy so it states the actual authority boundary.
+          replace_once(
+              "app/src/features/settings/SettingsPages.tsx",
+              '<Row label="Default project" description="New resident chats use this user-selected working directory; clearing it asks each time.">',
+              '<Row label="Default project" description="New folder-project dialogs start from this user-selected working directory; clearing it requires choosing a folder each time.">',
+          )
+          replace_once(
+              "app/src/features/settings/SettingsPages.tsx",
+              '{settings.defaultCwd || "Ask each time"}',
+              '{settings.defaultCwd || "Choose each time"}',
+          )
+          replace_once(
+              "app/src/features/settings/SettingsPages.tsx",
+              '>Ask each time</button>',
+              '>Choose each time</button>',
+          )
+
+          # Component evidence: configured defaults prefill but do not bypass user confirmation.
+          project_test = Path("app/src/features/navigation/ProjectSidebar.test.tsx")
+          project_text = project_test.read_text(encoding="utf-8")
+          anchor = '  it("collects a project name and folder before requesting durable creation", async () => {\n'
+          evidence = '''  it("prefills a new folder project from the configured default without silently creating it", async () => {
+              const onNewProject = vi.fn();
+              render(<ProjectSidebar {...workspaceProps} projects={projects} defaultProjectFolder="D:\\\\work\\\\prime" onSelectChat={() => undefined} onToggleProject={() => undefined}
+                onNewChat={() => undefined} onOpenSettings={() => undefined} onNewProject={onNewProject} />);
+
+              await userEvent.click(screen.getByRole("button", { name: "New project" }));
+              expect(screen.getByRole("textbox", { name: "Folder path" })).toHaveValue("D:\\\\work\\\\prime");
+              expect(screen.getByRole("button", { name: "Create project" })).toBeDisabled();
+              expect(onNewProject).not.toHaveBeenCalled();
+
+              await userEvent.type(screen.getByRole("textbox", { name: "Project name" }), "Default-root project");
+              await userEvent.click(screen.getByRole("button", { name: "Create project" }));
+              expect(onNewProject).toHaveBeenCalledWith("Default-root project", "D:\\\\work\\\\prime");
+            });
+
+          '''
+          if project_text.count(anchor) != 1:
+              raise SystemExit("ProjectSidebar.test.tsx: creation test anchor is not unique")
+          project_test.write_text(project_text.replace(anchor, evidence + anchor), encoding="utf-8", newline="\n")
+
+          replace_once(
+              "app/src/features/settings/SettingsShell.test.tsx",
+              'screen.getByRole("button", { name: "Ask each time" })',
+              'screen.getByRole("button", { name: "Choose each time" })',
+          )
+
+          # Browser evidence crosses Settings -> native picker -> durable setting -> New project UI.
+          replace_once(
+              "app/e2e/browser-shell.spec.ts",
+              '  await shellPage.getByRole("button", { name: "Browse default workspace" }).click();\n  await expect(shellPage.getByText("D:\\\\fixture\\\\Selected Workspace", { exact: true })).toBeVisible();\n\n  const setRange',
+              '  await shellPage.getByRole("button", { name: "Browse default workspace" }).click();\n  await expect(shellPage.getByText("D:\\\\fixture\\\\Selected Workspace", { exact: true })).toBeVisible();\n  await shellPage.getByRole("button", { name: "Back to chat" }).click();\n  await shellPage.getByRole("button", { name: "New project" }).click();\n  await expect(shellPage.getByRole("textbox", { name: "Folder path" })).toHaveValue("D:\\\\fixture\\\\Selected Workspace");\n  await expect(shellPage.getByRole("button", { name: "Create project" })).toBeDisabled();\n  await shellPage.keyboard.press("Escape");\n  await shellPage.keyboard.press("Control+,");\n  await shellPage.getByRole("button", { name: /^General/ }).click();\n\n  const setRange',
+          )
+
+          Path(".github/workflows/apply-default-project-flow.yml").unlink()
+
+      - name: Validate final tree
+        shell: bash
+        run: |
+          grep -F 'initialFolderPath={defaultProjectFolder}' app/src/features/navigation/ProjectSidebar.tsx
+          grep -F 'defaultProjectFolder={settings.defaultCwd ?? ""}' app/src/app/StudioApp.tsx
+          grep -F 'New folder-project dialogs start' app/src/features/settings/SettingsPages.tsx
+          grep -F 'prefills a new folder project' app/src/features/navigation/ProjectSidebar.test.tsx
+          grep -F 'Folder path' app/e2e/browser-shell.spec.ts | grep -F 'toHaveValue'
+          test ! -e .github/workflows/apply-default-project-flow.yml
+          git diff --check
+
+      - name: Commit reviewed default project flow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app .github/workflows/apply-default-project-flow.yml
+          git commit -m "fix(settings): apply the default folder to new projects"
+          git push origin HEAD:work/complete-general-settings
