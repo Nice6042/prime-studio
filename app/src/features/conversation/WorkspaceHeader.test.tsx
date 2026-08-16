@@ -30,6 +30,26 @@ describe("WorkspaceHeader", () => {
     expect(onSetPinned).toHaveBeenCalledWith(true);
   });
 
+  it("switches between independent chat popovers and closes them before another header action", async () => {
+    const onSetPinned = vi.fn();
+    render(<WorkspaceHeader {...shared} onSetPinned={onSetPinned} />);
+    const switcher = screen.getByRole("button", { name: "Switch chat" });
+    const options = screen.getByRole("button", { name: "Chat options" });
+    const pin = screen.getByRole("button", { name: "Pin chat" });
+
+    await userEvent.click(switcher);
+    expect(screen.getByRole("menu", { name: "Chats" })).toBeVisible();
+    await userEvent.click(options);
+    expect(screen.queryByRole("menu", { name: "Chats" })).not.toBeInTheDocument();
+    expect(screen.getByRole("menu", { name: "Chat options" })).toBeVisible();
+    expect(options).toHaveFocus();
+
+    await userEvent.click(pin);
+    expect(screen.queryByRole("menu", { name: "Chat options" })).not.toBeInTheDocument();
+    expect(pin).toHaveFocus();
+    expect(onSetPinned).toHaveBeenCalledWith(true);
+  });
+
   it("requires an explicit destination before moving a chat", async () => {
     const onMove = vi.fn();
     render(<WorkspaceHeader {...shared} moveTargets={[
