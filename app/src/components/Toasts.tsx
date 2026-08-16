@@ -3,6 +3,41 @@ import { useEffect, useRef, useState } from "react";
 import type { StudioOperation, StudioOperationOutcome } from "../contracts/studioOperations";
 import { MAX_VISIBLE_TOASTS, type StudioToast } from "./toastQueue";
 
+const TOAST_FOCUS_FALLBACKS = [
+  "[data-toast-focus-fallback]",
+  '[data-control-id="rail-workspace-menu"]',
+  '[data-control-id="sidebar-workspace-menu"]',
+  '[data-control-id="workspace-switch"]',
+  '[data-control-id="title-action.inspector.toggle"]',
+  '[data-control-id="settings.back"]',
+  '[data-control-id="title-action.sidebar.toggle"]',
+  "button:not(.toast-action):not(.toast-dismiss)",
+] as const;
+
+function focusEligible(element: HTMLElement | null): element is HTMLElement {
+  return Boolean(
+    element?.isConnected
+      && !element.matches(":disabled")
+      && element.getAttribute("aria-disabled") !== "true"
+      && !element.closest("[inert], [hidden], [aria-hidden='true']"),
+  );
+}
+
+function focusVerified(element: HTMLElement | null): boolean {
+  if (!focusEligible(element)) return false;
+  element.focus();
+  return document.activeElement === element;
+}
+
+function focusStableFallback(): boolean {
+  for (const selector of TOAST_FOCUS_FALLBACKS) {
+    for (const candidate of document.querySelectorAll<HTMLElement>(selector)) {
+      if (!candidate.closest(".toasts") && focusVerified(candidate)) return true;
+    }
+  }
+  return false;
+}
+
 export function Toasts({
   toasts,
   retry,
@@ -35,20 +70,15 @@ export function Toasts({
       return;
     }
     const nextToast = document.querySelector<HTMLElement>(".toasts button:not(:disabled):not([aria-disabled=\"true\"])");
-    if (nextToast) {
-      nextToast.focus();
+    if (focusVerified(nextToast)) {
       done();
       return;
     }
-    const prior = lastOutsideFocus.current;
-    if (prior?.isConnected) {
-      prior.focus();
+    if (focusVerified(lastOutsideFocus.current)) {
       done();
       return;
     }
-    document.querySelector<HTMLElement>(
-      '[data-toast-focus-fallback], [data-control-id="title-action.inspector.toggle"], [data-control-id="settings.back"], [data-control-id="title-action.sidebar.toggle"], button:not(.toast-action):not(.toast-dismiss)',
-    )?.focus();
+    focusStableFallback();
     done();
   });
 
