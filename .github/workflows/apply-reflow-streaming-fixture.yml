@@ -1,0 +1,60 @@
+name: Apply explicit streaming reflow fixture
+
+on:
+  push:
+    branches:
+      - work/complete-product-reflow
+    paths:
+      - .github/workflows/apply-reflow-streaming-fixture.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out reflow branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: work/complete-product-reflow
+          persist-credentials: true
+
+      - name: Apply reviewed fixture edit
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("app/e2e/support/browser-shell.ts")
+          text = path.read_text(encoding="utf-8")
+          before = '''            const messages = request.kind === "abort" ? current.parentMessages : [...current.parentMessages,
+              { channel: "parent", kind: "user", id: `${request.commandId}-user`, text: request.text, emittedAtMs: 1_775_995_220_000 },
+              { channel: "parent", kind: "assistant", id: `${request.commandId}-assistant`, blocks: [{ kind: "text", text: "Synthetic Harness response admitted through the verified Studio protocol." }], streaming: false, emittedAtMs: 1_775_995_220_001 },
+            ];'''
+          after = '''            const streamingFixture = request.kind !== "abort" && request.text === "PRIME_STUDIO_REFLOW_STREAMING_FIXTURE";
+            const messages = request.kind === "abort" ? current.parentMessages : [...current.parentMessages,
+              { channel: "parent", kind: "user", id: `${request.commandId}-user`, text: request.text, emittedAtMs: 1_775_995_220_000 },
+              { channel: "parent", kind: "assistant", id: `${request.commandId}-assistant`, blocks: [{ kind: "text", text: streamingFixture ? "Synthetic streaming response retained for deterministic reflow evidence." : "Synthetic Harness response admitted through the verified Studio protocol." }], streaming: streamingFixture, emittedAtMs: 1_775_995_220_001 },
+            ];'''
+          if text.count(before) != 1:
+              raise SystemExit("expected exactly one fake Harness prompt response block")
+          path.write_text(text.replace(before, after), encoding="utf-8", newline="\n")
+          Path(".github/workflows/apply-reflow-streaming-fixture.yml").unlink()
+
+      - name: Validate final tree
+        shell: bash
+        run: |
+          grep -F 'PRIME_STUDIO_REFLOW_STREAMING_FIXTURE' app/e2e/support/browser-shell.ts
+          grep -F 'streaming: streamingFixture' app/e2e/support/browser-shell.ts
+          test ! -e .github/workflows/apply-reflow-streaming-fixture.yml
+          git diff --check
+
+      - name: Commit fixture and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/e2e/support/browser-shell.ts .github/workflows/apply-reflow-streaming-fixture.yml
+          git commit -m "test(e2e): expose an explicit streaming reflow fixture"
+          git push origin HEAD:work/complete-product-reflow
