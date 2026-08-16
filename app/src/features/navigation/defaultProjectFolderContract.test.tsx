@@ -40,4 +40,21 @@ describe("default project folder confirmation", () => {
     expect(onCancel).toHaveBeenCalledOnce();
     expect(onCreate).not.toHaveBeenCalled();
   });
+
+  it("lets the user replace the configured folder before confirmation", async () => {
+    const onCreate = vi.fn();
+    render(<CreateProjectDialog
+      initialFolderPath="D:\\work\\prime"
+      onCreate={onCreate}
+      onCancel={() => undefined}
+    />);
+
+    const folder = screen.getByRole("textbox", { name: "Folder path" });
+    await userEvent.clear(folder);
+    await userEvent.type(folder, "E:\\other\\project");
+    await userEvent.type(screen.getByRole("textbox", { name: "Project name" }), "Override project");
+    await userEvent.click(screen.getByRole("button", { name: "Create project" }));
+
+    expect(onCreate).toHaveBeenCalledWith("Override project", "E:\\other\\project");
+  });
 });
