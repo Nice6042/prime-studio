@@ -44,8 +44,8 @@ describe("Prime Studio package acceptance catalog", () => {
   it("derives the current implementation summary from the audited feature rows", () => {
     expect(PACKAGE_IMPLEMENTATION_SUMMARY).toEqual(summarizePackageImplementation(FEATURE_ACCEPTANCE));
     expect(PACKAGE_IMPLEMENTATION_SUMMARY).toEqual({
-      complete: 69,
-      partial: 44,
+      complete: 71,
+      partial: 42,
       placeholder: 0,
       missing: 0,
       explicitly_unavailable: 2,
@@ -68,6 +68,15 @@ describe("Prime Studio package acceptance catalog", () => {
     expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).toContain("ED-06");
     expect(status("CP-01")).toBe("complete");
     expect(status("CV-15")).toBe("partial");
+  });
+
+  it("records verified slash keyboard execution and registry-derived shortcut settings as complete", () => {
+    const status = (id: string) => FEATURE_ACCEPTANCE.find((feature) => feature.id === id)?.current;
+
+    expect(status("CP-06")).toBe("complete");
+    expect(status("ST-12")).toBe("complete");
+    expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).not.toContain("CP-06");
+    expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).not.toContain("ST-12");
   });
 
   it("keeps the current development snapshot outside the release-ready state", () => {
