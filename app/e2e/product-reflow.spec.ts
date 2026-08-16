@@ -16,7 +16,6 @@ import {
 } from "./support/product-reflow";
 
 const STREAMING_REFLOW_FIXTURE = "PRIME_STUDIO_REFLOW_STREAMING_FIXTURE";
-const REFLOW_EMPTY_SESSION_FLAG = "prime-studio-reflow-empty-session";
 
 const geometry = (id: ProductReflowGeometry["id"]) => {
   const found = PRODUCT_REFLOW_GEOMETRIES.find((candidate) => candidate.id === id);
@@ -34,10 +33,6 @@ async function exerciseStreamingConversation(
   target: ProductReflowGeometry,
 ): Promise<void> {
   const composer = page.getByPlaceholder("Message Prime Studio — try / for commands");
-  await page.evaluate(() => {
-    const global = window as typeof window & { __PRIME_STUDIO_REFLOW_STREAMING__?: boolean };
-    global.__PRIME_STUDIO_REFLOW_STREAMING__ = true;
-  });
   await composer.fill(STREAMING_REFLOW_FIXTURE);
   await composer.press("Enter");
   const streamingTurn = workspace.locator('.parent-assistant-turn[aria-busy="true"]').last();
@@ -95,17 +90,23 @@ async function exerciseCanvasEditorScreen(page: Page, target: ProductReflowGeome
 }
 
 async function exerciseEmptyConversation(page: Page, target: ProductReflowGeometry): Promise<void> {
-  await page.evaluate((flag) => window.sessionStorage.setItem(flag, "1"), REFLOW_EMPTY_SESSION_FLAG);
-  try {
-    await resetProductAtGeometry(page, target);
-    const conversation = page.getByRole("region", { name: "Prime Harness architecture" });
-    await expect(conversation.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
-    await expect(page.getByRole("textbox", { name: "Message Prime Studio" })).toBeVisible();
-    await expect(conversation.locator("[data-parent-message-id]")).toHaveCount(0);
-    await expectProductViewport(page, `${target.id} empty conversation`);
-  } finally {
-    await page.evaluate((flag) => window.sessionStorage.removeItem(flag), REFLOW_EMPTY_SESSION_FLAG);
+  await resetProductAtGeometry(page, target);
+  const idleChatName = /Inactive planning notes.*status: Idle/i;
+  const sidebar = page.getByRole("navigation", { name: "Projects and chats" });
+  if (await sidebar.getAttribute("data-mode") === "rail") {
+    await page.getByRole("button", { name: "Projects" }).click();
+    const projectSheet = page.locator('[data-studio-sheet="sidebar"]');
+    await expect(projectSheet).toBeVisible();
+    await projectSheet.getByRole("button", { name: idleChatName }).click();
+    if (await projectSheet.isVisible()) await page.keyboard.press("Escape");
+  } else {
+    await sidebar.getByRole("button", { name: idleChatName }).click();
   }
+  const conversation = page.getByRole("region", { name: "Inactive planning notes" });
+  await expect(conversation.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Message Prime Studio" })).toBeVisible();
+  await expect(conversation.locator("[data-parent-message-id]")).toHaveCount(0);
+  await expectProductViewport(page, `${target.id} empty conversation`);
 }
 
 test.describe.configure({ timeout: 180_000 });

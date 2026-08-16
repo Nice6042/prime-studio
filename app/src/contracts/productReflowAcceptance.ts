@@ -161,6 +161,7 @@ export function validateProductReflowAcceptance(
   const geometrySet = new Set(geometryIds);
   const scenarioIds = scenarios.map((scenario) => scenario.id);
   const evidence = new Map<string, Set<ProductReflowGeometryId>>();
+  const cellOwners = new Map<string, ProductReflowScenarioId>();
 
   if (packageSet.size !== packageIds.length) errors.push("Package screen IDs are not unique.");
   if (geometrySet.size !== geometryIds.length) errors.push("Reflow geometry IDs are not unique.");
@@ -174,14 +175,22 @@ export function validateProductReflowAcceptance(
     for (const geometryId of scenario.geometryIds) {
       if (!geometrySet.has(geometryId)) errors.push(`Reflow scenario ${scenario.id} references unknown geometry ${geometryId}.`);
     }
-    for (const screenId of scenario.screenIds) {
+    for (const screenId of new Set(scenario.screenIds)) {
       if (!packageSet.has(screenId)) {
         errors.push(`Reflow scenario references unknown package screen ${screenId}.`);
         continue;
       }
       const cells = evidence.get(screenId) ?? new Set<ProductReflowGeometryId>();
-      for (const geometryId of scenario.geometryIds) {
-        if (geometrySet.has(geometryId)) cells.add(geometryId);
+      for (const geometryId of new Set(scenario.geometryIds)) {
+        if (!geometrySet.has(geometryId)) continue;
+        const cellKey = JSON.stringify([screenId, geometryId]);
+        const owner = cellOwners.get(cellKey);
+        if (owner && owner !== scenario.id) {
+          errors.push(`Reflow evidence cell ${screenId} at ${geometryId} is assigned to both ${owner} and ${scenario.id}.`);
+        } else {
+          cellOwners.set(cellKey, scenario.id);
+        }
+        cells.add(geometryId);
       }
       evidence.set(screenId, cells);
     }

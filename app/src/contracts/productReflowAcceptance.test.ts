@@ -61,6 +61,17 @@ describe("Prime Studio product reflow evidence matrix", () => {
       .toContain("Reflow scenario workspace-wide repeats a package screen.");
     expect(validateProductReflowAcceptance([screen], [geometry], [{ ...scenario, geometryIds: [geometry.id, geometry.id], screenIds: [screen.id] }]).errors)
       .toContain("Reflow scenario workspace-wide repeats a geometry.");
+      const duplicateCellScenario = { ...scenario, id: "workspace-compact" as const, geometryIds: [geometry.id], screenIds: [screen.id] };
+      expect(validateProductReflowAcceptance(
+        [screen],
+        [geometry],
+        [
+          { ...scenario, geometryIds: [geometry.id], screenIds: [screen.id] },
+          duplicateCellScenario,
+        ],
+      ).errors).toContain(
+        `Reflow evidence cell ${screen.id} at ${geometry.id} is assigned to both workspace-wide and workspace-compact.`,
+      );
     expect(validateProductReflowAcceptance([screen], [geometry], [{ ...scenario, geometryIds: ["desktop-1600"], screenIds: [screen.id] }]).errors)
       .toContain("Reflow scenario workspace-wide references unknown geometry desktop-1600.");
     expect(validateProductReflowAcceptance([screen], [geometry], [{ ...scenario, geometryIds: [geometry.id], screenIds: ["unknown.screen"] }]).errors)

@@ -51,7 +51,6 @@ export const test = base.extend<ShellFixtures>({
         __PRIME_STUDIO_CLIPBOARD__?: string[];
         __PRIME_STUDIO_OPENED_URLS__?: string[];
         __PRIME_STUDIO_PACKAGED_LICENSE_OPENS__?: number;
-        __PRIME_STUDIO_REFLOW_STREAMING__?: boolean;
         __TAURI_INTERNALS__?: TauriInternals;
         __TAURI_EVENT_PLUGIN_INTERNALS__?: {
           unregisterListener: (event: string, id: number) => void;
@@ -63,17 +62,14 @@ export const test = base.extend<ShellFixtures>({
       global.__PRIME_STUDIO_CLIPBOARD__ = [];
       global.__PRIME_STUDIO_OPENED_URLS__ = [];
       global.__PRIME_STUDIO_PACKAGED_LICENSE_OPENS__ = 0;
-      global.__PRIME_STUDIO_REFLOW_STREAMING__ = false;
       Object.defineProperty(navigator, "clipboard", {
         configurable: true,
         value: { writeText: async (text: string) => { global.__PRIME_STUDIO_CLIPBOARD__?.push(text); } },
       });
       const listeners = new Map<string, number[]>();
       let nextCallback = 1;
-      const reflowEmptySession = window.sessionStorage.getItem("prime-studio-reflow-empty-session") === "1";
       let projectedHarnessSessions = scenario.sessions.map((session) => ({
         ...session,
-        parentMessages: reflowEmptySession ? [] : session.parentMessages,
         freshness: "live",
         workerRecovery: {
           status: "ready",
@@ -306,8 +302,7 @@ export const test = base.extend<ShellFixtures>({
             const sequence = current.cursor.sequence + 1;
             const input = request.kind === "abort" ? 0 : Math.max(1, Math.ceil((request.text ?? "").length / 4));
             const output = request.kind === "abort" ? 0 : 12;
-            const streamingFixture = request.kind !== "abort" && (request.text === "PRIME_STUDIO_REFLOW_STREAMING_FIXTURE" || global.__PRIME_STUDIO_REFLOW_STREAMING__ === true);
-            global.__PRIME_STUDIO_REFLOW_STREAMING__ = false;
+            const streamingFixture = request.kind !== "abort" && request.text === "PRIME_STUDIO_REFLOW_STREAMING_FIXTURE";
             const messages = request.kind === "abort" ? current.parentMessages : [...current.parentMessages,
               { channel: "parent", kind: "user", id: `${request.commandId}-user`, text: request.text, emittedAtMs: 1_775_995_220_000 },
               { channel: "parent", kind: "assistant", id: `${request.commandId}-assistant`, blocks: [{ kind: "text", text: streamingFixture ? "Synthetic streaming response retained for deterministic reflow evidence." : "Synthetic Harness response admitted through the verified Studio protocol." }], streaming: streamingFixture, emittedAtMs: 1_775_995_220_001 },
@@ -377,8 +372,7 @@ export const test = base.extend<ShellFixtures>({
               const text = sessionKind === "abort" ? "" : payload?.text;
               if (sessionKind !== "abort" && !text) throw new Error("Harness Studio command payload unavailable");
               const sequence = current.cursor.sequence + 1;
-              const streamingFixture = sessionKind !== "abort" && (text === "PRIME_STUDIO_REFLOW_STREAMING_FIXTURE" || global.__PRIME_STUDIO_REFLOW_STREAMING__ === true);
-              global.__PRIME_STUDIO_REFLOW_STREAMING__ = false;
+              const streamingFixture = sessionKind !== "abort" && text === "PRIME_STUDIO_REFLOW_STREAMING_FIXTURE";
               const input = sessionKind === "abort" ? 0 : Math.max(1, Math.ceil((text ?? "").length / 4));
               const output = sessionKind === "abort" ? 0 : 12;
               const messages = sessionKind === "abort" ? current.parentMessages : [...current.parentMessages,

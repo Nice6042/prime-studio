@@ -8,10 +8,6 @@ test("the reflow streaming state is admitted through the actual Studio operation
   const workspace = shellPage.getByRole("main", { name: "Prime Harness architecture" });
   const composer = shellPage.getByPlaceholder("Message Prime Studio — try / for commands");
 
-  await shellPage.evaluate(() => {
-    const global = window as typeof window & { __PRIME_STUDIO_REFLOW_STREAMING__?: boolean };
-    global.__PRIME_STUDIO_REFLOW_STREAMING__ = true;
-  });
   await composer.fill(STREAMING_REFLOW_FIXTURE);
   await composer.press("Enter");
 
