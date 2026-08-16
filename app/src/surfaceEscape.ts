@@ -65,37 +65,46 @@ export function useTopmostSurfaceEscape(
  * Escape restores the opener. Pointer or focus transfer outside closes without
  * stealing focus from the destination. The trigger itself is excluded from the
  * outside-pointer path so its click can perform the component's own toggle.
+ * `identity` distinguishes two surfaces that reuse one ref while remaining open.
  * Returns a one-close restoration suppressor for native Tab progression.
  */
 export function usePopoverSurface(
   surfaceRef: RefObject<HTMLElement | null>,
   onClose: () => void,
   enabled = true,
+  identity: unknown = enabled,
 ) {
   const openerRef = useRef<HTMLElement | null>(null);
   const restoreFocusRef = useRef(true);
+  const closingRef = useRef(false);
+  const closeOnce = () => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    onClose();
+  };
 
   useLayoutEffect(() => {
     if (!enabled || !surfaceRef.current) return;
     restoreFocusRef.current = true;
+    closingRef.current = false;
     openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     return () => {
       if (!restoreFocusRef.current) return;
       const opener = openerRef.current;
       queueMicrotask(() => {
-        // A command may replace the popover with a modal. That new topmost
-        // surface owns focus and must not be interrupted by stale restoration.
+        // A command may replace the popover with a modal or another menu. That
+        // new topmost surface owns focus and must not be interrupted by stale restoration.
         if (hasOpenStudioOverlay()) return;
         if (canRestoreFocus(opener)) opener.focus();
       });
     };
-  }, [enabled, surfaceRef]);
+  }, [enabled, identity, surfaceRef]);
 
   useEffect(() => {
     if (!enabled) return;
     const closeForTransfer = () => {
       restoreFocusRef.current = false;
-      onClose();
+      closeOnce();
     };
     const closeOnOutsidePointer = (event: PointerEvent) => {
       const surface = surfaceRef.current;
@@ -115,8 +124,8 @@ export function usePopoverSurface(
       window.removeEventListener("pointerdown", closeOnOutsidePointer, true);
       document.removeEventListener("focusin", closeOnOutsideFocus, true);
     };
-  }, [enabled, onClose, surfaceRef]);
+  }, [enabled, identity, onClose, surfaceRef]);
 
-  useTopmostSurfaceEscape(surfaceRef, onClose, enabled);
+  useTopmostSurfaceEscape(surfaceRef, closeOnce, enabled);
   return () => { restoreFocusRef.current = false; };
 }
