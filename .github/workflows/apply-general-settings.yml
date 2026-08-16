@@ -21,6 +21,26 @@ jobs:
           ref: work/complete-general-settings
           persist-credentials: true
 
+      - name: Tighten staged patch anchor
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path(".github/general_settings_patch.py")
+          text = path.read_text(encoding="utf-8")
+          before = '''replace_once(
+              "app/src/features/settings/SettingsShell.tsx",
+              ' settings={settings} onSetting={onSetting}',
+              ' settings={settings} layout={layout} onSetting={onSetting}',
+          )'''
+          after = '''replace_once(
+              "app/src/features/settings/SettingsShell.tsx",
+              ' onExecute={onExecute} settings={settings} onSetting={onSetting} onHarnessSetting={onHarnessSetting}',
+              ' onExecute={onExecute} settings={settings} layout={layout} onSetting={onSetting} onHarnessSetting={onHarnessSetting}',
+          )'''
+          if text.count(before) != 1:
+              raise SystemExit(f"expected one staged SettingsShell anchor, found {text.count(before)}")
+          path.write_text(text.replace(before, after), encoding="utf-8", newline="\n")
+
       - name: Apply reviewed patch
         shell: bash
         run: python .github/general_settings_patch.py
