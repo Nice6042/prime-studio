@@ -1,0 +1,64 @@
+name: Repair deterministic Windows path literal
+
+on:
+  push:
+    branches:
+      - work/complete-general-settings
+    paths:
+      - .github/workflows/fix-default-project-path-literal.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out General settings branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: work/complete-general-settings
+          persist-credentials: true
+
+      - name: Repair source literals
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path: str, before: str, after: str) -> None:
+              target = Path(path)
+              text = target.read_text(encoding="utf-8")
+              count = text.count(before)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one path literal, found {count}")
+              target.write_text(text.replace(before, after), encoding="utf-8", newline="\n")
+
+          replace_once(
+              "app/e2e/support/browser-shell.ts",
+              r'return "D:\fixture\Selected Workspace";',
+              r'return "D:\\fixture\\Selected Workspace";',
+          )
+          replace_once(
+              "app/e2e/browser-shell.spec.ts",
+              r'await expect(shellPage.getByText("D:\fixture\Selected Workspace", { exact: true })).toBeVisible();',
+              r'await expect(shellPage.getByText("D:\\fixture\\Selected Workspace", { exact: true })).toBeVisible();',
+          )
+          Path(".github/workflows/fix-default-project-path-literal.yml").unlink()
+
+      - name: Validate final tree
+        shell: bash
+        run: |
+          grep -F 'return "D:\\fixture\\Selected Workspace";' app/e2e/support/browser-shell.ts
+          grep -F 'getByText("D:\\fixture\\Selected Workspace"' app/e2e/browser-shell.spec.ts
+          test ! -e .github/workflows/fix-default-project-path-literal.yml
+          git diff --check
+
+      - name: Commit repaired literal
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "test(e2e): preserve the selected Windows path literally"
+          git push origin HEAD:work/complete-general-settings
