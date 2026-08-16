@@ -375,11 +375,13 @@ export const test = base.extend<ShellFixtures>({
               const text = sessionKind === "abort" ? "" : payload?.text;
               if (sessionKind !== "abort" && !text) throw new Error("Harness Studio command payload unavailable");
               const sequence = current.cursor.sequence + 1;
+              const streamingFixture = sessionKind !== "abort" && (text === "PRIME_STUDIO_REFLOW_STREAMING_FIXTURE" || global.__PRIME_STUDIO_REFLOW_STREAMING__ === true);
+              global.__PRIME_STUDIO_REFLOW_STREAMING__ = false;
               const input = sessionKind === "abort" ? 0 : Math.max(1, Math.ceil((text ?? "").length / 4));
               const output = sessionKind === "abort" ? 0 : 12;
               const messages = sessionKind === "abort" ? current.parentMessages : [...current.parentMessages,
                 { channel: "parent", kind: "user", id: `${request.operationId}-user`, text, emittedAtMs: 1_775_995_220_000 },
-                { channel: "parent", kind: "assistant", id: `${request.operationId}-assistant`, blocks: [{ kind: "text", text: "Synthetic Harness response admitted through the verified Studio protocol." }], streaming: false, emittedAtMs: 1_775_995_220_001 },
+                { channel: "parent", kind: "assistant", id: `${request.operationId}-assistant`, blocks: [{ kind: "text", text: streamingFixture ? "Synthetic streaming response retained for deterministic reflow evidence." : "Synthetic Harness response admitted through the verified Studio protocol." }], streaming: streamingFixture, emittedAtMs: 1_775_995_220_001 },
               ];
               const updated = {
                 ...current,
