@@ -27,6 +27,14 @@ export interface ProductReflowScenario {
   readonly screenIds: readonly string[];
 }
 
+const freezeGeometryIds = (...ids: ProductReflowGeometryId[]): readonly ProductReflowGeometryId[] => Object.freeze(ids);
+const freezeScreenIds = (...ids: string[]): readonly string[] => Object.freeze(ids);
+const freezeScenario = (
+  id: ProductReflowScenarioId,
+  geometryIds: readonly ProductReflowGeometryId[],
+  screenIds: readonly string[],
+): ProductReflowScenario => Object.freeze({ id, geometryIds, screenIds });
+
 export const PRODUCT_REFLOW_GEOMETRIES: readonly ProductReflowGeometry[] = Object.freeze([
   Object.freeze({
     id: "desktop-1280",
@@ -65,7 +73,7 @@ export const PRODUCT_REFLOW_GEOMETRIES: readonly ProductReflowGeometry[] = Objec
   }),
 ]);
 
-const SETTINGS_SCREENS = Object.freeze([
+const SETTINGS_SCREENS = freezeScreenIds(
   "settings.general",
   "settings.appearance",
   "settings.composer",
@@ -79,15 +87,15 @@ const SETTINGS_SCREENS = Object.freeze([
   "settings.privacy",
   "settings.shortcuts",
   "settings.about",
-] as const);
+);
 
-const ALL_GEOMETRY_IDS = Object.freeze(PRODUCT_REFLOW_GEOMETRIES.map((geometry) => geometry.id));
+const ALL_GEOMETRY_IDS = freezeGeometryIds(...PRODUCT_REFLOW_GEOMETRIES.map((geometry) => geometry.id));
 
 export const PRODUCT_REFLOW_SCENARIOS: readonly ProductReflowScenario[] = Object.freeze([
-  Object.freeze({
-    id: "workspace-wide",
-    geometryIds: Object.freeze(["desktop-1280", "desktop-1600"]),
-    screenIds: Object.freeze([
+  freezeScenario(
+    "workspace-wide",
+    freezeGeometryIds("desktop-1280", "desktop-1600"),
+    freezeScreenIds(
       "workspace.sidebar-expanded",
       "workspace.conversation-active",
       "workspace.conversation-streaming",
@@ -100,29 +108,25 @@ export const PRODUCT_REFLOW_SCENARIOS: readonly ProductReflowScenario[] = Object
       "editor.diff",
       "editor.edit",
       "editor.canvas",
-    ]),
-  }),
-  Object.freeze({
-    id: "workspace-compact",
-    geometryIds: Object.freeze(["compact-820", "compact-640", "zoom-200-equivalent"]),
-    screenIds: Object.freeze([
+    ),
+  ),
+  freezeScenario(
+    "workspace-compact",
+    freezeGeometryIds("compact-820", "compact-640", "zoom-200-equivalent"),
+    freezeScreenIds(
       "workspace.sidebar-rail",
       "workspace.conversation-empty",
-    ]),
-  }),
-  Object.freeze({
-    id: "settings-all",
-    geometryIds: ALL_GEOMETRY_IDS,
-    screenIds: SETTINGS_SCREENS,
-  }),
-  Object.freeze({
-    id: "overlays-all",
-    geometryIds: ALL_GEOMETRY_IDS,
-    screenIds: Object.freeze([
+    ),
+  ),
+  freezeScenario("settings-all", ALL_GEOMETRY_IDS, SETTINGS_SCREENS),
+  freezeScenario(
+    "overlays-all",
+    ALL_GEOMETRY_IDS,
+    freezeScreenIds(
       "overlay.command-palette",
       "overlay.menus-popovers-toasts",
-    ]),
-  }),
+    ),
+  ),
 ]);
 
 export interface ProductReflowValidation {
