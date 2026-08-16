@@ -326,6 +326,13 @@ test("General settings persist applied defaults and own workspace and panel layo
   await shellPage.getByRole("switch", { name: "Reduced motion" }).click();
   await shellPage.getByRole("button", { name: "Browse default workspace" }).click();
   await expect(shellPage.getByText("D:\fixture\Selected Workspace", { exact: true })).toBeVisible();
+  await shellPage.getByRole("button", { name: "Back to chat" }).click();
+  await shellPage.getByRole("button", { name: "New project" }).click();
+  await expect(shellPage.getByRole("textbox", { name: "Folder path" })).toHaveValue("D:\\fixture\\Selected Workspace");
+  await expect(shellPage.getByRole("button", { name: "Create project" })).toBeDisabled();
+  await shellPage.keyboard.press("Escape");
+  await shellPage.keyboard.press("Control+,");
+  await shellPage.getByRole("button", { name: /^General/ }).click();
 
   const setRange = async (name: string, value: number) => {
     await shellPage.getByRole("slider", { name }).evaluate((element, next) => {

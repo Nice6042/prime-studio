@@ -188,7 +188,7 @@ describe("SettingsShell", () => {
     fireEvent.change(screen.getByRole("slider", { name: "Projects panel width" }), { target: { value: "320" } });
     await userEvent.click(screen.getByRole("button", { name: "Browse default workspace" }));
     await userEvent.click(screen.getByRole("button", { name: "Restore defaults" }));
-    await userEvent.click(screen.getByRole("button", { name: "Ask each time" }));
+    await userEvent.click(screen.getByRole("button", { name: "Choose each time" }));
 
     expect(onSetting).toHaveBeenCalledWith("theme", "light");
     expect(onSetting).toHaveBeenCalledWith("density", "compact");

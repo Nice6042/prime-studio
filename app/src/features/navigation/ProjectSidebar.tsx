@@ -27,13 +27,14 @@ const sidebarCommands = {
   collapse: sidebarPresentation("sidebar.toggle"),
 };
 
-export function CreateProjectDialog({ onCreate, onCancel, restoreFocusTo }: {
+export function CreateProjectDialog({ onCreate, onCancel, restoreFocusTo, initialFolderPath = "" }: {
   readonly onCreate: (name: string, folderPath: string) => void;
   readonly onCancel: () => void;
   readonly restoreFocusTo?: HTMLElement | null;
+  readonly initialFolderPath?: string;
 }) {
   const [projectName, setProjectName] = useState("");
-  const [folderPath, setFolderPath] = useState("");
+  const [folderPath, setFolderPath] = useState(initialFolderPath);
   const backdropRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const initialFocusRef = useRef<HTMLInputElement>(null);
@@ -156,6 +157,7 @@ export function ProjectSidebar({
   onExecuteWorkspaceOperation,
   onCollapse,
   newChatDisabledReason,
+  defaultProjectFolder = "",
 }: {
   readonly projects: readonly NavigationProject[];
   readonly query?: string;
@@ -172,6 +174,7 @@ export function ProjectSidebar({
   readonly onExecuteWorkspaceOperation: (operation: StudioOperation) => Promise<StudioOperationOutcome>;
   readonly onCollapse?: () => void;
   readonly newChatDisabledReason?: string;
+  readonly defaultProjectFolder?: string;
 }) {
   const [search, setSearch] = useState(query);
   const [creatingProject, setCreatingProject] = useState(false);
@@ -240,6 +243,6 @@ export function ProjectSidebar({
       <button className="project-settings" type="button" {...controlBinding(sidebarCommands.settings.id, sidebarCommands.settings.action)} aria-label={sidebarCommands.settings.label} onClick={onOpenSettings}><NavigationIcon kind="settings" /><span>{sidebarCommands.settings.label}</span><kbd>{sidebarCommands.settings.hint}</kbd></button>
       <WorkspaceFooter identity={workspace} variant="expanded" open={workspaceMenuOpen} onExecute={onExecuteWorkspaceOperation} />
     </footer>
-    {creatingProject && <CreateProjectDialog restoreFocusTo={newProjectRef.current} onCancel={() => setCreatingProject(false)} onCreate={(name, path) => { onNewProject?.(name, path); setCreatingProject(false); }} />}
+    {creatingProject && <CreateProjectDialog initialFolderPath={defaultProjectFolder} restoreFocusTo={newProjectRef.current} onCancel={() => setCreatingProject(false)} onCreate={(name, path) => { onNewProject?.(name, path); setCreatingProject(false); }} />}
   </div>;
 }

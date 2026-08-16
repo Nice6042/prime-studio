@@ -118,12 +118,12 @@ export function GeneralSettings({ settings, layout, onSetting, onExecute }: {
     </SettingGroup>
 
     <SettingGroup title="Workspace">
-      <Row label="Default project" description="New resident chats use this user-selected working directory; clearing it asks each time.">
+      <Row label="Default project" description="New folder-project dialogs start from this user-selected working directory; clearing it requires choosing a folder each time.">
         <div className="studio-setting-workspace-control">
-          <span className="studio-setting-value studio-setting-path">{settings.defaultCwd || "Ask each time"}</span>
+          <span className="studio-setting-value studio-setting-path">{settings.defaultCwd || "Choose each time"}</span>
           <div className="studio-setting-button-row">
             <button type="button" aria-label="Browse default workspace" data-control-id={picker.controlId} data-action={picker.action} disabled={!canPickWorkspace || workspaceBusy} title={!canPickWorkspace ? "A native directory picker and settings authority are required." : undefined} onClick={() => void pickWorkspace()}>{workspaceBusy ? "Choosing…" : "Browse…"}</button>
-            <button type="button" data-control-id={workspaceReset.controlId} data-action={workspaceReset.action} disabled={!onSetting || !settings.defaultCwd} onClick={() => { setWorkspaceStatus(null); onSetting?.("defaultCwd", null); }}>Ask each time</button>
+            <button type="button" data-control-id={workspaceReset.controlId} data-action={workspaceReset.action} disabled={!onSetting || !settings.defaultCwd} onClick={() => { setWorkspaceStatus(null); onSetting?.("defaultCwd", null); }}>Choose each time</button>
           </div>
           {workspaceStatus && <small className="studio-setting-operation-status" role="status">{workspaceStatus}</small>}
         </div>

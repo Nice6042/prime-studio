@@ -1285,6 +1285,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         onToggleProject={(projectId) => { void dispatchOperation({ action: "catalog.project.toggle", payload: { projectId } }); }}
         onNewChat={createChat}
         onNewProject={createProject}
+        defaultProjectFolder={settings.defaultCwd ?? ""}
         newChatDisabledReason={newChatDisabledReason}
         onOpenSearch={() => runCommand("palette.open")}
         onOpenArchived={() => runCommand("archived.open")}
@@ -1354,7 +1355,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       quotaStatus={codexQuota.status}
       onRefreshQuota={refreshQuota}
     />{paletteOpen && <CommandPalette admissionConnected={admissionConnected} disabledActions={commandAvailability.disabledActions} onRun={runCommand} onClose={() => { void dispatchOperation({ action: "palette.close", payload: {} }); }} restoreFocusTo={paletteOpener} chats={paletteChats} messages={paletteMessages} onOpenChat={openCatalogChat} onOpenMessage={(chatId) => openCatalogChat(chatId)} />}
-    {createProjectOpen && <CreateProjectDialog restoreFocusTo={createProjectOpener} onCancel={() => { void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} onCreate={(name, folderPath) => { createProject(name, folderPath); void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} />}</>;
+    {createProjectOpen && <CreateProjectDialog initialFolderPath={settings.defaultCwd ?? ""} restoreFocusTo={createProjectOpener} onCancel={() => { void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} onCreate={(name, folderPath) => { createProject(name, folderPath); void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} />}</>;
   }
 
   const title = selectedChat?.title ?? "Prime Studio";
@@ -1595,6 +1596,6 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       inspector={adapterConnected && (compatibility.status === "ready" || compatibility.status === "degraded") ? runtimeInspector : null}
     />
     {paletteOpen && <CommandPalette admissionConnected={admissionConnected} disabledActions={commandAvailability.disabledActions} onRun={runCommand} onClose={() => { void dispatchOperation({ action: "palette.close", payload: {} }); }} restoreFocusTo={paletteOpener} chats={paletteChats} messages={paletteMessages} onOpenChat={openCatalogChat} onOpenMessage={(chatId) => openCatalogChat(chatId)} />}
-    {createProjectOpen && <CreateProjectDialog restoreFocusTo={createProjectOpener} onCancel={() => { void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} onCreate={(name, folderPath) => { createProject(name, folderPath); void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} />}
+    {createProjectOpen && <CreateProjectDialog initialFolderPath={settings.defaultCwd ?? ""} restoreFocusTo={createProjectOpener} onCancel={() => { void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} onCreate={(name, folderPath) => { createProject(name, folderPath); void dispatchOperation({ action: "surface.popover.toggle", payload: { popoverId: null } }); }} />}
   </div>;
 }
