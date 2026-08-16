@@ -52,6 +52,8 @@ export function Composer({
   thinkingLevels = [],
   sendShortcut = "enter",
   showTokenEstimate = true,
+  showVoiceControl = true,
+  spellCheck = true,
 }: {
   readonly draft: string;
   readonly state: ComposerState;
@@ -73,6 +75,8 @@ export function Composer({
   readonly thinkingLevels?: readonly ThinkingLevel[];
   readonly sendShortcut?: SendShortcut;
   readonly showTokenEstimate?: boolean;
+  readonly showVoiceControl?: boolean;
+  readonly spellCheck?: boolean;
 }) {
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
@@ -167,6 +171,7 @@ export function Composer({
         aria-controls={slashCommands.length > 0 ? "composer-slash-commands" : undefined}
         aria-activedescendant={activeSlash ? `slash-option-${activeSlash.id}` : undefined}
         value={draft}
+        spellCheck={spellCheck}
         readOnly={state.kind === "read_only"}
         placeholder="Message Prime Studio — try / for commands"
         rows={1}
@@ -232,7 +237,7 @@ export function Composer({
           {thinkingOpen && <div ref={thinkingMenu} data-studio-overlay="menu" className="composer-thinking-menu" role="menu" aria-label="Thinking level">{thinkingLevels.map((level) => <button key={level} type="button" {...controlBinding(`composer-thinking-${level}`, "composer.thinking.select")} role="menuitemradio" aria-checked={thinking === level} onClick={() => { setThinkingOpen(false); onSelectThinking(level); }}>{level[0].toUpperCase() + level.slice(1)}{thinking === level && <span aria-hidden="true">✓</span>}</button>)}</div>}
         </div>}
         {showTokenEstimate && <span className="composer-context" title="Approximate draft tokens">≈ {approximateDraftTokens(draft).toLocaleString()} tokens</span>}
-        <button className="composer-voice" type="button" {...controlBinding("composer-voice", "composer.voice.start", "Voice capture is unavailable until the native privacy contract is implemented.")} aria-label="Voice input" disabled={!onVoiceInput} title={onVoiceInput ? "Voice input" : "Voice capture is unavailable until the native privacy contract is implemented."} onClick={onVoiceInput}><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3zM19 10v1a7 7 0 0 1-14 0v-1M12 18v4" /></svg></button>
+        {showVoiceControl && <button className="composer-voice" type="button" {...controlBinding("composer-voice", "composer.voice.start", "Voice capture is unavailable until the native privacy contract is implemented.")} aria-label="Voice input" disabled={!onVoiceInput} title={onVoiceInput ? "Voice input" : "Voice capture is unavailable until the native privacy contract is implemented."} onClick={onVoiceInput}><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3zM19 10v1a7 7 0 0 1-14 0v-1M12 18v4" /></svg></button>}
         {state.kind === "working" && state.canAbort ? <button className="composer-send" type="button" {...controlBinding("composer-stop", "harness.session.abort")} aria-label="Stop response" onClick={onAbort} disabled={busy}><SendIcon stop /></button>
           : <button className="composer-send" type="button" {...controlBinding("composer-send", "harness.session.prompt")} aria-label="Send message" onClick={submit} disabled={!canSubmit || busy}><SendIcon /></button>}
       </div>

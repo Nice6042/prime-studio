@@ -79,6 +79,7 @@ export function ParentConversation({
   history,
   onLoadOlder,
   showSuggestions = true,
+  showTimestamps = true,
 }: {
   readonly title: string;
   readonly session: RootSessionProjection | null;
@@ -99,6 +100,7 @@ export function ParentConversation({
   readonly history?: ParentHistoryState;
   readonly onLoadOlder?: () => void;
   readonly showSuggestions?: boolean;
+  readonly showTimestamps?: boolean;
 }) {
   const exactHistory = session && history && history.sessionId === session.sessionId
     && history.snapshotCursor.runtimeGeneration === session.cursor.runtimeGeneration
@@ -199,7 +201,7 @@ export function ParentConversation({
             const selected = Math.min(versions.length - 1, Math.max(0, presentation.selectedUserVersion ?? 0));
             const text = versions[selected]?.text ?? message.text;
             return <article className="parent-turn parent-user-turn" key={message.id} data-parent-message-id={message.id} tabIndex={-1}>
-              <time>{timeLabel(message.emittedAtMs)}</time>
+              {showTimestamps && <time>{timeLabel(message.emittedAtMs)}</time>}
               {editing?.id === message.id ? <div className="parent-user-edit"><textarea aria-label="Edit message text" value={editing.text} onChange={(event) => setEditing({ id: message.id, text: event.currentTarget.value.slice(0, 64 * 1024) })} /><span><button type="button" onClick={() => setEditing(null)}>Cancel</button><button type="button" className="primary" aria-label="Send edited message" disabled={!editing.text.trim()} onClick={() => { onEditUserMessage?.(message.id, editing.text.trim()); setEditing(null); }}>Send</button></span></div> : <div className="parent-user-bubble"><p>{text}</p></div>}
               {editing?.id !== message.id && <div className="parent-message-actions">
                 <VersionStepper label="user" selected={selected} count={versions.length} onSelect={(index) => onSelectUserVersion?.(message.id, index)} />
@@ -219,7 +221,7 @@ export function ParentConversation({
           const workSteps = presentation.workSteps?.slice(0, 64) ?? [];
           return <article className="parent-turn parent-assistant-turn" key={message.id} data-parent-message-id={message.id} tabIndex={-1} aria-busy={message.streaming}>
             <TurnActivity blocks={message.blocks} />
-            <header className="parent-assistant-header"><PrimeMark /><strong>Prime Assistant</strong><time>{message.streaming ? "streaming…" : timeLabel(message.emittedAtMs)}</time></header>
+            <header className="parent-assistant-header"><PrimeMark /><strong>Prime Assistant</strong>{showTimestamps && <time>{message.streaming ? "streaming…" : timeLabel(message.emittedAtMs)}</time>}</header>
             <div className="parent-assistant-body">
               {displayRevision && <span className="canvas-revision-label">Display revision {displayRevision.revision}</span>}
               {text ? <div className="parent-assistant-copy">{text.split("\n\n").map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div> : null}

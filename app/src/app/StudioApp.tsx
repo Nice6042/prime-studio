@@ -350,7 +350,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
 
   useEffect(
     () => installWorkspacePreferences(settings),
-    [settings.theme, settings.density, settings.reducedMotion],
+    [settings.theme, settings.density, settings.reducedMotion, settings.accent, settings.fontSize, settings.bubbles],
   );
 
   useEffect(() => {
@@ -1498,6 +1498,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
           onSelectUserVersion={navigation.selectedChatId ? (messageId, version) => { void dispatchOperation({ action: "conversation.user-version.select", payload: { chatId: navigation.selectedChatId!, messageId, version } }); } : undefined}
           onSelectAssistantVersion={navigation.selectedChatId ? (messageId, version) => { void dispatchOperation({ action: "conversation.assistant-version.select", payload: { chatId: navigation.selectedChatId!, messageId, version } }); } : undefined}
           showSuggestions={settings.promptSuggestions !== "disabled"}
+          showTimestamps={settings.timestamps !== "disabled"}
           onEditUserMessage={!archived && navigation.selectedChatId && adapterConnected && hasCapability("resident_sessions") ? (messageId, text) => {
             const chatId = navigation.selectedChatId!;
             void runAdapterOperation({ action: "conversation.user-version.create", payload: { chatId, messageId, text } }, "Edit", () => {
@@ -1531,6 +1532,8 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
           slashCommands={slashCommands}
           sendShortcut={settings.sendShortcut === "ctrl-enter" ? "ctrl-enter" : "enter"}
           showTokenEstimate={settings.tokenEstimate !== "disabled"}
+          showVoiceControl={settings.voice !== "disabled"}
+          spellCheck={settings.spell !== "disabled"}
           onSelectModel={navigation.selectedChatId && supportsComposerCommand("model") ? (modelId) => {
             void runAdapterOperation({ action: "composer.model.select", payload: { chatId: navigation.selectedChatId!, modelId } }, "Model change");
           } : undefined}
