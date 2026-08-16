@@ -309,9 +309,8 @@ impl InteractionBroker {
         let expired = self
             .active
             .iter()
-            .filter_map(|(lease_id, active)| {
-                (active.lease.expires_at_ms < now_ms).then(|| lease_id.clone())
-            })
+            .filter(|(_, active)| active.lease.expires_at_ms < now_ms)
+            .map(|(lease_id, _)| lease_id.clone())
             .collect::<Vec<_>>();
         for lease_id in expired {
             let _ = self.cancel(&lease_id);
