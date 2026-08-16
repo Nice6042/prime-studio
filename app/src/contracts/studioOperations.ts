@@ -26,6 +26,7 @@ export interface StudioActionPayloadMap {
   "layout.editor.toggle": EmptyPayload;
   "layout.editor.resize": Readonly<{ width: number }>;
   "layout.editor.close": EmptyPayload;
+  "layout.panels.reset": EmptyPayload;
   "overlay.topmost.close": EmptyPayload;
   "surface.popover.toggle": Readonly<{ popoverId: string | null }>;
   "surface.accordion.toggle": Readonly<{ accordionId: string }>;
@@ -120,6 +121,7 @@ export interface StudioActionPayloadMap {
   "editor.conflict.reload": Readonly<{ documentId: string; ref: ArtifactRef; expectedRevision: number; expectedIdentity: string }>;
   "editor.conflict.save-copy": Readonly<{ documentId: string; ref: ArtifactRef; expectedRevision: number; expectedIdentity: string; content: string }>;
 
+  "settings.default-workspace.pick": EmptyPayload;
   "settings.search.change": Readonly<{ query: string }>;
   "settings.section.select": IdentifierPayload<"sectionId">;
   "settings.preference.set": Readonly<{ key: string; value: boolean | number | string }>;
@@ -187,7 +189,7 @@ export const STUDIO_ACTIONS = Object.freeze({
   "window.minimize": N("window"), "window.maximize-toggle": N("window"), "window.close": N("window"),
   "layout.sidebar.toggle": R("layout_preferences"), "layout.sidebar.resize": R("layout_preferences"), "layout.sidebar.reset": R("layout_preferences"),
   "layout.inspector.toggle": R("layout_preferences"), "layout.inspector.resize": R("layout_preferences"), "layout.inspector.reset": R("layout_preferences"),
-  "layout.editor.toggle": R("layout_preferences"), "layout.editor.resize": R("layout_preferences"), "layout.editor.close": R("layout_preferences"), "overlay.topmost.close": R(),
+  "layout.editor.toggle": R("layout_preferences"), "layout.editor.resize": R("layout_preferences"), "layout.editor.close": R("layout_preferences"), "layout.panels.reset": R("layout_preferences"), "overlay.topmost.close": R(),
   "surface.popover.toggle": R(), "surface.accordion.toggle": R(),
   "route.workspace.open": R(), "route.settings.open": R(), "route.settings.back": R(), "route.archived.open": R(), "route.external-docs.open": N("external_url"),
   "catalog.project.create": D("project_catalog"), "catalog.project.restore": D("project_catalog"), "catalog.project.toggle": R("layout_preferences"), "catalog.chat.create": D("project_catalog"), "catalog.chat.select": R(),
@@ -214,7 +216,7 @@ export const STUDIO_ACTIONS = Object.freeze({
   "activity.command.copy": N("clipboard"), "activity.file.open": H("resource_snapshot"), "activity.child.open": R(), "activity.seen.mark": D("chat_display"),
   "editor.artifact.open": H("resource_snapshot"), "editor.mode.select": R(), "editor.content.change": R(), "editor.file.save": N("file_write"),
   "editor.canvas.apply": D("chat_display"), "editor.conflict.reload": N("file_write"), "editor.conflict.save-copy": N("file_write"),
-  "settings.search.change": R(), "settings.section.select": R(), "settings.preference.set": D("settings"), "settings.preference.reset": D("settings"),
+  "settings.default-workspace.pick": N("dialog"), "settings.search.change": R(), "settings.section.select": R(), "settings.preference.set": D("settings"), "settings.preference.reset": D("settings"),
   "settings.harness-policy.set": H("core_session"), "settings.model-default.set": D("settings"), "settings.tool.set-enabled": H("core_session"), "settings.updates.check": U("No signed update channel is configured."),
   "account.add": D("settings"), "account.use": D("settings"), "account.set-default": D("settings"), "account.remove": D("settings"), "account.sign-out": D("settings"),
   "palette.open": R(), "palette.close": R(), "palette.query.change": R(), "palette.result.execute": R(),

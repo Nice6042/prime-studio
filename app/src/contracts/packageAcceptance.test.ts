@@ -35,7 +35,7 @@ describe("Prime Studio package acceptance catalog", () => {
 
   it("uniquely maps every feature ID and package control ID", () => {
     expect(new Set(FEATURE_ACCEPTANCE.map((row) => row.id)).size).toBe(115);
-    expect(PACKAGE_CONTROLS).toHaveLength(154);
+    expect(PACKAGE_CONTROLS).toHaveLength(159);
     expect(new Set(PACKAGE_CONTROLS.map((control) => control.controlId)).size).toBe(PACKAGE_CONTROLS.length);
     expect(PACKAGE_CONTROLS.every((control) => FEATURE_ACCEPTANCE.some(
       (feature) => feature.id === control.featureId && feature.actions.includes(control.action),
@@ -45,8 +45,8 @@ describe("Prime Studio package acceptance catalog", () => {
   it("derives the current implementation summary from the audited feature rows", () => {
     expect(PACKAGE_IMPLEMENTATION_SUMMARY).toEqual(summarizePackageImplementation(FEATURE_ACCEPTANCE));
     expect(PACKAGE_IMPLEMENTATION_SUMMARY).toEqual({
-      complete: 77,
-      partial: 36,
+      complete: 78,
+      partial: 35,
       placeholder: 0,
       missing: 0,
       explicitly_unavailable: 2,
@@ -78,6 +78,20 @@ describe("Prime Studio package acceptance catalog", () => {
     expect(status("ST-12")).toBe("complete");
     expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).not.toContain("CP-06");
     expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).not.toContain("ST-12");
+  });
+
+  it("records the owned General defaults and panel controls as complete", () => {
+    const feature = FEATURE_ACCEPTANCE.find((candidate) => candidate.id === "ST-03");
+    expect(feature?.current).toBe("complete");
+    expect(feature?.actions).toEqual([
+      "settings.preference.set",
+      "settings.preference.reset",
+      "settings.default-workspace.pick",
+      "layout.sidebar.resize",
+      "layout.inspector.resize",
+      "layout.editor.resize",
+      "layout.panels.reset",
+    ]);
   });
 
   it("records applied appearance and composer-local preferences as complete", () => {

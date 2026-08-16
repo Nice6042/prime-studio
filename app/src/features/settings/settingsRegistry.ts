@@ -24,7 +24,7 @@ export interface SettingsSectionDefinition {
 }
 
 export const settingsSections: readonly SettingsSectionDefinition[] = Object.freeze([
-  { id: "general", group: "Preferences", label: "General", description: "Workspace, language, and file-opening defaults.", keywords: ["workspace", "editor", "language"] },
+  { id: "general", group: "Preferences", label: "General", description: "Theme, density, workspace, sending, motion, and panel defaults.", keywords: ["theme", "density", "workspace", "project", "working directory", "send", "motion", "panel", "width", "restore", "language", "editor"] },
   { id: "appearance", group: "Preferences", label: "Appearance", description: "Theme, accent, type size, timestamps, bubbles, density, and motion.", keywords: ["dark", "light", "system", "theme", "accent", "font", "timestamps", "bubbles"] },
   { id: "composer", group: "Preferences", label: "Composer", description: "Sending, suggestions, token estimate, voice visibility, and spell check.", keywords: ["enter", "send", "draft", "token", "voice", "spell"] },
   { id: "harness", group: "AI & models", label: "Harness", description: "Settings exposed by the verified Prime Harness runtime.", keywords: ["agents", "runtime", "retry", "context"] },

@@ -543,6 +543,11 @@ fn get_app_settings() -> Settings {
 
 fn validate_closed_setting_value(key: &str, value: &str) -> bool {
     match key {
+        "theme" => matches!(value, "dark" | "light" | "system"),
+        "density" => matches!(value, "comfortable" | "compact"),
+        "reducedMotion" => matches!(value, "enabled" | "disabled"),
+        "sendShortcut" => matches!(value, "enter" | "ctrl-enter"),
+        "defaultCwd" => value.len() <= 32_767 && !value.chars().any(char::is_control),
         "accent" => matches!(value, "prime-violet" | "slate" | "ember"),
         "fontSize" => matches!(value, "small" | "medium" | "large"),
         "timestamps" | "bubbles" | "voice" | "spell" => matches!(value, "enabled" | "disabled"),
@@ -552,6 +557,27 @@ fn validate_closed_setting_value(key: &str, value: &str) -> bool {
 
 /// Set (or clear, with an empty/absent value) one key and return the whole file
 /// back, so the UI never has to guess what it now holds.
+#[cfg(test)]
+mod general_setting_validation_tests {
+    use super::validate_closed_setting_value;
+
+    #[test]
+    fn general_setting_values_fail_closed() {
+        assert!(validate_closed_setting_value("theme", "system"));
+        assert!(!validate_closed_setting_value("theme", "midnight"));
+        assert!(validate_closed_setting_value("density", "compact"));
+        assert!(!validate_closed_setting_value("density", "dense"));
+        assert!(validate_closed_setting_value("reducedMotion", "enabled"));
+        assert!(!validate_closed_setting_value("reducedMotion", "sometimes"));
+        assert!(validate_closed_setting_value("sendShortcut", "ctrl-enter"));
+        assert!(!validate_closed_setting_value("sendShortcut", "alt-enter"));
+        assert!(validate_closed_setting_value("defaultCwd", r"C:\work\prime"));
+        assert!(!validate_closed_setting_value("defaultCwd", "bad
+path"));
+        assert!(!validate_closed_setting_value("defaultCwd", &"x".repeat(32_768)));
+    }
+}
+
 fn set_app_setting_impl(key: String, value: Option<String>) -> Result<Settings, String> {
     if !SETTING_KEYS.contains(&key.as_str()) {
         return Err(format!("unknown setting: {key}"));

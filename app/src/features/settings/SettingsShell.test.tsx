@@ -1,8 +1,9 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { HarnessCompatibility, RuntimeIdentity } from "../../shared/ipc/harness.generated";
+import type { StudioOperation, StudioOperationOutcome } from "../../contracts/studioOperations";
 import { SettingsShell } from "./SettingsShell";
 import { settingsSections } from "./settingsRegistry";
 
@@ -162,6 +163,43 @@ describe("SettingsShell", () => {
     expect(onSetting).not.toHaveBeenCalled();
     expect(screen.getAllByText(/does not accept an account or profile identity/i)).toHaveLength(2);
     expect(screen.getByRole("textbox", { name: "Account name" })).toBeVisible();
+  });
+
+  it("wires every General default through its owned persistence or dialog boundary", async () => {
+    const onSetting = vi.fn();
+    const onExecute = vi.fn(async (operation: StudioOperation): Promise<StudioOperationOutcome> => operation.action === "settings.default-workspace.pick"
+      ? { status: "updated", revision: "C:\work\prime" }
+      : { status: "updated", revision: "layout" });
+    render(<SettingsShell
+      section="general"
+      onBack={() => undefined}
+      onSection={() => undefined}
+      compatibility={unavailable}
+      onSetting={onSetting}
+      onExecute={onExecute}
+      settings={{ theme: "system", density: "comfortable", sendShortcut: "enter", reducedMotion: "disabled", defaultCwd: "D:\old" }}
+      layout={{ schemaVersion: 1, sidebarOpen: true, sidebarWidth: 264, inspectorOpen: true, inspectorWidth: 384, editorOpen: false, editorWidth: 400, expandedProjectIds: [] }}
+    />);
+
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Theme" }), "light");
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Density" }), "compact");
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Send shortcut" }), "ctrl-enter");
+    await userEvent.click(screen.getByRole("switch", { name: "Reduced motion" }));
+    fireEvent.change(screen.getByRole("slider", { name: "Projects panel width" }), { target: { value: "320" } });
+    await userEvent.click(screen.getByRole("button", { name: "Browse default workspace" }));
+    await userEvent.click(screen.getByRole("button", { name: "Restore defaults" }));
+    await userEvent.click(screen.getByRole("button", { name: "Ask each time" }));
+
+    expect(onSetting).toHaveBeenCalledWith("theme", "light");
+    expect(onSetting).toHaveBeenCalledWith("density", "compact");
+    expect(onSetting).toHaveBeenCalledWith("sendShortcut", "ctrl-enter");
+    expect(onSetting).toHaveBeenCalledWith("reducedMotion", "enabled");
+    await waitFor(() => expect(onSetting).toHaveBeenCalledWith("defaultCwd", "C:\work\prime"));
+    expect(onSetting).toHaveBeenCalledWith("defaultCwd", null);
+    expect(onExecute).toHaveBeenCalledWith({ action: "settings.default-workspace.pick", payload: {} });
+    expect(onExecute).toHaveBeenCalledWith({ action: "layout.sidebar.resize", payload: { width: 320 } });
+    expect(onExecute).toHaveBeenCalledWith({ action: "layout.panels.reset", payload: {} });
+    expect(screen.getByRole("combobox", { name: "Language" })).toBeDisabled();
   });
 
   it("wires appearance and composer controls to typed persistence instead of local cosmetic state", async () => {

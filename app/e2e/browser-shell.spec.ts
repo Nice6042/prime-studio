@@ -317,6 +317,64 @@ test("appearance and composer preferences persist through the native settings au
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-local-preferences");
 });
 
+test("General settings persist applied defaults and own workspace and panel layout changes", async ({ shellPage }) => {
+  await shellPage.keyboard.press("Control+,");
+  await shellPage.getByRole("button", { name: /^General/ }).click();
+  await shellPage.getByRole("combobox", { name: "Theme" }).selectOption("light");
+  await shellPage.getByRole("combobox", { name: "Density" }).selectOption("compact");
+  await shellPage.getByRole("combobox", { name: "Send shortcut" }).selectOption("ctrl-enter");
+  await shellPage.getByRole("switch", { name: "Reduced motion" }).click();
+  await shellPage.getByRole("button", { name: "Browse default workspace" }).click();
+  await expect(shellPage.getByText("D:\fixture\Selected Workspace", { exact: true })).toBeVisible();
+
+  const setRange = async (name: string, value: number) => {
+    await shellPage.getByRole("slider", { name }).evaluate((element, next) => {
+      const input = element as HTMLInputElement;
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      setter?.call(input, String(next));
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    }, value);
+  };
+  await setRange("Projects panel width", 320);
+  await setRange("Harness panel width", 470);
+  await setRange("Editor panel width", 510);
+  await expect(shellPage.getByText("320px", { exact: true })).toBeVisible();
+  await expect(shellPage.getByText("470px", { exact: true })).toBeVisible();
+  await expect(shellPage.getByText("510px", { exact: true })).toBeVisible();
+  await shellPage.getByRole("button", { name: "Restore defaults" }).click();
+  await expect(shellPage.getByText("264px", { exact: true })).toBeVisible();
+  await expect(shellPage.getByText("384px", { exact: true })).toBeVisible();
+  await expect(shellPage.getByText("400px", { exact: true })).toBeVisible();
+  await shellPage.getByRole("button", { name: "Back to chat" }).click();
+
+  await expect(shellPage.locator("html")).toHaveAttribute("data-theme", "light");
+  await expect(shellPage.locator("html")).toHaveAttribute("data-density", "compact");
+  await expect(shellPage.locator("html")).toHaveAttribute("data-reduced-motion", "true");
+
+  const requests = await shellPage.evaluate(() => (window as typeof window & {
+    __PRIME_STUDIO_BROWSER_REQUESTS__?: Array<{ command: string; args: Record<string, unknown> }>;
+  }).__PRIME_STUDIO_BROWSER_REQUESTS__ ?? []);
+  const settingKeys = requests.filter((request) => request.command === "set_app_setting").map((request) => request.args.key);
+  expect(settingKeys).toEqual(expect.arrayContaining(["theme", "density", "sendShortcut", "reducedMotion", "defaultCwd"]));
+  expect(requests.filter((request) => request.command === "pick_directory")).toHaveLength(1);
+  const layoutWrites = requests.filter((request) => request.command === "set_layout_preferences").map((request) => request.args.preferences as Record<string, unknown>);
+  expect(layoutWrites).toEqual(expect.arrayContaining([
+    expect.objectContaining({ sidebarWidth: 320 }),
+    expect.objectContaining({ inspectorWidth: 470 }),
+    expect.objectContaining({ editorWidth: 510 }),
+    expect.objectContaining({ sidebarOpen: true, sidebarWidth: 264, inspectorOpen: true, inspectorWidth: 384, editorOpen: false, editorWidth: 400 }),
+  ]));
+
+  await shellPage.keyboard.press("Control+,");
+  await shellPage.getByRole("button", { name: /^General/ }).click();
+  await expect(shellPage.getByRole("combobox", { name: "Theme" })).toHaveValue("light");
+  await expect(shellPage.getByRole("combobox", { name: "Density" })).toHaveValue("compact");
+  await expect(shellPage.getByRole("combobox", { name: "Send shortcut" })).toHaveValue("ctrl-enter");
+  await expect(shellPage.getByRole("switch", { name: "Reduced motion" })).toHaveAttribute("aria-checked", "true");
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-general-settings-owned-controls");
+});
+
 test("registry keeps Ctrl+N K comma B J in parity with visible commands and Settings rows", async ({ shellPage }) => {
   const requestCount = (command: string) => shellPage.evaluate((name) => {
     const requests = (window as typeof window & { __PRIME_STUDIO_BROWSER_REQUESTS__?: Array<{ command: string }> }).__PRIME_STUDIO_BROWSER_REQUESTS__ ?? [];

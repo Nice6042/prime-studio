@@ -6,7 +6,7 @@ import { createControlBinding, type StudioActionId, type StudioOperation, type S
 import { studioKeyboardShortcutGroups, type CommandAvailabilityContext } from "../../entities/commands/commandRegistry";
 import type { HarnessCompatibility, RuntimeIdentity } from "../../shared/ipc/harness.generated";
 import type { SendShortcut } from "../conversation/composerModel";
-import type { Account, AppSettings } from "../../types";
+import type { Account, AppSettings, LayoutPreferencesV1 } from "../../types";
 import type { SubscriptionQuotaProjection } from "../../quotaProjection";
 import type { HarnessComposerProjection } from "../harness/adapter";
 import { RESIDENT_ACCOUNT_SELECTION_UNAVAILABLE_REASON } from "../navigation/residentCreationPolicy";
@@ -60,8 +60,90 @@ const boolValue = (value: string | null | undefined, fallback = true) => value =
 const connected = (compatibility: HarnessCompatibility) => compatibility.status === "ready" || compatibility.status === "degraded";
 const unappliedReason = "This preference is not applied by the current runtime, so it is read-only instead of being persisted inertly.";
 
-export function GeneralSettings({ settings, onSetting }: { readonly settings: AppSettings; readonly onSetting?: SettingWriter }) {
-  return <><Unavailable>{unappliedReason}</Unavailable><SettingGroup title="General"><Row label="Default file open destination" description="Choose where verified files and folders open."><SettingSelect label="Default file open destination" value={settings.fileOpenDestination ?? "system"} setting="fileOpenDestination" onSetting={onSetting} disabled reason={unappliedReason} options={[{ value: "system", label: "System default" }, { value: "vscode", label: "VS Code" }, { value: "studio", label: "Prime Studio" }]} /></Row><Row label="Language" description="Language used by the application interface."><SettingSelect label="Language" value={settings.language ?? "auto"} setting="language" onSetting={onSetting} disabled reason={unappliedReason} options={[{ value: "auto", label: "Auto detect" }, { value: "en", label: "English" }]} /></Row><Row label="Bottom panel" description="Show the terminal and diagnostics panel control in the app header."><SettingSwitch label="Bottom panel" enabled={boolValue(settings.bottomPanel, false)} setting="bottomPanel" onSetting={onSetting} disabled reason={unappliedReason} /></Row></SettingGroup><SettingGroup title="Workspace"><Row label="Default workspace" description="New chats start in this user-selected working directory."><span className="studio-setting-value">{settings.defaultCwd || "Ask each time"}</span></Row><Row label="Panel layout" description="Pane widths and open states are persisted per window and reflow at narrow widths."><span className="studio-setting-value">Adaptive</span></Row></SettingGroup></>;
+export function GeneralSettings({ settings, layout, onSetting, onExecute }: {
+  readonly settings: AppSettings;
+  readonly layout?: LayoutPreferencesV1;
+  readonly onSetting?: SettingWriter;
+  readonly onExecute?: (operation: StudioOperation) => Promise<StudioOperationOutcome>;
+}) {
+  const [workspaceBusy, setWorkspaceBusy] = useState(false);
+  const [workspaceStatus, setWorkspaceStatus] = useState<string | null>(null);
+  const currentLayout = layout ?? {
+    schemaVersion: 1,
+    sidebarOpen: true,
+    sidebarWidth: 264,
+    inspectorOpen: true,
+    inspectorWidth: 384,
+    editorOpen: false,
+    editorWidth: 400,
+    expandedProjectIds: [],
+  };
+  const picker = createControlBinding("settings.default-workspace.pick", "settings.default-workspace.pick");
+  const workspaceReset = createControlBinding("settings.default-workspace.reset", "settings.preference.reset");
+  const layoutReset = createControlBinding("settings.panel-layout.reset", "layout.panels.reset");
+  const sidebarWidth = createControlBinding("settings.panel-layout.sidebar-width", "layout.sidebar.resize");
+  const inspectorWidth = createControlBinding("settings.panel-layout.inspector-width", "layout.inspector.resize");
+  const editorWidth = createControlBinding("settings.panel-layout.editor-width", "layout.editor.resize");
+  const canPickWorkspace = Boolean(onExecute && onSetting);
+
+  const pickWorkspace = async () => {
+    if (!onExecute || !onSetting || workspaceBusy) return;
+    setWorkspaceBusy(true);
+    setWorkspaceStatus(null);
+    try {
+      const outcome = await onExecute({ action: "settings.default-workspace.pick", payload: {} });
+      if (outcome.status === "updated" && typeof outcome.revision === "string" && outcome.revision.trim()) {
+        onSetting("defaultCwd", outcome.revision);
+        setWorkspaceStatus("Default workspace selected.");
+      } else if (outcome.status === "cancelled") {
+        setWorkspaceStatus("Workspace selection cancelled.");
+      } else if (outcome.status === "unavailable" || outcome.status === "rejected") {
+        setWorkspaceStatus(outcome.reason);
+      }
+    } finally {
+      setWorkspaceBusy(false);
+    }
+  };
+
+  const resize = (operation: StudioOperation) => {
+    if (onExecute) void onExecute(operation);
+  };
+
+  return <>
+    <SettingGroup title="Defaults">
+      <Row label="Theme" description="Choose the application color scheme; System follows Windows live."><SettingSelect label="Theme" value={settings.theme ?? "system"} setting="theme" onSetting={onSetting} options={[{ value: "system", label: "System" }, { value: "dark", label: "Dark" }, { value: "light", label: "Light" }]} /></Row>
+      <Row label="Density" description="Adjust vertical spacing without changing text size or pane geometry."><SettingSelect label="Density" value={settings.density ?? "comfortable"} setting="density" onSetting={onSetting} options={[{ value: "comfortable", label: "Comfortable" }, { value: "compact", label: "Compact" }]} /></Row>
+      <Row label="Send shortcut" description="Choose whether Enter or Ctrl+Enter submits a prompt."><SettingSelect label="Send shortcut" value={settings.sendShortcut ?? "enter"} setting="sendShortcut" onSetting={onSetting} options={[{ value: "enter", label: "Enter" }, { value: "ctrl-enter", label: "Ctrl+Enter" }]} /></Row>
+      <Row label="Reduced motion" description="Reduce pulsing and animated transitions throughout the workspace."><SettingSwitch label="Reduced motion" enabled={boolValue(settings.reducedMotion, false)} setting="reducedMotion" onSetting={onSetting} /></Row>
+    </SettingGroup>
+
+    <SettingGroup title="Workspace">
+      <Row label="Default project" description="New resident chats use this user-selected working directory; clearing it asks each time.">
+        <div className="studio-setting-workspace-control">
+          <span className="studio-setting-value studio-setting-path">{settings.defaultCwd || "Ask each time"}</span>
+          <div className="studio-setting-button-row">
+            <button type="button" aria-label="Browse default workspace" data-control-id={picker.controlId} data-action={picker.action} disabled={!canPickWorkspace || workspaceBusy} title={!canPickWorkspace ? "A native directory picker and settings authority are required." : undefined} onClick={() => void pickWorkspace()}>{workspaceBusy ? "Choosing…" : "Browse…"}</button>
+            <button type="button" data-control-id={workspaceReset.controlId} data-action={workspaceReset.action} disabled={!onSetting || !settings.defaultCwd} onClick={() => { setWorkspaceStatus(null); onSetting?.("defaultCwd", null); }}>Ask each time</button>
+          </div>
+          {workspaceStatus && <small className="studio-setting-operation-status" role="status">{workspaceStatus}</small>}
+        </div>
+      </Row>
+    </SettingGroup>
+
+    <SettingGroup title="Panel layout">
+      <Row label="Projects panel width" description="Preferred width before the responsive solver protects the conversation center."><label className="studio-setting-range"><input type="range" aria-label="Projects panel width" min={210} max={380} value={currentLayout.sidebarWidth} data-control-id={sidebarWidth.controlId} data-action={sidebarWidth.action} disabled={!onExecute} onChange={(event) => resize({ action: "layout.sidebar.resize", payload: { width: Number(event.currentTarget.value) } })} /><output>{currentLayout.sidebarWidth}px</output></label></Row>
+      <Row label="Harness panel width" description="Preferred operational-inspector width at desktop geometries."><label className="studio-setting-range"><input type="range" aria-label="Harness panel width" min={300} max={600} value={currentLayout.inspectorWidth} data-control-id={inspectorWidth.controlId} data-action={inspectorWidth.action} disabled={!onExecute} onChange={(event) => resize({ action: "layout.inspector.resize", payload: { width: Number(event.currentTarget.value) } })} /><output>{currentLayout.inspectorWidth}px</output></label></Row>
+      <Row label="Editor panel width" description="Preferred width for identity-bound Diff, Edit, and Canvas documents."><label className="studio-setting-range"><input type="range" aria-label="Editor panel width" min={280} max={600} value={currentLayout.editorWidth} data-control-id={editorWidth.controlId} data-action={editorWidth.action} disabled={!onExecute} onChange={(event) => resize({ action: "layout.editor.resize", payload: { width: Number(event.currentTarget.value) } })} /><output>{currentLayout.editorWidth}px</output></label></Row>
+      <Row label="Restore panel layout" description="Restore the reviewed 264px Projects, 384px Harness, and 400px Editor defaults and reopen the standard desktop panes."><button type="button" data-control-id={layoutReset.controlId} data-action={layoutReset.action} disabled={!onExecute} onClick={() => resize({ action: "layout.panels.reset", payload: {} })}>Restore defaults</button></Row>
+    </SettingGroup>
+
+    <Unavailable>{unappliedReason}</Unavailable>
+    <SettingGroup title="Unavailable preferences">
+      <Row label="Default file open destination" description="Choose where verified files and folders open."><SettingSelect label="Default file open destination" value={settings.fileOpenDestination ?? "system"} setting="fileOpenDestination" onSetting={onSetting} disabled reason={unappliedReason} options={[{ value: "system", label: "System default" }, { value: "vscode", label: "VS Code" }, { value: "studio", label: "Prime Studio" }]} /></Row>
+      <Row label="Language" description="Language used by the application interface."><SettingSelect label="Language" value={settings.language ?? "auto"} setting="language" onSetting={onSetting} disabled reason={unappliedReason} options={[{ value: "auto", label: "Auto detect" }, { value: "en", label: "English" }]} /></Row>
+      <Row label="Bottom panel" description="Show the terminal and diagnostics panel control in the app header."><SettingSwitch label="Bottom panel" enabled={boolValue(settings.bottomPanel, false)} setting="bottomPanel" onSetting={onSetting} disabled reason={unappliedReason} /></Row>
+    </SettingGroup>
+  </>;
 }
 
 export function AppearanceSettings({ settings, onSetting }: { readonly settings: AppSettings; readonly onSetting?: SettingWriter }) {
