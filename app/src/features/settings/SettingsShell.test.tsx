@@ -164,14 +164,33 @@ describe("SettingsShell", () => {
     expect(screen.getByRole("textbox", { name: "Account name" })).toBeVisible();
   });
 
-  it("wires preference controls to typed persistence instead of local cosmetic state", async () => {
+  it("wires appearance and composer controls to typed persistence instead of local cosmetic state", async () => {
     const onSetting = vi.fn();
-    render(<SettingsShell section="composer" onBack={() => undefined} onSection={() => undefined} compatibility={unavailable}
-      settings={{ sendShortcut: "enter", promptSuggestions: "enabled", tokenEstimate: "enabled" }} onSetting={onSetting} />);
+    const base = { onBack: () => undefined, onSection: () => undefined, compatibility: unavailable, onSetting };
+    const { rerender } = render(<SettingsShell section="appearance" {...base}
+      settings={{ accent: "prime-violet", fontSize: "medium", timestamps: "enabled", bubbles: "disabled" }} />);
+
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Accent" }), "ember");
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Font size" }), "large");
+    await userEvent.click(screen.getByRole("switch", { name: "Show timestamps" }));
+    await userEvent.click(screen.getByRole("switch", { name: "Compact message bubbles" }));
+
+    expect(onSetting).toHaveBeenCalledWith("accent", "ember");
+    expect(onSetting).toHaveBeenCalledWith("fontSize", "large");
+    expect(onSetting).toHaveBeenCalledWith("timestamps", "disabled");
+    expect(onSetting).toHaveBeenCalledWith("bubbles", "enabled");
+
+    rerender(<SettingsShell section="composer" {...base}
+      settings={{ sendShortcut: "enter", promptSuggestions: "enabled", tokenEstimate: "enabled", voice: "enabled", spell: "enabled" }} />);
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "Send shortcut" }), "ctrl-enter");
     await userEvent.click(screen.getByRole("switch", { name: "Suggested prompts" }));
+    await userEvent.click(screen.getByRole("switch", { name: "Voice control" }));
+    await userEvent.click(screen.getByRole("switch", { name: "Spell check" }));
+
     expect(onSetting).toHaveBeenCalledWith("sendShortcut", "ctrl-enter");
     expect(onSetting).toHaveBeenCalledWith("promptSuggestions", "disabled");
+    expect(onSetting).toHaveBeenCalledWith("voice", "disabled");
+    expect(onSetting).toHaveBeenCalledWith("spell", "disabled");
   });
 
   it("disables persisted settings whose runtime has no verified application path", () => {

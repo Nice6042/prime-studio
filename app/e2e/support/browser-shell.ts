@@ -88,6 +88,15 @@ export const test = base.extend<ShellFixtures>({
           tokensPerSecond: 18.4,
         },
       }));
+      let appSettings: Record<string, string | null> = {
+        theme: "dark",
+        defaultAccount: "account-e2e",
+        defaultProvider: "openai-codex",
+        defaultModel: "gpt-5",
+        defaultThinking: "high",
+        defaultCwd: "D:\\fixture\\Prime Studio",
+        lastSection: "accounts",
+      };
       let layoutPreferences = {
         schemaVersion: 1,
         sidebarOpen: true,
@@ -222,15 +231,18 @@ export const test = base.extend<ShellFixtures>({
               staleAsOf: 1_799_999_000_000,
             };
           case "get_app_settings":
-            return {
-              theme: "dark",
-              defaultAccount: "account-e2e",
-              defaultProvider: "openai-codex",
-              defaultModel: "gpt-5",
-              defaultThinking: "high",
-              defaultCwd: "D:\\fixture\\Prime Studio",
-              lastSection: "accounts",
-            };
+            return { ...appSettings };
+          case "set_app_setting": {
+            const key = String(args.key ?? "");
+            const value = args.value;
+            if (typeof value === "string" && value.trim()) appSettings = { ...appSettings, [key]: value.trim() };
+            else {
+              const next = { ...appSettings };
+              delete next[key];
+              appSettings = next;
+            }
+            return { ...appSettings };
+          }
           case "scheduler_projection":
             return {
               schemaVersion: 1,
@@ -616,7 +628,6 @@ export const test = base.extend<ShellFixtures>({
             }
             return null;
           }
-          case "set_app_setting":
           case "stop_session":
           case "detach_session":
           case "note_agent":

@@ -19,7 +19,7 @@ describe("workspace preferences", () => {
     const matchMedia = vi.fn((query: string) => query.includes("color-scheme") ? color : motion);
 
     const cleanup = installWorkspacePreferences(
-      { theme: "system", density: "compact", reducedMotion: "disabled" },
+      { theme: "system", density: "compact", reducedMotion: "disabled", accent: "ember", fontSize: "large", bubbles: "enabled" },
       document.documentElement,
       matchMedia,
     );
@@ -27,6 +27,9 @@ describe("workspace preferences", () => {
     expect(document.documentElement).toHaveAttribute("data-theme", "dark");
     expect(document.documentElement).toHaveAttribute("data-density", "compact");
     expect(document.documentElement).toHaveAttribute("data-reduced-motion", "false");
+    expect(document.documentElement).toHaveAttribute("data-accent", "ember");
+    expect(document.documentElement).toHaveAttribute("data-font-size", "large");
+    expect(document.documentElement).toHaveAttribute("data-bubbles", "compact");
 
     color.matches = true;
     motion.matches = true;
@@ -34,6 +37,21 @@ describe("workspace preferences", () => {
     motion.dispatch();
     expect(document.documentElement).toHaveAttribute("data-theme", "light");
     expect(document.documentElement).toHaveAttribute("data-reduced-motion", "true");
+
+    cleanup();
+  });
+
+  it("normalizes unknown appearance values to safe defaults", () => {
+    const mediaQuery = media(false);
+    const cleanup = installWorkspacePreferences(
+      { accent: "unknown", fontSize: "huge", bubbles: "unknown" },
+      document.documentElement,
+      () => mediaQuery,
+    );
+
+    expect(document.documentElement).toHaveAttribute("data-accent", "prime-violet");
+    expect(document.documentElement).toHaveAttribute("data-font-size", "medium");
+    expect(document.documentElement).toHaveAttribute("data-bubbles", "comfortable");
 
     cleanup();
   });
