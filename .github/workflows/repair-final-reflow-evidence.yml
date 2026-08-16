@@ -28,10 +28,14 @@ jobs:
 
           spec = Path("app/e2e/product-reflow.spec.ts")
           text = spec.read_text(encoding="utf-8")
-          defaults_line = 'const REFLOW_HARNESS_DEFAULTS_FLAG = "prime-studio-reflow-harness-defaults";\n'
-          if text.count(defaults_line) != 1:
-              raise SystemExit("expected one reflow Harness-defaults constant")
-          text = text.replace(defaults_line, "")
+          constants = [
+              'const REFLOW_EMPTY_SESSION_FLAG = "prime-studio-reflow-empty-session";\n',
+              'const REFLOW_HARNESS_DEFAULTS_FLAG = "prime-studio-reflow-harness-defaults";\n',
+          ]
+          present = [constant for constant in constants if constant in text]
+          if len(present) != 1:
+              raise SystemExit(f"expected one temporary empty-state constant, found {len(present)}")
+          text = text.replace(present[0], "")
           helper_start = text.index("async function exerciseStreamingConversation(")
           flag_start = text.index("  await page.evaluate(() => {", helper_start)
           flag_end = text.index("  await composer.fill", flag_start)
@@ -51,8 +55,10 @@ jobs:
             } else {
               await sidebar.getByRole("button", { name: idleChatName }).click();
             }
-            await expect(page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
+            const conversation = page.getByRole("region", { name: "Inactive planning notes" });
+            await expect(conversation.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
             await expect(page.getByRole("textbox", { name: "Message Prime Studio" })).toBeVisible();
+            await expect(conversation.locator("[data-parent-message-id]")).toHaveCount(0);
             await expectProductViewport(page, `${target.id} empty conversation`);
           }'''
           text = text[:empty_start] + empty_helper + text[empty_end:]
@@ -60,80 +66,94 @@ jobs:
 
           admission = Path("app/e2e/streaming-reflow-admission.spec.ts")
           text = admission.read_text(encoding="utf-8")
-          flag_start = text.index("  await shellPage.evaluate(() => {")
-          flag_end = text.index("  await composer.fill", flag_start)
-          admission.write_text(text[:flag_start] + text[flag_end:], encoding="utf-8", newline="\n")
+          if "  await shellPage.evaluate(() => {" in text:
+              flag_start = text.index("  await shellPage.evaluate(() => {")
+              flag_end = text.index("  await composer.fill", flag_start)
+              text = text[:flag_start] + text[flag_end:]
+          admission.write_text(text, encoding="utf-8", newline="\n")
 
           fixture = Path("app/e2e/support/browser-shell.ts")
           text = fixture.read_text(encoding="utf-8")
-          replacements = {
+          required_replacements = {
             '        __PRIME_STUDIO_REFLOW_STREAMING__?: boolean;\n': '',
             '      global.__PRIME_STUDIO_REFLOW_STREAMING__ = false;\n': '',
+            '            const streamingFixture = request.kind !== "abort" && (request.text === "PRIME_STUDIO_REFLOW_STREAMING_FIXTURE" || global.__PRIME_STUDIO_REFLOW_STREAMING__ === true);\n            global.__PRIME_STUDIO_REFLOW_STREAMING__ = false;': '            const streamingFixture = request.kind !== "abort" && request.text === "PRIME_STUDIO_REFLOW_STREAMING_FIXTURE";',
+            '              const streamingFixture = sessionKind !== "abort" && (text === "PRIME_STUDIO_REFLOW_STREAMING_FIXTURE" || global.__PRIME_STUDIO_REFLOW_STREAMING__ === true);\n              global.__PRIME_STUDIO_REFLOW_STREAMING__ = false;': '              const streamingFixture = sessionKind !== "abort" && text === "PRIME_STUDIO_REFLOW_STREAMING_FIXTURE";',
+          }
+          for before, after in required_replacements.items():
+              if text.count(before) != 1:
+                  raise SystemExit(f"required fixture anchor is not unique: {before[:80]}")
+              text = text.replace(before, after)
+          optional_replacements = {
+            '      const reflowEmptySession = window.sessionStorage.getItem("prime-studio-reflow-empty-session") === "1";\n': '',
+            '        parentMessages: reflowEmptySession ? [] : session.parentMessages,\n': '',
             '      const reflowHarnessDefaults = window.sessionStorage.getItem("prime-studio-reflow-harness-defaults") === "1";\n': '',
             '        defaultAccount: reflowHarnessDefaults ? null : "account-e2e",': '        defaultAccount: "account-e2e",',
             '        defaultProvider: reflowHarnessDefaults ? null : "openai-codex",': '        defaultProvider: "openai-codex",',
             '        defaultModel: reflowHarnessDefaults ? null : "gpt-5",': '        defaultModel: "gpt-5",',
             '        defaultThinking: reflowHarnessDefaults ? null : "high",': '        defaultThinking: "high",',
-            '            const streamingFixture = request.kind !== "abort" && (request.text === "PRIME_STUDIO_REFLOW_STREAMING_FIXTURE" || global.__PRIME_STUDIO_REFLOW_STREAMING__ === true);\n            global.__PRIME_STUDIO_REFLOW_STREAMING__ = false;': '            const streamingFixture = request.kind !== "abort" && request.text === "PRIME_STUDIO_REFLOW_STREAMING_FIXTURE";',
-            '              const streamingFixture = sessionKind !== "abort" && (text === "PRIME_STUDIO_REFLOW_STREAMING_FIXTURE" || global.__PRIME_STUDIO_REFLOW_STREAMING__ === true);\n              global.__PRIME_STUDIO_REFLOW_STREAMING__ = false;': '              const streamingFixture = sessionKind !== "abort" && text === "PRIME_STUDIO_REFLOW_STREAMING_FIXTURE";',
           }
-          for before, after in replacements.items():
-              if text.count(before) != 1:
-                  raise SystemExit(f"fixture anchor is not unique: {before[:80]}")
+          for before, after in optional_replacements.items():
+              if text.count(before) > 1:
+                  raise SystemExit(f"optional fixture anchor repeats: {before[:80]}")
               text = text.replace(before, after)
           fixture.write_text(text, encoding="utf-8", newline="\n")
 
           contract = Path("app/src/contracts/productReflowAcceptance.ts")
           text = contract.read_text(encoding="utf-8")
           evidence_line = '  const evidence = new Map<string, Set<ProductReflowGeometryId>>();'
+          owners_line = '  const cellOwners = new Map<string, ProductReflowScenarioId>();'
           if text.count(evidence_line) != 1:
               raise SystemExit("evidence map anchor is not unique")
-          text = text.replace(
-              evidence_line,
-              evidence_line + '\n  const cellOwners = new Map<string, ProductReflowScenarioId>();',
-          )
-          loop_start = text.index("    for (const screenId of scenario.screenIds) {")
-          loop_end = text.index("\n  }\n\n  for (const screenId of packageSet)", loop_start)
-          new_loop = '''    for (const screenId of new Set(scenario.screenIds)) {
-            if (!packageSet.has(screenId)) {
-              errors.push(`Reflow scenario references unknown package screen ${screenId}.`);
-              continue;
-            }
-            const cells = evidence.get(screenId) ?? new Set<ProductReflowGeometryId>();
-            for (const geometryId of new Set(scenario.geometryIds)) {
-              if (!geometrySet.has(geometryId)) continue;
-              const cellKey = JSON.stringify([screenId, geometryId]);
-              const owner = cellOwners.get(cellKey);
-              if (owner && owner !== scenario.id) {
-                errors.push(`Reflow evidence cell ${screenId} at ${geometryId} is assigned to both ${owner} and ${scenario.id}.`);
-              } else {
-                cellOwners.set(cellKey, scenario.id);
-              }
-              cells.add(geometryId);
-            }
-            evidence.set(screenId, cells);
-          }'''
-          contract.write_text(text[:loop_start] + new_loop + text[loop_end:], encoding="utf-8", newline="\n")
+          if owners_line not in text:
+              text = text.replace(evidence_line, evidence_line + '\n' + owners_line)
+          if "    for (const screenId of scenario.screenIds) {" in text:
+              loop_start = text.index("    for (const screenId of scenario.screenIds) {")
+              loop_end = text.index("\n  }\n\n  for (const screenId of packageSet)", loop_start)
+              new_loop = '''    for (const screenId of new Set(scenario.screenIds)) {
+                if (!packageSet.has(screenId)) {
+                  errors.push(`Reflow scenario references unknown package screen ${screenId}.`);
+                  continue;
+                }
+                const cells = evidence.get(screenId) ?? new Set<ProductReflowGeometryId>();
+                for (const geometryId of new Set(scenario.geometryIds)) {
+                  if (!geometrySet.has(geometryId)) continue;
+                  const cellKey = JSON.stringify([screenId, geometryId]);
+                  const owner = cellOwners.get(cellKey);
+                  if (owner && owner !== scenario.id) {
+                    errors.push(`Reflow evidence cell ${screenId} at ${geometryId} is assigned to both ${owner} and ${scenario.id}.`);
+                  } else {
+                    cellOwners.set(cellKey, scenario.id);
+                  }
+                  cells.add(geometryId);
+                }
+                evidence.set(screenId, cells);
+              }'''
+              text = text[:loop_start] + new_loop + text[loop_end:]
+          contract.write_text(text, encoding="utf-8", newline="\n")
 
           test = Path("app/src/contracts/productReflowAcceptance.test.ts")
           text = test.read_text(encoding="utf-8")
-          needle = '      .toContain("Reflow scenario workspace-wide repeats a geometry.");'
-          if text.count(needle) != 1:
-              raise SystemExit("repeated geometry test anchor is not unique")
-          insert_at = text.index(needle) + len(needle)
-          duplicate_cell = '''
-            const duplicateCellScenario = { ...scenario, id: "workspace-compact" as const, geometryIds: [geometry.id], screenIds: [screen.id] };
-            expect(validateProductReflowAcceptance(
-              [screen],
-              [geometry],
-              [
-                { ...scenario, geometryIds: [geometry.id], screenIds: [screen.id] },
-                duplicateCellScenario,
-              ],
-            ).errors).toContain(
-              `Reflow evidence cell ${screen.id} at ${geometry.id} is assigned to both workspace-wide and workspace-compact.`,
-            );'''
-          test.write_text(text[:insert_at] + duplicate_cell + text[insert_at:], encoding="utf-8", newline="\n")
+          duplicate_message = "assigned to both workspace-wide and workspace-compact"
+          if duplicate_message not in text:
+              needle = '      .toContain("Reflow scenario workspace-wide repeats a geometry.");'
+              if text.count(needle) != 1:
+                  raise SystemExit("repeated geometry test anchor is not unique")
+              insert_at = text.index(needle) + len(needle)
+              duplicate_cell = '''
+                const duplicateCellScenario = { ...scenario, id: "workspace-compact" as const, geometryIds: [geometry.id], screenIds: [screen.id] };
+                expect(validateProductReflowAcceptance(
+                  [screen],
+                  [geometry],
+                  [
+                    { ...scenario, geometryIds: [geometry.id], screenIds: [screen.id] },
+                    duplicateCellScenario,
+                  ],
+                ).errors).toContain(
+                  `Reflow evidence cell ${screen.id} at ${geometry.id} is assigned to both workspace-wide and workspace-compact.`,
+                );'''
+              text = text[:insert_at] + duplicate_cell + text[insert_at:]
+          test.write_text(text, encoding="utf-8", newline="\n")
 
           Path(".github/workflows/repair-final-reflow-evidence.yml").unlink()
 
@@ -144,6 +164,7 @@ jobs:
           grep -F 'const cellOwners = new Map<string, ProductReflowScenarioId>();' app/src/contracts/productReflowAcceptance.ts
           grep -F 'assigned to both workspace-wide and workspace-compact' app/src/contracts/productReflowAcceptance.test.ts
           ! grep -R -F '__PRIME_STUDIO_REFLOW_STREAMING__' app/e2e
+          ! grep -R -F 'prime-studio-reflow-empty-session' app/e2e
           ! grep -R -F 'prime-studio-reflow-harness-defaults' app/e2e
           test ! -e .github/workflows/repair-final-reflow-evidence.yml
           git diff --check
