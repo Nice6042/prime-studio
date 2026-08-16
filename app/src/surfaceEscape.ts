@@ -11,6 +11,10 @@ function isTopmostSurface(surface: HTMLElement): boolean {
   return surfaces.item(surfaces.length - 1) === surface;
 }
 
+function focusEligible(element: HTMLElement | null): void {
+  if (element?.isConnected && !element.matches(":disabled") && !element.closest("[inert]")) element.focus();
+}
+
 /** Give Escape to exactly one modal surface: the last rendered backdrop. */
 export function useTopmostSurfaceEscape(
   backdropRef: RefObject<HTMLElement | null>,
@@ -37,6 +41,7 @@ export function useTopmostSurfaceEscape(
  * Shared Escape, outside-pointer, and focus behavior for non-modal menus and
  * popovers. Only the topmost Studio surface may dismiss itself. Pointer
  * dismissal preserves the newly clicked target; Escape restores the opener.
+ * If the clicked target removes itself, focus falls back to the admitted opener.
  * Returns a one-close restoration suppressor for native Tab progression.
  */
 export function usePopoverSurface(
@@ -54,9 +59,7 @@ export function usePopoverSurface(
     return () => {
       if (!restoreFocusRef.current) return;
       const opener = openerRef.current;
-      queueMicrotask(() => {
-        if (opener?.isConnected && !opener.matches(":disabled") && !opener.closest("[inert]")) opener.focus();
-      });
+      queueMicrotask(() => focusEligible(opener));
     };
   }, [enabled]);
 
@@ -75,8 +78,13 @@ export function usePopoverSurface(
       if (!surface || !(target instanceof Node) || !isTopmostSurface(surface)) return;
       const boundary = boundaryRef?.current ?? surface;
       if (boundary.contains(target)) return;
+      const clickedTarget = target instanceof HTMLElement ? target : target.parentElement;
+      const fallbackOpener = openerRef.current;
       restoreFocusRef.current = false;
       onClose();
+      window.requestAnimationFrame(() => {
+        if (!clickedTarget?.isConnected) focusEligible(fallbackOpener);
+      });
     };
     window.addEventListener("pointerdown", closeOnOutsidePointer, true);
     return () => window.removeEventListener("pointerdown", closeOnOutsidePointer, true);
