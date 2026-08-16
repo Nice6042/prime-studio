@@ -30,12 +30,12 @@ export function TitleBar({ title, actions, availability, onCommand }: {
   readonly onCommand?: (id: StudioCommandId) => void;
 }) {
   const [open, setOpen] = useState<string | null>(null);
+  const menuBar = useRef<HTMLElement>(null);
   const openMenu = useRef<HTMLSpanElement>(null);
-  const openMenuRoot = useRef<HTMLSpanElement>(null);
-  usePopoverSurface(openMenu, () => setOpen(null), open !== null, openMenuRoot);
+  usePopoverSurface(openMenu, () => setOpen(null), open !== null, menuBar);
   return <div className="studio-titlebar">
     <span className="studio-title-mark" aria-hidden="true"><i /></span><strong>Prime Studio</strong>
-    <nav className="studio-title-menus" aria-label="Application menu">{menuNames.map((menu) => <span ref={open === menu ? openMenuRoot : undefined} className="studio-title-menu-root" key={menu}>
+    <nav ref={menuBar} className="studio-title-menus" aria-label="Application menu">{menuNames.map((menu) => <span className="studio-title-menu-root" key={menu}>
       <button type="button" {...controlBinding(`title-menu-${menu.toLocaleLowerCase()}`, "surface.popover.toggle")} aria-label={menu} aria-haspopup="menu" aria-expanded={open === menu} onClick={() => setOpen((value) => value === menu ? null : menu)} onPointerEnter={() => { if (open) setOpen(menu); }}>{menu}</button>
       {open === menu && <span ref={openMenu} data-studio-overlay="menu" className="studio-title-menu" role="menu" aria-label={`${menu} menu`}>{titlePlacements.filter((placement) => placement.menu === menu).map((placement) => {
         const command = studioCommand(placement.commandId);
