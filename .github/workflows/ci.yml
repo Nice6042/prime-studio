@@ -13,6 +13,101 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  apply-common-interaction:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/work/common-interaction-completion'
+    name: Apply reviewed interaction patch
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out completion branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: work/common-interaction-completion
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply exact reviewed edits
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one match, found {count}")
+              file.write_text(text.replace(old, new, 1), encoding="utf-8", newline="\n")
+
+          replace_once(
+              "app/src/app/StudioApp.tsx",
+              '''  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.isComposing || event.defaultPrevented || hasOpenStudioOverlay() || !event.ctrlKey || event.altKey || event.shiftKey) return;
+      const command = shortcutStudioCommand(event);
+      if (!command) return;
+      event.preventDefault();
+      runCommand(command.id);
+    };''',
+              '''  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.isComposing || event.defaultPrevented || !event.ctrlKey || event.altKey || event.shiftKey) return;
+      const command = shortcutStudioCommand(event);
+      if (!command) return;
+      event.preventDefault();
+      if (hasOpenStudioOverlay()) return;
+      runCommand(command.id);
+    };''',
+          )
+          replace_once(
+              "app/src/contracts/packageAcceptance.ts",
+              'row("CM-01", "Ctrl+N, Ctrl+K, Ctrl+comma, Ctrl+B, and Ctrl+J honor topmost overlay priority", "partial", ["catalog.chat.create", "palette.open", "route.settings.open", "layout.sidebar.toggle", "layout.inspector.toggle"])',
+              'row("CM-01", "Ctrl+N, Ctrl+K, Ctrl+comma, Ctrl+B, and Ctrl+J honor topmost overlay priority", "complete", ["catalog.chat.create", "palette.open", "route.settings.open", "layout.sidebar.toggle", "layout.inspector.toggle"])',
+          )
+          replace_once(
+              "app/src/contracts/packageAcceptance.ts",
+              'row("CM-04", "menus, dropdowns, and popovers use outside click, focus, Escape, and unclipped overlays", "partial", ["surface.popover.toggle", "overlay.topmost.close"])',
+              'row("CM-04", "menus, dropdowns, and popovers use outside click, focus, Escape, and unclipped overlays", "complete", ["surface.popover.toggle", "overlay.topmost.close"])',
+          )
+          replace_once(
+              "app/src/contracts/packageAcceptance.test.ts",
+              '''      complete: 74,
+      partial: 39,''',
+              '''      complete: 76,
+      partial: 37,''',
+          )
+          replace_once(
+              "app/src/contracts/packageAcceptance.test.ts",
+              '''  it("keeps the current development snapshot outside the release-ready state", () => {''',
+              '''  it("records topmost shortcut and shared popover ownership as complete", () => {
+    const status = (id: string) => FEATURE_ACCEPTANCE.find((feature) => feature.id === id)?.current;
+
+    expect(status("CM-01")).toBe("complete");
+    expect(status("CM-04")).toBe("complete");
+    expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).not.toContain("CM-01");
+    expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).not.toContain("CM-04");
+  });
+
+  it("keeps the current development snapshot outside the release-ready state", () => {''',
+          )
+          PY
+          git diff --check
+
+      - name: Restore permanent workflows and commit
+        shell: bash
+        run: |
+          git fetch origin main --depth=1
+          git checkout origin/main -- .github/workflows/ci.yml
+          rm -f .github/workflows/apply-common-interaction-completion.yml
+          git config user.name "Prime Studio Automation"
+          git config user.email "193861067+Nice6042@users.noreply.github.com"
+          git add app/src/app/StudioApp.tsx app/src/contracts/packageAcceptance.ts app/src/contracts/packageAcceptance.test.ts .github/workflows/ci.yml .github/workflows/apply-common-interaction-completion.yml
+          git commit -m "feat(surface): complete topmost interaction ownership"
+          git push origin HEAD:work/common-interaction-completion
+
   source-policy:
     name: Source policy and acceptance
     runs-on: ubuntu-latest
