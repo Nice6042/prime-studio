@@ -1,0 +1,52 @@
+name: Repair empty conversation contrast
+
+on:
+  push:
+    branches:
+      - work/complete-product-reflow
+    paths:
+      - .github/workflows/repair-empty-conversation-contrast.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out reflow branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: work/complete-product-reflow
+          persist-credentials: true
+
+      - name: Apply the reviewed contrast repair
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("app/src/features/conversation/conversation.css")
+          text = path.read_text(encoding="utf-8")
+          before = ".conversation-empty small { margin-block-start: 10px; color: #6d6d78; }"
+          after = ".conversation-empty small { margin-block-start: 10px; color: #8a8a94; }"
+          if text.count(before) != 1:
+              raise SystemExit("expected exactly one empty-conversation helper color")
+          path.write_text(text.replace(before, after), encoding="utf-8", newline="\n")
+          Path(".github/workflows/repair-empty-conversation-contrast.yml").unlink()
+
+      - name: Validate the final tree
+        shell: bash
+        run: |
+          grep -F '.conversation-empty small { margin-block-start: 10px; color: #8a8a94; }' app/src/features/conversation/conversation.css
+          test ! -e .github/workflows/repair-empty-conversation-contrast.yml
+          git diff --check
+
+      - name: Commit repair and remove this workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/features/conversation/conversation.css .github/workflows/repair-empty-conversation-contrast.yml
+          git commit -m "fix(a11y): raise empty conversation helper contrast"
+          git push origin HEAD:work/complete-product-reflow
