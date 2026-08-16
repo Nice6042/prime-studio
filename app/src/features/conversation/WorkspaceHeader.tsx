@@ -53,7 +53,6 @@ export function WorkspaceHeader({
   const [moving, setMoving] = useState(false);
   const [moveTargetId, setMoveTargetId] = useState("");
   const [renameDraft, setRenameDraft] = useState(chat.title);
-  const menuRoot = useRef<HTMLDivElement>(null);
   const menuSurface = useRef<HTMLDivElement>(null);
   const optionsButton = useRef<HTMLButtonElement>(null);
   const renameBackdrop = useRef<HTMLDivElement>(null);
@@ -71,13 +70,6 @@ export function WorkspaceHeader({
   const keepMoveFocus = useModalSurfaceFocus(moveBackdrop, moveDialog, moveSelect, optionsButton, moving);
 
   useEffect(() => setRenameDraft(chat.title), [chat.title]);
-  useEffect(() => {
-    const close = (event: PointerEvent) => {
-      if (menuRoot.current && event.target instanceof Node && !menuRoot.current.contains(event.target)) setMenu(null);
-    };
-    window.addEventListener("pointerdown", close);
-    return () => window.removeEventListener("pointerdown", close);
-  }, []);
 
   const run = (callback: () => void) => {
     setMenu(null);
@@ -85,7 +77,7 @@ export function WorkspaceHeader({
   };
 
   return <>
-    <header className="conversation-header" ref={menuRoot}>
+    <header className="conversation-header">
       <HeaderIcon kind="folder" />
       <span className="conversation-breadcrumb-project">{projectName}</span>
       <span className="conversation-breadcrumb-chevron"><HeaderIcon kind="chevron" /></span>
