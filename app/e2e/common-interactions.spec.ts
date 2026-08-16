@@ -1,3 +1,5 @@
+import type { Page } from "@playwright/test";
+
 import { expect, expectNoSeriousOrCriticalAxeViolations, test } from "./support/browser-shell";
 
 const settingLabels = [
@@ -16,11 +18,11 @@ const settingLabels = [
   "About",
 ] as const;
 
-function requestCount(shellPage: Parameters<typeof test>[0] extends never ? never : any, command: string) {
+function requestCount(shellPage: Page, command: string) {
   return shellPage.evaluate((name: string) => {
     const requests = (window as typeof window & { __PRIME_STUDIO_BROWSER_REQUESTS__?: Array<{ command: string }> }).__PRIME_STUDIO_BROWSER_REQUESTS__ ?? [];
     return requests.filter((request) => request.command === name).length;
-  }, command) as Promise<number>;
+  }, command);
 }
 
 test("topmost menus and modals own Ctrl+N K comma B J until they close", async ({ shellPage }) => {
