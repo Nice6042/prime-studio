@@ -1,0 +1,65 @@
+name: Apply global shortcut priority repair
+
+on:
+  push:
+    branches:
+      - work/source-closure-common-settings
+    paths:
+      - .github/workflows/apply-shortcut-priority-repair.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: work/source-closure-common-settings
+          persist-credentials: true
+
+      - name: Apply reviewed shortcut edit
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("app/src/app/StudioApp.tsx")
+          text = path.read_text(encoding="utf-8")
+          before = '''    const onKey = (event: KeyboardEvent) => {
+              if (event.isComposing || event.defaultPrevented || hasOpenStudioOverlay() || !event.ctrlKey || event.altKey || event.shiftKey) return;
+              const command = shortcutStudioCommand(event);
+              if (!command) return;
+              event.preventDefault();
+              runCommand(command.id);
+            };'''
+          after = '''    const onKey = (event: KeyboardEvent) => {
+              if (event.isComposing || event.defaultPrevented || !event.ctrlKey || event.altKey || event.shiftKey) return;
+              const command = shortcutStudioCommand(event);
+              if (!command) return;
+              event.preventDefault();
+              if (hasOpenStudioOverlay()) return;
+              runCommand(command.id);
+            };'''
+          if text.count(before) != 1:
+              raise SystemExit("expected exactly one global shortcut handler")
+          path.write_text(text.replace(before, after), encoding="utf-8", newline="\n")
+          Path(".github/workflows/apply-shortcut-priority-repair.yml").unlink()
+
+      - name: Validate final tree
+        shell: bash
+        run: |
+          grep -F 'if (hasOpenStudioOverlay()) return;' app/src/app/StudioApp.tsx
+          test ! -e .github/workflows/apply-shortcut-priority-repair.yml
+          git diff --check
+
+      - name: Commit repair and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/app/StudioApp.tsx .github/workflows/apply-shortcut-priority-repair.yml
+          git commit -m "fix(interactions): consume registered shortcuts under overlays"
+          git push origin HEAD:work/source-closure-common-settings
