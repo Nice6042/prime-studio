@@ -83,7 +83,40 @@
   --font-ui: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --font-display: Georgia, "Times New Roman", serif;
   --font-mono: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+  --font-size-ui: 13px;
   --focus: 3px solid var(--coral);
+}
+
+:root[data-font-size="small"] { --font-size-ui: 12px; }
+:root[data-font-size="large"] { --font-size-ui: 14px; }
+
+:root[data-theme="dark"][data-accent="slate"] {
+  --accent: #b9c8df;
+  --accent-ink: #111821;
+  --accent-soft: #283344;
+  --line-accent: #7f91aa;
+  --wash: rgb(185 200 223 / 10%);
+}
+:root[data-theme="light"][data-accent="slate"] {
+  --accent: #405b7c;
+  --accent-ink: #ffffff;
+  --accent-soft: #dce6f1;
+  --line-accent: #5d7491;
+  --wash: rgb(64 91 124 / 10%);
+}
+:root[data-theme="dark"][data-accent="ember"] {
+  --accent: #f1b184;
+  --accent-ink: #24160c;
+  --accent-soft: #432c20;
+  --line-accent: #ad7955;
+  --wash: rgb(241 177 132 / 10%);
+}
+:root[data-theme="light"][data-accent="ember"] {
+  --accent: #985025;
+  --accent-ink: #ffffff;
+  --accent-soft: #f4e1d5;
+  --line-accent: #a9653d;
+  --wash: rgb(152 80 37 / 10%);
 }
 
 :root[data-reduced-motion="true"] *,
@@ -121,7 +154,7 @@ body {
   overflow: hidden;
   background: var(--bg);
   color: var(--fg);
-  font: 13px/1.5 var(--font-ui);
+  font: var(--font-size-ui)/1.5 var(--font-ui);
 }
 
 button,

@@ -438,6 +438,12 @@ struct Settings {
     bottom_panel: Option<String>,
     density: Option<String>,
     reduced_motion: Option<String>,
+    accent: Option<String>,
+    font_size: Option<String>,
+    timestamps: Option<String>,
+    bubbles: Option<String>,
+    voice: Option<String>,
+    spell: Option<String>,
     send_shortcut: Option<String>,
     prompt_suggestions: Option<String>,
     token_estimate: Option<String>,
@@ -459,7 +465,7 @@ struct Settings {
 
 /// Settable through `set_app_setting`. An allowlist, so a typo'd key is an error
 /// the UI can show rather than a value silently dropped on the next round-trip.
-const SETTING_KEYS: [&str; 27] = [
+const SETTING_KEYS: [&str; 33] = [
     "theme",
     "defaultAccount",
     "defaultProvider",
@@ -472,6 +478,12 @@ const SETTING_KEYS: [&str; 27] = [
     "bottomPanel",
     "density",
     "reducedMotion",
+    "accent",
+    "fontSize",
+    "timestamps",
+    "bubbles",
+    "voice",
+    "spell",
     "sendShortcut",
     "promptSuggestions",
     "tokenEstimate",
@@ -529,6 +541,15 @@ fn get_app_settings() -> Settings {
     read_settings()
 }
 
+fn validate_closed_setting_value(key: &str, value: &str) -> bool {
+    match key {
+        "accent" => matches!(value, "prime-violet" | "slate" | "ember"),
+        "fontSize" => matches!(value, "small" | "medium" | "large"),
+        "timestamps" | "bubbles" | "voice" | "spell" => matches!(value, "enabled" | "disabled"),
+        _ => true,
+    }
+}
+
 /// Set (or clear, with an empty/absent value) one key and return the whole file
 /// back, so the UI never has to guess what it now holds.
 fn set_app_setting_impl(key: String, value: Option<String>) -> Result<Settings, String> {
@@ -540,7 +561,8 @@ fn set_app_setting_impl(key: String, value: Option<String>) -> Result<Settings, 
         .map(|v| v.trim().to_string())
         .filter(|v| !v.is_empty())
     {
-        Some(v) => Value::String(v),
+        Some(v) if validate_closed_setting_value(&key, &v) => Value::String(v),
+        Some(_) => return Err(format!("invalid value for setting: {key}")),
         None => Value::Null,
     };
     let next: Settings = serde_json::from_value(doc).map_err(|e| e.to_string())?;
@@ -5479,6 +5501,12 @@ mod tests {
         set_app_setting_impl("theme".into(), Some("light".into())).unwrap();
         set_app_setting_impl("defaultThinking".into(), Some("medium".into())).unwrap();
         set_app_setting_impl("sendShortcut".into(), Some("ctrl-enter".into())).unwrap();
+        set_app_setting_impl("accent".into(), Some("ember".into())).unwrap();
+        set_app_setting_impl("fontSize".into(), Some("large".into())).unwrap();
+        set_app_setting_impl("timestamps".into(), Some("disabled".into())).unwrap();
+        set_app_setting_impl("bubbles".into(), Some("enabled".into())).unwrap();
+        set_app_setting_impl("voice".into(), Some("disabled".into())).unwrap();
+        set_app_setting_impl("spell".into(), Some("enabled".into())).unwrap();
         set_app_setting_impl("promptSuggestions".into(), Some("disabled".into())).unwrap();
         // set_prime_cli must not clobber the rest of the file.
         set_prime_cli_impl(Some("  C:\\nope\\dist  ".into())).unwrap();
@@ -5486,6 +5514,12 @@ mod tests {
         assert_eq!(s.theme.as_deref(), Some("light"));
         assert_eq!(s.default_thinking.as_deref(), Some("medium"));
         assert_eq!(s.send_shortcut.as_deref(), Some("ctrl-enter"));
+        assert_eq!(s.accent.as_deref(), Some("ember"));
+        assert_eq!(s.font_size.as_deref(), Some("large"));
+        assert_eq!(s.timestamps.as_deref(), Some("disabled"));
+        assert_eq!(s.bubbles.as_deref(), Some("enabled"));
+        assert_eq!(s.voice.as_deref(), Some("disabled"));
+        assert_eq!(s.spell.as_deref(), Some("enabled"));
         assert_eq!(s.prompt_suggestions.as_deref(), Some("disabled"));
         assert_eq!(
             s.cli_path.as_deref(),
@@ -5506,6 +5540,8 @@ mod tests {
         // cliPath is owned by set_prime_cli, which re-resolves — not settable here.
         assert!(set_app_setting_impl("cliPath".into(), Some("x".into())).is_err());
         assert!(set_app_setting_impl("nonsense".into(), None).is_err());
+        assert!(set_app_setting_impl("accent".into(), Some("neon".into())).is_err());
+        assert!(set_app_setting_impl("spell".into(), Some("sometimes".into())).is_err());
         assert_eq!(
             get_app_settings().default_thinking.as_deref(),
             Some("medium")

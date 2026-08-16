@@ -1,0 +1,72 @@
+name: Apply local preference completion patch v2
+
+on:
+  push:
+    branches:
+      - work/local-preferences-completion
+    paths:
+      - .github/workflows/apply-local-preferences-v2-temp.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out completion branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: work/local-preferences-completion
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Decode and apply reviewed patch
+        shell: bash
+        run: |
+          base64 -d .github/patches/local-preferences.patch.gz.b64 | gzip -d > /tmp/local-preferences.patch
+          echo "b37914d3b38681ba8c7deac6c667101a47e1ae22b95ef17e26d74fa2309989cf  /tmp/local-preferences.patch" | sha256sum -c -
+          git apply --whitespace=error-all /tmp/local-preferences.patch
+          git diff --check
+      - name: Commit native and settings authority
+        shell: bash
+        run: |
+          git config user.name "Prime Studio Automation"
+          git config user.email "193861067+Nice6042@users.noreply.github.com"
+          git add \
+            app/src/types.ts \
+            app/src-tauri/src/lib.rs \
+            app/src/app/workspacePreferences.ts \
+            app/src/styles.css \
+            app/src/features/settings/settingsRegistry.ts \
+            app/src/features/settings/SettingsPages.tsx \
+            app/src/features/conversation/conversation.css
+          git commit -m "feat(settings): persist local appearance and composer preferences"
+      - name: Commit presentation wiring
+        shell: bash
+        run: |
+          git add \
+            app/src/features/conversation/Composer.tsx \
+            app/src/features/conversation/ParentConversation.tsx \
+            app/src/app/StudioApp.tsx
+          git commit -m "feat(conversation): apply local presentation preferences"
+      - name: Commit tests and remove staging machinery
+        shell: bash
+        run: |
+          git add \
+            app/src/app/workspacePreferences.test.ts \
+            app/src/features/conversation/Composer.test.tsx \
+            app/src/features/conversation/ParentConversation.test.tsx \
+            app/src/features/settings/SettingsShell.test.tsx \
+            app/src/contracts/packageAcceptance.ts \
+            app/src/contracts/packageAcceptance.test.ts \
+            app/e2e/support/browser-shell.ts \
+            app/e2e/browser-shell.spec.ts
+          git rm \
+            .github/patches/local-preferences.patch.gz.b64 \
+            .github/workflows/apply-local-preferences-temp.yml \
+            .github/workflows/apply-local-preferences-v2-temp.yml
+          git diff --cached --check
+          git commit -m "test(settings): verify persisted local preferences end to end"
+          test -z "$(git status --porcelain)"
+          git push origin HEAD:work/local-preferences-completion
