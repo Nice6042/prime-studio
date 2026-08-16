@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -29,5 +29,19 @@ describe("TitleBar popover contract", () => {
     expect(screen.queryByRole("menu", { name: "File menu" })).not.toBeInTheDocument();
     expect(screen.getByRole("menu", { name: "View menu" })).toBeVisible();
     expect(onCommand).not.toHaveBeenCalled();
+  });
+
+  it("restores the current sibling trigger after direct menu replacement", async () => {
+    render(<TitleBar title="Harness architecture" availability={{ admissionConnected: true }} onCommand={vi.fn()} />);
+    const file = screen.getByRole("button", { name: "File" });
+    const view = screen.getByRole("button", { name: "View" });
+    await userEvent.click(file);
+    await userEvent.click(view);
+    expect(screen.getByRole("menu", { name: "View menu" })).toBeVisible();
+
+    await userEvent.keyboard("{Escape}");
+
+    expect(screen.queryByRole("menu", { name: "View menu" })).not.toBeInTheDocument();
+    await waitFor(() => expect(view).toHaveFocus());
   });
 });
