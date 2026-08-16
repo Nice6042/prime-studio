@@ -95,7 +95,9 @@ async function exerciseCanvasEditorScreen(page: Page, target: ProductReflowGeome
 
 async function exerciseEmptyConversation(page: Page, target: ProductReflowGeometry): Promise<void> {
   await resetProductAtGeometry(page, target);
-  await page.keyboard.press("Control+N");
+  const newChat = page.getByRole("button", { name: "New chat", exact: true });
+  await expect(newChat).toBeVisible();
+  await newChat.click();
   await expect(page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Message Prime Studio" })).toBeVisible();
   await expectProductViewport(page, `${target.id} empty conversation`);
@@ -164,11 +166,19 @@ test("workspace, inspector, child, editor, and rail screen families reflow at co
     await expect(projectSheet).toHaveCount(0);
 
     await resetProductAtGeometry(shellPage, target);
-    await shellPage.getByRole("button", { name: "Harness" }).click();
-    const inspectorSheet = shellPage.locator('[data-studio-sheet="inspector"]');
-    await expectSurfaceContained(inspectorSheet, shellPage, `${target.id} Harness sheet`);
-    const harness = inspectorSheet.getByRole("complementary", { name: "Harness" });
-    await expect(harness).toBeVisible();
+    let harness = shellPage.getByRole("complementary", { name: "Harness" });
+    if (!(await harness.isVisible())) {
+      await shellPage.getByRole("button", { name: "Harness" }).click();
+      harness = shellPage.getByRole("complementary", { name: "Harness" });
+      await expect(harness).toBeVisible();
+    }
+    if (target.width < 760) {
+      const inspectorSheet = shellPage.locator('[data-studio-sheet="inspector"]');
+      await expectSurfaceContained(inspectorSheet, shellPage, `${target.id} Harness sheet`);
+      harness = inspectorSheet.getByRole("complementary", { name: "Harness" });
+    } else {
+      await expectSurfaceContained(harness, shellPage, `${target.id} Harness pane`);
+    }
     await exerciseInspectorAndArtifactEditorScreens(shellPage, harness, target);
 
     await exerciseCanvasEditorScreen(shellPage, target);
