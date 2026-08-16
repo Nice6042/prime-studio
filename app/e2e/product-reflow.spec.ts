@@ -33,6 +33,10 @@ async function exerciseStreamingConversation(
   target: ProductReflowGeometry,
 ): Promise<void> {
   const composer = page.getByPlaceholder("Message Prime Studio — try / for commands");
+  await page.evaluate(() => {
+    const global = window as typeof window & { __PRIME_STUDIO_REFLOW_STREAMING__?: boolean };
+    global.__PRIME_STUDIO_REFLOW_STREAMING__ = true;
+  });
   await composer.fill(STREAMING_REFLOW_FIXTURE);
   await composer.press("Enter");
   const streamingTurn = workspace.locator('.parent-assistant-turn[aria-busy="true"]').last();

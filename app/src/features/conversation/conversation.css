@@ -166,3 +166,24 @@
   .composer-dock { inset-inline: 6px; }
   .composer-frame { min-inline-size: 0; }
 }
+
+
+/* compact-height popover containment */
+@media (max-height: 320px) {
+  .conversation-popover {
+    max-block-size: calc(100vh - 100px);
+    max-block-size: calc(100dvh - 100px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+  .conversation-dialog-backdrop {
+    padding: 8px;
+    overflow: auto;
+  }
+  .conversation-dialog {
+    max-block-size: calc(100vh - 16px);
+    max-block-size: calc(100dvh - 16px);
+    overflow: auto;
+  }
+}

@@ -51,6 +51,7 @@ export const test = base.extend<ShellFixtures>({
         __PRIME_STUDIO_CLIPBOARD__?: string[];
         __PRIME_STUDIO_OPENED_URLS__?: string[];
         __PRIME_STUDIO_PACKAGED_LICENSE_OPENS__?: number;
+        __PRIME_STUDIO_REFLOW_STREAMING__?: boolean;
         __TAURI_INTERNALS__?: TauriInternals;
         __TAURI_EVENT_PLUGIN_INTERNALS__?: {
           unregisterListener: (event: string, id: number) => void;
@@ -62,6 +63,7 @@ export const test = base.extend<ShellFixtures>({
       global.__PRIME_STUDIO_CLIPBOARD__ = [];
       global.__PRIME_STUDIO_OPENED_URLS__ = [];
       global.__PRIME_STUDIO_PACKAGED_LICENSE_OPENS__ = 0;
+      global.__PRIME_STUDIO_REFLOW_STREAMING__ = false;
       Object.defineProperty(navigator, "clipboard", {
         configurable: true,
         value: { writeText: async (text: string) => { global.__PRIME_STUDIO_CLIPBOARD__?.push(text); } },
@@ -302,7 +304,8 @@ export const test = base.extend<ShellFixtures>({
             const sequence = current.cursor.sequence + 1;
             const input = request.kind === "abort" ? 0 : Math.max(1, Math.ceil((request.text ?? "").length / 4));
             const output = request.kind === "abort" ? 0 : 12;
-            const streamingFixture = request.kind !== "abort" && request.text === "PRIME_STUDIO_REFLOW_STREAMING_FIXTURE";
+            const streamingFixture = request.kind !== "abort" && (request.text === "PRIME_STUDIO_REFLOW_STREAMING_FIXTURE" || global.__PRIME_STUDIO_REFLOW_STREAMING__ === true);
+            global.__PRIME_STUDIO_REFLOW_STREAMING__ = false;
             const messages = request.kind === "abort" ? current.parentMessages : [...current.parentMessages,
               { channel: "parent", kind: "user", id: `${request.commandId}-user`, text: request.text, emittedAtMs: 1_775_995_220_000 },
               { channel: "parent", kind: "assistant", id: `${request.commandId}-assistant`, blocks: [{ kind: "text", text: streamingFixture ? "Synthetic streaming response retained for deterministic reflow evidence." : "Synthetic Harness response admitted through the verified Studio protocol." }], streaming: streamingFixture, emittedAtMs: 1_775_995_220_001 },
