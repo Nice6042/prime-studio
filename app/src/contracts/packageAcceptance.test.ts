@@ -44,8 +44,8 @@ describe("Prime Studio package acceptance catalog", () => {
   it("derives the current implementation summary from the audited feature rows", () => {
     expect(PACKAGE_IMPLEMENTATION_SUMMARY).toEqual(summarizePackageImplementation(FEATURE_ACCEPTANCE));
     expect(PACKAGE_IMPLEMENTATION_SUMMARY).toEqual({
-      complete: 76,
-      partial: 37,
+      complete: 77,
+      partial: 36,
       placeholder: 0,
       missing: 0,
       explicitly_unavailable: 2,
@@ -93,8 +93,10 @@ describe("Prime Studio package acceptance catalog", () => {
 
     expect(status("CM-01")).toBe("complete");
     expect(status("CM-04")).toBe("complete");
+    expect(status("CM-06")).toBe("complete");
     expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).not.toContain("CM-01");
     expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).not.toContain("CM-04");
+    expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).not.toContain("CM-06");
   });
 
   it("keeps the current development snapshot outside the release-ready state", () => {

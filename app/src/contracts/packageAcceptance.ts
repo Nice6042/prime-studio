@@ -135,7 +135,7 @@ export const FEATURE_ACCEPTANCE: readonly PackageFeatureAcceptance[] = Object.fr
   row("CM-03", "one monotonic clock drives elapsed time and progress without row timers", "complete"),
   row("CM-04", "menus, dropdowns, and popovers use outside click, focus, Escape, and unclipped overlays", "complete", ["surface.popover.toggle", "overlay.topmost.close"]),
   row("CM-05", "each asynchronous surface declares loading, empty, ready, stale, degraded, disconnected, error, and blocked states", "partial"),
-  row("CM-06", "the whole product reflows at 640x400, 820px, 1280px, 1600px, and 200 percent zoom", "partial"),
+  row("CM-06", "the whole product reflows at 640x400, 820px, 1280px, 1600px, and 200 percent zoom", "complete"),
 ]);
 
 /**
