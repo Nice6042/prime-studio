@@ -98,16 +98,20 @@ test("rail, empty conversation, and controlled sheets reflow at 820, 640, and th
     await expect(sidebar).toHaveAttribute("data-mode", "rail");
     await expectProductViewport(shellPage, `${target.id} rail workspace`);
 
-    await shellPage.getByRole("button", { name: "Projects" }).click();
+    const projectsButton = shellPage.getByRole("button", { name: "Projects" });
+    await projectsButton.click();
     const projectSheet = shellPage.locator('[data-studio-sheet="sidebar"]');
     await expectSurfaceContained(projectSheet, shellPage, `${target.id} project sheet`);
     await expectHorizontalContainment(projectSheet, `${target.id} project sheet`);
-    await shellPage.keyboard.press("Escape");
+    await projectsButton.click();
+    await expect(projectSheet).toHaveCount(0);
 
-    await shellPage.getByRole("button", { name: "Harness" }).click();
+    const harnessButton = shellPage.getByRole("button", { name: "Harness" });
+    await harnessButton.click();
     const harness = shellPage.getByRole("complementary", { name: "Harness" });
     await expectSurfaceContained(harness, shellPage, `${target.id} Harness sheet`);
-    await shellPage.keyboard.press("Escape");
+    await harnessButton.click();
+    await expect(harness).toHaveCount(0);
 
     await shellPage.getByRole("button", { name: "Open editor" }).click();
     const editor = shellPage.getByRole("region", { name: "Editor" });
@@ -177,7 +181,7 @@ test("command palette, menus, dialogs, and toasts reflow at every required geome
     await expect(toast).toHaveCount(0);
 
     if (target.width >= 1280) {
-      await shellPage.getByRole("button", { name: "File" }).click();
+      await shellPage.getByRole("button", { name: "File", exact: true }).click();
       const titleMenu = shellPage.getByRole("menu", { name: "File menu" });
       await expectSurfaceContained(titleMenu, shellPage, `${target.id} title menu`);
       await shellPage.keyboard.press("Escape");
