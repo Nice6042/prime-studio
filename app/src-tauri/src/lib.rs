@@ -571,10 +571,19 @@ mod general_setting_validation_tests {
         assert!(!validate_closed_setting_value("reducedMotion", "sometimes"));
         assert!(validate_closed_setting_value("sendShortcut", "ctrl-enter"));
         assert!(!validate_closed_setting_value("sendShortcut", "alt-enter"));
-        assert!(validate_closed_setting_value("defaultCwd", r"C:\work\prime"));
-        assert!(!validate_closed_setting_value("defaultCwd", "bad
-path"));
-        assert!(!validate_closed_setting_value("defaultCwd", &"x".repeat(32_768)));
+        assert!(validate_closed_setting_value(
+            "defaultCwd",
+            r"C:\work\prime"
+        ));
+        assert!(!validate_closed_setting_value(
+            "defaultCwd",
+            "bad
+path"
+        ));
+        assert!(!validate_closed_setting_value(
+            "defaultCwd",
+            &"x".repeat(32_768)
+        ));
     }
 }
 
