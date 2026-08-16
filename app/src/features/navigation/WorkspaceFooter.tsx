@@ -80,8 +80,7 @@ export function WorkspaceFooter({ identity, variant, open, onExecute, railAction
       const offset = event.shiftKey ? -1 : 1;
       const target = triggerIndex >= 0 ? candidates[(triggerIndex + offset + candidates.length) % candidates.length] : null;
       suppressFocusRestore();
-      target?.focus();
-      close();
+      if (target) target.focus(); else close();
       return;
     }
     if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
