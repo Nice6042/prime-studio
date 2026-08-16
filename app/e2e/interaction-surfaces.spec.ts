@@ -1,7 +1,7 @@
 import { expect, expectNoSeriousOrCriticalAxeViolations, test } from "./support/browser-shell";
 
 test("topmost menus own global shortcuts without leaking workspace commands", async ({ shellPage }) => {
-  const file = shellPage.getByRole("button", { name: "File" });
+  const file = shellPage.getByRole("button", { name: "File", exact: true });
   await file.click();
   const menu = shellPage.getByRole("menu", { name: "File menu" });
   await expect(menu).toBeVisible();
@@ -30,7 +30,7 @@ test("topmost menus own global shortcuts without leaking workspace commands", as
 test("composer and title popovers dismiss outside without stealing the clicked target", async ({ shellPage }) => {
   const composer = shellPage.getByRole("textbox", { name: "Message Prime Studio" });
 
-  await shellPage.getByRole("button", { name: "File" }).click();
+  await shellPage.getByRole("button", { name: "File", exact: true }).click();
   await expect(shellPage.getByRole("menu", { name: "File menu" })).toBeVisible();
   await composer.click();
   await expect(shellPage.getByRole("menu", { name: "File menu" })).toHaveCount(0);
