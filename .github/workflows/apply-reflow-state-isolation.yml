@@ -1,0 +1,99 @@
+name: Apply reflow state isolation
+
+on:
+  push:
+    branches:
+      - work/complete-product-reflow
+    paths:
+      - .github/workflows/apply-reflow-state-isolation.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out reflow branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: work/complete-product-reflow
+          persist-credentials: true
+
+      - name: Isolate each screen state at the same geometry
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("app/e2e/product-reflow.spec.ts")
+          text = path.read_text(encoding="utf-8")
+
+          empty_before = '''async function exerciseEmptyConversation(page: Page, target: ProductReflowGeometry): Promise<void> {
+            await page.keyboard.press("Control+N");'''
+          empty_after = '''async function exerciseEmptyConversation(page: Page, target: ProductReflowGeometry): Promise<void> {
+            await resetProductAtGeometry(page, target);
+            await page.keyboard.press("Control+N");'''
+
+          wide_before = '''    await exerciseStreamingConversation(shellPage, workspace, target);
+            await exerciseInspectorAndEditorScreens(shellPage, workspace, harness, target);
+            await exerciseEmptyConversation(shellPage, target);'''
+          wide_after = '''    await exerciseStreamingConversation(shellPage, workspace, target);
+
+            await resetProductAtGeometry(shellPage, target);
+            const inspectorWorkspace = shellPage.getByRole("main", { name: "Prime Harness architecture" });
+            const refreshedHarness = shellPage.getByRole("complementary", { name: "Harness" });
+            await exerciseInspectorAndEditorScreens(shellPage, inspectorWorkspace, refreshedHarness, target);
+            await exerciseEmptyConversation(shellPage, target);'''
+
+          compact_before = '''    await exerciseStreamingConversation(shellPage, workspace, target);
+
+            const projectsButton = shellPage.getByRole("button", { name: "Projects" });'''
+          compact_after = '''    await exerciseStreamingConversation(shellPage, workspace, target);
+
+            await resetProductAtGeometry(shellPage, target);
+            const projectsButton = shellPage.getByRole("button", { name: "Projects" });'''
+
+          harness_before = '''    await shellPage.getByRole("button", { name: "Harness" }).click();
+            const harness = shellPage.getByRole("complementary", { name: "Harness" });
+            await expectSurfaceContained(harness, shellPage, `${target.id} Harness sheet`);
+            await exerciseInspectorAndEditorScreens(shellPage, workspace, harness, target);'''
+          harness_after = '''    await resetProductAtGeometry(shellPage, target);
+            const inspectorWorkspace = shellPage.getByRole("main", { name: "Prime Harness architecture" });
+            await shellPage.getByRole("button", { name: "Harness" }).click();
+            const inspectorSheet = shellPage.locator('[data-studio-sheet="inspector"]');
+            await expectSurfaceContained(inspectorSheet, shellPage, `${target.id} Harness sheet`);
+            const harness = inspectorSheet.getByRole("complementary", { name: "Harness" });
+            await expect(harness).toBeVisible();
+            await exerciseInspectorAndEditorScreens(shellPage, inspectorWorkspace, harness, target);'''
+
+          replacements = [
+              (empty_before, empty_after, "empty conversation helper"),
+              (wide_before, wide_after, "wide state sequence"),
+              (compact_before, compact_after, "compact streaming sequence"),
+              (harness_before, harness_after, "compact inspector sequence"),
+          ]
+          for before, after, label in replacements:
+              if text.count(before) != 1:
+                  raise SystemExit(f"expected one {label}")
+              text = text.replace(before, after)
+
+          path.write_text(text, encoding="utf-8", newline="\n")
+          Path(".github/workflows/apply-reflow-state-isolation.yml").unlink()
+
+      - name: Validate final tree
+        shell: bash
+        run: |
+          grep -F 'const inspectorSheet = shellPage.locator' app/e2e/product-reflow.spec.ts
+          grep -F 'await resetProductAtGeometry(page, target);' app/e2e/product-reflow.spec.ts
+          test ! -e .github/workflows/apply-reflow-state-isolation.yml
+          git diff --check
+
+      - name: Commit isolation and remove this workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/e2e/product-reflow.spec.ts .github/workflows/apply-reflow-state-isolation.yml
+          git commit -m "test(e2e): isolate every reflow screen state"
+          git push origin HEAD:work/complete-product-reflow
