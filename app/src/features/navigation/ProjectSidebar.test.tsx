@@ -127,7 +127,7 @@ describe("ProjectSidebar", () => {
 
   it("prefills a new folder project from the configured default without silently creating it", async () => {
   const onNewProject = vi.fn();
-  render(<ProjectSidebar {...workspaceProps} projects={projects} defaultProjectFolder="D:\\work\\prime" onSelectChat={() => undefined} onToggleProject={() => undefined}
+  render(<ProjectSidebar {...workspaceProps} projects={projects} defaultProjectFolder={String.raw`D:\work\prime`} onSelectChat={() => undefined} onToggleProject={() => undefined}
     onNewChat={() => undefined} onOpenSettings={() => undefined} onNewProject={onNewProject} />);
 
   await userEvent.click(screen.getByRole("button", { name: "New project" }));
