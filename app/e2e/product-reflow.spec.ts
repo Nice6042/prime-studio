@@ -201,9 +201,27 @@ test("command palette, menus, dialogs, and toasts reflow at every required geome
     await chatOptions.click();
     const chatMenu = shellPage.getByRole("menu", { name: "Chat options" });
     await expectSurfaceContained(chatMenu, shellPage, `${target.id} chat menu`);
+    if (target.id === "zoom-200-equivalent") {
+      const menuScroll = await chatMenu.evaluate((element) => ({
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight,
+        overflowY: getComputedStyle(element).overflowY,
+      }));
+      expect(menuScroll.scrollHeight).toBeGreaterThan(menuScroll.clientHeight);
+      expect(menuScroll.overflowY).toBe("auto");
+    }
     await chatMenu.getByRole("menuitem", { name: "Rename" }).click();
     const renameDialog = shellPage.getByRole("dialog", { name: "Rename chat" });
     await expectSurfaceContained(renameDialog, shellPage, `${target.id} rename dialog`);
+    if (target.id === "zoom-200-equivalent") {
+      const dialogScroll = await renameDialog.evaluate((element) => ({
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight,
+        overflowY: getComputedStyle(element).overflowY,
+      }));
+      expect(dialogScroll.scrollHeight).toBeGreaterThanOrEqual(dialogScroll.clientHeight);
+      expect(dialogScroll.overflowY).toBe("auto");
+    }
     await shellPage.keyboard.press("Escape");
 
     const workspaceMenuTrigger = shellPage.getByRole("button", { name: "Prime Studio workspace menu" });
