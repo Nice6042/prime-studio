@@ -172,16 +172,13 @@ test("workspace, inspector, child, editor, and rail screen families reflow at co
     await expect(projectSheet).toHaveCount(0);
 
     await resetProductAtGeometry(shellPage, target);
-    let harness = shellPage.getByRole("complementary", { name: "Harness" });
-    if (!(await harness.isVisible())) {
-      await shellPage.getByRole("button", { name: "Harness" }).click();
-      harness = shellPage.getByRole("complementary", { name: "Harness" });
-      await expect(harness).toBeVisible();
-    }
+    const harness = shellPage.getByRole("complementary", { name: "Harness" });
     if (target.width < 760) {
+      await shellPage.getByRole("button", { name: "Harness" }).click();
       const inspectorSheet = shellPage.locator('[data-studio-sheet="inspector"]');
       await expectSurfaceContained(inspectorSheet, shellPage, `${target.id} Harness sheet`);
-      harness = inspectorSheet.getByRole("complementary", { name: "Harness" });
+      await expect(inspectorSheet).toHaveAttribute("aria-label", "Harness");
+      await expect(harness).toBeVisible();
     } else {
       await expectSurfaceContained(harness, shellPage, `${target.id} Harness pane`);
     }
