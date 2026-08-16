@@ -26,7 +26,7 @@ jobs:
         run: |
           from pathlib import Path
           import re
-          from textwrap import dedent
+          from textwrap import dedent, indent
 
           def replace_once(text: str, before: str, after: str, label: str) -> str:
               count = text.count(before)
@@ -141,27 +141,27 @@ jobs:
           if "    for (const screenId of scenario.screenIds) {" in text:
               loop_start = text.index("    for (const screenId of scenario.screenIds) {")
               loop_end = text.index("\n  }\n\n  for (const screenId of packageSet)", loop_start)
-              new_loop = dedent('''
-                    for (const screenId of new Set(scenario.screenIds)) {
-                      if (!packageSet.has(screenId)) {
-                        errors.push(`Reflow scenario references unknown package screen ${screenId}.`);
-                        continue;
-                      }
-                      const cells = evidence.get(screenId) ?? new Set<ProductReflowGeometryId>();
-                      for (const geometryId of new Set(scenario.geometryIds)) {
-                        if (!geometrySet.has(geometryId)) continue;
-                        const cellKey = JSON.stringify([screenId, geometryId]);
-                        const owner = cellOwners.get(cellKey);
-                        if (owner && owner !== scenario.id) {
-                          errors.push(`Reflow evidence cell ${screenId} at ${geometryId} is assigned to both ${owner} and ${scenario.id}.`);
-                        } else {
-                          cellOwners.set(cellKey, scenario.id);
-                        }
-                        cells.add(geometryId);
-                      }
-                      evidence.set(screenId, cells);
+              new_loop = indent(dedent('''
+                  for (const screenId of new Set(scenario.screenIds)) {
+                    if (!packageSet.has(screenId)) {
+                      errors.push(`Reflow scenario references unknown package screen ${screenId}.`);
+                      continue;
                     }
-              ''').strip("\n")
+                    const cells = evidence.get(screenId) ?? new Set<ProductReflowGeometryId>();
+                    for (const geometryId of new Set(scenario.geometryIds)) {
+                      if (!geometrySet.has(geometryId)) continue;
+                      const cellKey = JSON.stringify([screenId, geometryId]);
+                      const owner = cellOwners.get(cellKey);
+                      if (owner && owner !== scenario.id) {
+                        errors.push(`Reflow evidence cell ${screenId} at ${geometryId} is assigned to both ${owner} and ${scenario.id}.`);
+                      } else {
+                        cellOwners.set(cellKey, scenario.id);
+                      }
+                      cells.add(geometryId);
+                    }
+                    evidence.set(screenId, cells);
+                  }
+              ''').strip(), "    ")
               text = text[:loop_start] + new_loop + text[loop_end:]
           contract.write_text(text, encoding="utf-8", newline="\n")
 
@@ -173,20 +173,19 @@ jobs:
               if text.count(needle) != 1:
                   raise SystemExit("repeated geometry test anchor is not unique")
               insert_at = text.index(needle) + len(needle)
-              duplicate_cell = dedent('''
-
-                    const duplicateCellScenario = { ...scenario, id: "workspace-compact" as const, geometryIds: [geometry.id], screenIds: [screen.id] };
-                    expect(validateProductReflowAcceptance(
-                      [screen],
-                      [geometry],
-                      [
-                        { ...scenario, geometryIds: [geometry.id], screenIds: [screen.id] },
-                        duplicateCellScenario,
-                      ],
-                    ).errors).toContain(
-                      `Reflow evidence cell ${screen.id} at ${geometry.id} is assigned to both workspace-wide and workspace-compact.`,
-                    );
-              ''').rstrip()
+              duplicate_cell = "\n" + indent(dedent('''
+                  const duplicateCellScenario = { ...scenario, id: "workspace-compact" as const, geometryIds: [geometry.id], screenIds: [screen.id] };
+                  expect(validateProductReflowAcceptance(
+                    [screen],
+                    [geometry],
+                    [
+                      { ...scenario, geometryIds: [geometry.id], screenIds: [screen.id] },
+                      duplicateCellScenario,
+                    ],
+                  ).errors).toContain(
+                    `Reflow evidence cell ${screen.id} at ${geometry.id} is assigned to both workspace-wide and workspace-compact.`,
+                  );
+              ''').strip(), "    ")
               text = text[:insert_at] + duplicate_cell + text[insert_at:]
           test.write_text(text, encoding="utf-8", newline="\n")
 
