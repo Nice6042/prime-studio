@@ -21,6 +21,23 @@ function SinglePopover() {
   </>;
 }
 
+function DisappearingOutsideTarget() {
+  const [open, setOpen] = useState(false);
+  const [outsideVisible, setOutsideVisible] = useState(true);
+  const root = useRef<HTMLDivElement>(null);
+  const surface = useRef<HTMLDivElement>(null);
+  usePopoverSurface(surface, () => setOpen(false), open, root);
+  return <>
+    <div ref={root}>
+      <button type="button" onClick={() => setOpen((value) => !value)}>Open transient menu</button>
+      {open && <div ref={surface} data-studio-overlay="menu" role="menu" aria-label="Transient menu">
+        <button type="button" role="menuitem">Inside transient menu</button>
+      </div>}
+    </div>
+    {outsideVisible && <button type="button" onClick={() => setOutsideVisible(false)}>Dismiss transient target</button>}
+  </>;
+}
+
 function NestedPopovers() {
   const [outerOpen, setOuterOpen] = useState(false);
   const [innerOpen, setInnerOpen] = useState(false);
@@ -58,6 +75,18 @@ describe("Studio surface ownership", () => {
     expect(screen.queryByRole("menu", { name: "Single menu" })).not.toBeInTheDocument();
     expect(outside).toHaveFocus();
     expect(hasOpenStudioOverlay()).toBe(false);
+  });
+
+  it("falls back to the opener when the outside pointer target removes itself", async () => {
+    render(<DisappearingOutsideTarget />);
+    const trigger = screen.getByRole("button", { name: "Open transient menu" });
+    await userEvent.click(trigger);
+
+    await userEvent.click(screen.getByRole("button", { name: "Dismiss transient target" }));
+
+    expect(screen.queryByRole("menu", { name: "Transient menu" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Dismiss transient target" })).not.toBeInTheDocument();
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
 
   it("restores the opener when Escape closes the topmost popover", async () => {
