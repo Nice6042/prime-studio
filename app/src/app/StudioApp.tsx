@@ -956,15 +956,21 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     return { status: "updated", revision: Date.now() };
   };
 
-  const branchResidentChat = async (sessionId: string, messageId: string): Promise<StudioOperationOutcome> => {
+  const branchResidentChat = async (
+    sessionId: string,
+    messageId: string,
+    sourceChatId: string | null = null,
+    allowArchivedSource = false,
+  ): Promise<StudioOperationOutcome> => {
     const current = store.getSnapshot();
     const revision = current.catalogRevision;
     if (revision === null) return { status: "unavailable", reason: "Branching failed because the project catalog is unavailable." };
     const sourceSession = current.sessions[sessionId];
+    const requestedChatId = sourceChatId ?? current.navigation.selectedChatId;
     const matches = current.projectCatalog.projects.flatMap((project) => project.chats.map((chat) => ({ project, chat }))).filter(({ chat }) => (
-      !chat.archived
+      chat.archived === allowArchivedSource
       && chat.binding?.sessionId === sessionId
-      && chat.id === current.navigation.selectedChatId
+      && chat.id === requestedChatId
     ));
     const source = matches.length === 1 ? matches[0] : null;
     if (
@@ -1002,6 +1008,31 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       setCatalogOperation({ phase: "error", message: reason });
       return { status: "rejected", reason, retryable: true };
     }
+  };
+
+  const forkArchivedChat = async (chatId: string): Promise<void> => {
+    const current = store.getSnapshot();
+    const matches = current.projectCatalog.projects
+      .filter((project) => !project.archived)
+      .flatMap((project) => project.chats.map((chat) => ({ project, chat })))
+      .filter(({ chat }) => chat.id === chatId && chat.archived);
+    const source = matches.length === 1 ? matches[0] : null;
+    const binding = source?.chat.binding ?? null;
+    const session = binding ? current.sessions[binding.sessionId] ?? null : null;
+    const message = session?.parentMessages[session.parentMessages.length - 1] ?? null;
+    if (
+      !source
+      || !binding
+      || !session
+      || binding.accountId !== session.accountId
+      || (binding.agentId !== null && binding.agentId !== session.chatId)
+      || !message
+    ) {
+      setCatalogOperation({ phase: "error", message: "The archived chat has no authoritative resident message to branch." });
+      return;
+    }
+    const outcome = await branchResidentChat(session.sessionId, message.id, chatId, true);
+    if (operationAccepted(outcome.status)) store.dispatch({ type: "route/workspace" });
   };
 
   const harnessExecutor = async (operation: StudioOperation): Promise<StudioOperationOutcome> => {
@@ -1272,7 +1303,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
     if (navigation.settingsSection === "archived") {
       return <><Toasts toasts={toasts} execute={dispatchOperation} retry={(operationId) => toastCoordinator.current!.retry(operationId)} /><main className="studio-settings" aria-label="Archived chats">
         <section className="studio-settings-content"><div className="studio-settings-page"><header><button type="button" className="studio-settings-back" aria-label="Back to chat" onClick={() => store.dispatch({ type: "route/workspace" })}>Back to chat</button><h1>Archived chats</h1><span>Restore archived projects and conversations.</span></header>
-          <ArchivedCatalogSettings catalog={projectCatalog} operation={catalogOperation} onRestoreProject={(projectId) => { void dispatchOperation({ action: "catalog.project.restore", payload: { projectId } }); }} onRestoreChat={(_projectId, chatId) => { void dispatchOperation({ action: "catalog.chat.restore", payload: { chatId } }); }} />
+          <ArchivedCatalogSettings catalog={projectCatalog} operation={catalogOperation} onRestoreProject={(projectId) => { void dispatchOperation({ action: "catalog.project.restore", payload: { projectId } }); }} onRestoreChat={(_projectId, chatId) => { void dispatchOperation({ action: "catalog.chat.restore", payload: { chatId } }); }} onForkChat={(chatId) => { void forkArchivedChat(chatId); }} />
         </div></section>
       </main></>;
     }

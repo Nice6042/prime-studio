@@ -49,7 +49,7 @@ export const FEATURE_ACCEPTANCE: readonly PackageFeatureAcceptance[] = Object.fr
   row("CV-12", "Worked-for disclosure groups real steps under the owning root turn", "partial", ["conversation.work-details.toggle"]),
   row("CV-13", "empty conversation suggestions fill but never send the draft", "complete", ["conversation.suggestion.fill"]),
   row("CV-14", "history pages by cursor with truncation and omission metadata", "complete", ["conversation.history.page"]),
-  row("CV-15", "archived transcripts are read-only and may fork to continue", "partial", ["conversation.archive-fork"]),
+  row("CV-15", "archived transcripts are read-only and may fork to continue", "complete", ["conversation.archive-fork"]),
 
   row("CP-01", "composer grows to a bounded height and scrolls beyond it", "complete"),
   row("CP-02", "add menu, picker, drag/drop, chips, removal, and bounded admission are wired", "partial", ["surface.popover.toggle", "composer.attachment.pick", "composer.attachment.drop", "composer.attachment.remove"]),
