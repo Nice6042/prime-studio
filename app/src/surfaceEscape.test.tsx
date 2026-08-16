@@ -77,6 +77,19 @@ describe("Studio surface ownership", () => {
     expect(hasOpenStudioOverlay()).toBe(false);
   });
 
+  it("consumes registered global shortcuts while preserving the topmost surface", async () => {
+    render(<SinglePopover />);
+    await userEvent.click(screen.getByRole("button", { name: "Open menu" }));
+    const menu = screen.getByRole("menu", { name: "Single menu" });
+
+    for (const key of ["n", "k", ",", "b", "j"]) {
+      const event = new KeyboardEvent("keydown", { key, ctrlKey: true, bubbles: true, cancelable: true });
+      expect(window.dispatchEvent(event), key).toBe(false);
+      expect(event.defaultPrevented, key).toBe(true);
+      expect(menu, key).toBeVisible();
+    }
+  });
+
   it("falls back to the opener when the outside pointer target removes itself", async () => {
     render(<DisappearingOutsideTarget />);
     const trigger = screen.getByRole("button", { name: "Open transient menu" });
