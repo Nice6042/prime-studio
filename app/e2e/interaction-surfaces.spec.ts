@@ -48,8 +48,9 @@ test("composer and title popovers dismiss outside without stealing the clicked t
   const thinkingMenu = shellPage.getByRole("menu", { name: "Thinking level" });
   await expect(thinkingMenu).toBeVisible();
   await expect(thinkingMenu.getByRole("menuitemradio", { checked: true })).toBeFocused();
-  await composer.click();
+  const pin = shellPage.locator('[data-control-id="chat-pin-toggle"]');
+  await pin.click();
   await expect(thinkingMenu).toHaveCount(0);
-  await expect(composer).toBeFocused();
+  await expect(pin).toBeFocused();
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-shared-popover-dismissal");
 });
