@@ -302,9 +302,10 @@ export const test = base.extend<ShellFixtures>({
             const sequence = current.cursor.sequence + 1;
             const input = request.kind === "abort" ? 0 : Math.max(1, Math.ceil((request.text ?? "").length / 4));
             const output = request.kind === "abort" ? 0 : 12;
+            const streamingFixture = request.kind !== "abort" && request.text === "PRIME_STUDIO_REFLOW_STREAMING_FIXTURE";
             const messages = request.kind === "abort" ? current.parentMessages : [...current.parentMessages,
               { channel: "parent", kind: "user", id: `${request.commandId}-user`, text: request.text, emittedAtMs: 1_775_995_220_000 },
-              { channel: "parent", kind: "assistant", id: `${request.commandId}-assistant`, blocks: [{ kind: "text", text: "Synthetic Harness response admitted through the verified Studio protocol." }], streaming: false, emittedAtMs: 1_775_995_220_001 },
+              { channel: "parent", kind: "assistant", id: `${request.commandId}-assistant`, blocks: [{ kind: "text", text: streamingFixture ? "Synthetic streaming response retained for deterministic reflow evidence." : "Synthetic Harness response admitted through the verified Studio protocol." }], streaming: streamingFixture, emittedAtMs: 1_775_995_220_001 },
             ];
             const updated = {
               ...current,
