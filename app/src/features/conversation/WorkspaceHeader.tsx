@@ -63,7 +63,7 @@ export function WorkspaceHeader({
   const moveSelect = useRef<HTMLSelectElement>(null);
   const busy = operation.phase === "pending";
 
-  usePopoverSurface(menuSurface, () => setMenu(null), menu !== null);
+  usePopoverSurface(menuSurface, () => setMenu(null), menu !== null, menu);
   useTopmostSurfaceEscape(renameBackdrop, () => { setRenameDraft(chat.title); setRenaming(false); }, renaming);
   useTopmostSurfaceEscape(moveBackdrop, () => { setMoveTargetId(""); setMoving(false); }, moving);
   const keepRenameFocus = useModalSurfaceFocus(renameBackdrop, renameDialog, renameInput, optionsButton, renaming);
