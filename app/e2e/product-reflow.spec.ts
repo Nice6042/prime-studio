@@ -46,9 +46,8 @@ async function exerciseStreamingConversation(
   await expectProductViewport(page, `${target.id} streaming conversation`);
 }
 
-async function exerciseInspectorAndEditorScreens(
+async function exerciseInspectorAndArtifactEditorScreens(
   page: Page,
-  workspace: Locator,
   harness: Locator,
   target: ProductReflowGeometry,
 ): Promise<void> {
@@ -82,15 +81,20 @@ async function exerciseInspectorAndEditorScreens(
   await expect(editor.getByRole("tab", { name: "Edit" })).toHaveAttribute("aria-selected", "true");
   await expectProductViewport(page, `${target.id} editor edit`);
   await editor.getByRole("button", { name: "Close editor" }).click();
+}
 
+async function exerciseCanvasEditorScreen(page: Page, target: ProductReflowGeometry): Promise<void> {
+  await resetProductAtGeometry(page, target);
+  const workspace = page.getByRole("main", { name: "Prime Harness architecture" });
   await workspace.getByRole("button", { name: "Edit answer in Canvas" }).click();
-  const canvasEditor = page.getByRole("region", { name: "Editor" });
-  await expect(canvasEditor.getByRole("tab", { name: "Canvas" })).toHaveAttribute("aria-selected", "true");
+  const editor = page.getByRole("region", { name: "Editor" });
+  await expect(editor.getByRole("tab", { name: "Canvas" })).toHaveAttribute("aria-selected", "true");
   await expectProductViewport(page, `${target.id} editor canvas`);
-  await canvasEditor.getByRole("button", { name: "Close editor" }).click();
+  await editor.getByRole("button", { name: "Close editor" }).click();
 }
 
 async function exerciseEmptyConversation(page: Page, target: ProductReflowGeometry): Promise<void> {
+  await resetProductAtGeometry(page, target);
   await page.keyboard.press("Control+N");
   await expect(page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Message Prime Studio" })).toBeVisible();
@@ -121,7 +125,6 @@ test("workspace, inspector, child, and editor screen families reflow at 1280 and
     await resetProductAtGeometry(shellPage, target);
     const workspace = shellPage.getByRole("main", { name: "Prime Harness architecture" });
     const sidebar = shellPage.getByRole("navigation", { name: "Projects and chats" });
-    const harness = shellPage.getByRole("complementary", { name: "Harness" });
 
     await expect(sidebar).toHaveAttribute("data-mode", "pane");
     await expect(sidebar.getByRole("button", { name: /Prime Harness architecture.*status: Working/i }).first()).toHaveAttribute("data-session-status", "working");
@@ -129,7 +132,11 @@ test("workspace, inspector, child, and editor screen families reflow at 1280 and
     await expectProductViewport(shellPage, `${target.id} active conversation`);
 
     await exerciseStreamingConversation(shellPage, workspace, target);
-    await exerciseInspectorAndEditorScreens(shellPage, workspace, harness, target);
+
+    await resetProductAtGeometry(shellPage, target);
+    const harness = shellPage.getByRole("complementary", { name: "Harness" });
+    await exerciseInspectorAndArtifactEditorScreens(shellPage, harness, target);
+    await exerciseCanvasEditorScreen(shellPage, target);
     await exerciseEmptyConversation(shellPage, target);
 
     await expectNoSeriousOrCriticalAxeViolations(shellPage, `product-reflow-${target.id}-workspace-wide`);
@@ -147,6 +154,7 @@ test("workspace, inspector, child, editor, and rail screen families reflow at co
 
     await exerciseStreamingConversation(shellPage, workspace, target);
 
+    await resetProductAtGeometry(shellPage, target);
     const projectsButton = shellPage.getByRole("button", { name: "Projects" });
     await projectsButton.click();
     const projectSheet = shellPage.locator('[data-studio-sheet="sidebar"]');
@@ -155,10 +163,15 @@ test("workspace, inspector, child, editor, and rail screen families reflow at co
     await projectsButton.click();
     await expect(projectSheet).toHaveCount(0);
 
+    await resetProductAtGeometry(shellPage, target);
     await shellPage.getByRole("button", { name: "Harness" }).click();
-    const harness = shellPage.getByRole("complementary", { name: "Harness" });
-    await expectSurfaceContained(harness, shellPage, `${target.id} Harness sheet`);
-    await exerciseInspectorAndEditorScreens(shellPage, workspace, harness, target);
+    const inspectorSheet = shellPage.locator('[data-studio-sheet="inspector"]');
+    await expectSurfaceContained(inspectorSheet, shellPage, `${target.id} Harness sheet`);
+    const harness = inspectorSheet.getByRole("complementary", { name: "Harness" });
+    await expect(harness).toBeVisible();
+    await exerciseInspectorAndArtifactEditorScreens(shellPage, harness, target);
+
+    await exerciseCanvasEditorScreen(shellPage, target);
     await exerciseEmptyConversation(shellPage, target);
 
     await expectNoSeriousOrCriticalAxeViolations(shellPage, `product-reflow-${target.id}-workspace-compact`);
