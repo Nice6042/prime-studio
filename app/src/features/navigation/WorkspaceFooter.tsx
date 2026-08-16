@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 
 import type { StudioOperation, StudioOperationOutcome } from "../../contracts/studioOperations";
 import { usePopoverSurface } from "../../surfaceEscape";
@@ -35,7 +35,6 @@ export function WorkspaceFooter({ identity, variant, open, onExecute, railAction
 }) {
   const menuId = useId();
   const railTooltipId = useId();
-  const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -47,15 +46,6 @@ export function WorkspaceFooter({ identity, variant, open, onExecute, railAction
   useLayoutEffect(() => {
     if (!open) return;
     menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus();
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) close();
-    };
-    window.addEventListener("pointerdown", closeOnOutsidePointer);
-    return () => window.removeEventListener("pointerdown", closeOnOutsidePointer);
   }, [open]);
 
   const toggle = () => {
@@ -109,7 +99,7 @@ export function WorkspaceFooter({ identity, variant, open, onExecute, railAction
   const detail = identity.status === "configured" ? identity.detail : identity.status === "loading" ? "Loading configured workspace…" : identity.reason;
   const initials = configured?.initials ?? "—";
 
-  return <div ref={rootRef} className="workspace-footer" data-variant={variant}>
+  return <div className="workspace-footer" data-variant={variant}>
     <button
       ref={triggerRef}
       type="button"
