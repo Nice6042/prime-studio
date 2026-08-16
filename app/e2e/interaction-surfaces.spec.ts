@@ -7,12 +7,13 @@ test("topmost menus own global shortcuts without leaking workspace commands", as
   await expect(menu).toBeVisible();
   const before = await shellPage.evaluate(() => (window as typeof window & { __PRIME_STUDIO_BROWSER_REQUESTS__?: unknown[] }).__PRIME_STUDIO_BROWSER_REQUESTS__?.length ?? 0);
 
-  await shellPage.evaluate(() => {
-    for (const key of ["n", "k", ",", "b", "j"]) {
-      window.dispatchEvent(new KeyboardEvent("keydown", { key, ctrlKey: true, bubbles: true, cancelable: true }));
-    }
-  });
+  const dispatchResults = await shellPage.evaluate(() => ["n", "k", ",", "b", "j"].map((key) => {
+    const event = new KeyboardEvent("keydown", { key, ctrlKey: true, bubbles: true, cancelable: true });
+    const dispatched = window.dispatchEvent(event);
+    return { key, dispatched, defaultPrevented: event.defaultPrevented };
+  }));
 
+  expect(dispatchResults).toEqual(["n", "k", ",", "b", "j"].map((key) => ({ key, dispatched: false, defaultPrevented: true })));
   await expect(menu).toBeVisible();
   await expect(shellPage.getByRole("dialog", { name: "Command palette" })).toHaveCount(0);
   await expect(shellPage.getByRole("main", { name: "Settings" })).toHaveCount(0);
