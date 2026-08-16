@@ -2,13 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import { PACKAGE_SCREENS } from "./packageAcceptance";
 import {
+  PRODUCT_REFLOW_ALL_GEOMETRY_IDS,
   PRODUCT_REFLOW_GEOMETRIES,
   PRODUCT_REFLOW_SCENARIOS,
   validateProductReflowAcceptance,
 } from "./productReflowAcceptance";
 
 describe("Prime Studio product reflow evidence matrix", () => {
-  it("covers every package screen exactly once across executable scenario families", () => {
+  it("covers every applicable package-screen and geometry cell", () => {
     const validation = validateProductReflowAcceptance();
 
     expect(validation).toEqual({
@@ -16,6 +17,7 @@ describe("Prime Studio product reflow evidence matrix", () => {
       packageScreenCount: 29,
       coveredScreenCount: 29,
       geometryCount: 5,
+      evidenceCellCount: 140,
       errors: [],
     });
     expect(new Set(PRODUCT_REFLOW_SCENARIOS.flatMap((scenario) => scenario.screenIds)))
@@ -34,27 +36,37 @@ describe("Prime Studio product reflow evidence matrix", () => {
       .toContain("not Windows/WebView2 host-zoom attestation");
   });
 
-  it("runs settings and overlay scenarios at every required geometry", () => {
-    const allGeometryIds = PRODUCT_REFLOW_GEOMETRIES.map((geometry) => geometry.id);
+  it("runs every non-shell-variant screen at every required geometry", () => {
     for (const scenarioId of ["settings-all", "overlays-all"] as const) {
       expect(PRODUCT_REFLOW_SCENARIOS.find((scenario) => scenario.id === scenarioId)?.geometryIds)
-        .toEqual(allGeometryIds);
+        .toEqual(PRODUCT_REFLOW_ALL_GEOMETRY_IDS);
+    }
+    const wide = PRODUCT_REFLOW_SCENARIOS.find((scenario) => scenario.id === "workspace-wide")!;
+    const compact = PRODUCT_REFLOW_SCENARIOS.find((scenario) => scenario.id === "workspace-compact")!;
+    for (const screenId of wide.screenIds.filter((id) => id !== "workspace.sidebar-expanded")) {
+      expect(compact.screenIds).toContain(screenId);
     }
   });
 
-  it("fails closed for missing, duplicate, unknown, or unexercised evidence", () => {
+  it("fails closed for missing, repeated, unknown, and inapplicable evidence", () => {
     const screen = PACKAGE_SCREENS[0]!;
     const geometry = PRODUCT_REFLOW_GEOMETRIES[0]!;
     const scenario = PRODUCT_REFLOW_SCENARIOS[0]!;
 
-    expect(validateProductReflowAcceptance([screen], [geometry], []).valid).toBe(false);
+    expect(validateProductReflowAcceptance([screen], [geometry], []).errors)
+      .toContain(`Package screen ${screen.id} is missing reflow evidence at ${geometry.id}.`);
     expect(validateProductReflowAcceptance([screen, screen], [geometry], [{ ...scenario, geometryIds: [geometry.id], screenIds: [screen.id] }]).errors)
       .toContain("Package screen IDs are not unique.");
     expect(validateProductReflowAcceptance([screen], [geometry], [{ ...scenario, geometryIds: [geometry.id], screenIds: [screen.id, screen.id] }]).errors)
-      .toContain("A package screen is assigned to more than one reflow scenario.");
+      .toContain("Reflow scenario workspace-wide repeats a package screen.");
+    expect(validateProductReflowAcceptance([screen], [geometry], [{ ...scenario, geometryIds: [geometry.id, geometry.id], screenIds: [screen.id] }]).errors)
+      .toContain("Reflow scenario workspace-wide repeats a geometry.");
     expect(validateProductReflowAcceptance([screen], [geometry], [{ ...scenario, geometryIds: ["desktop-1600"], screenIds: [screen.id] }]).errors)
       .toContain("Reflow scenario workspace-wide references unknown geometry desktop-1600.");
     expect(validateProductReflowAcceptance([screen], [geometry], [{ ...scenario, geometryIds: [geometry.id], screenIds: ["unknown.screen"] }]).errors)
       .toContain("Reflow scenario references unknown package screen unknown.screen.");
+    const compact = PRODUCT_REFLOW_GEOMETRIES.find((candidate) => candidate.id === "compact-820")!;
+    expect(validateProductReflowAcceptance([screen], [compact], [{ ...scenario, geometryIds: [compact.id], screenIds: [screen.id] }]).errors)
+      .toContain(`Package screen ${screen.id} has inapplicable reflow evidence at ${compact.id}.`);
   });
 });
