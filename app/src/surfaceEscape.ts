@@ -1,17 +1,43 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 
-const STUDIO_SURFACE_SELECTOR = ".modal-backdrop, [data-studio-overlay]";
+export const STUDIO_SURFACE_SELECTOR = ".modal-backdrop, [data-studio-overlay]";
 
-export function hasOpenStudioOverlay(): boolean {
-  return document.querySelector(STUDIO_SURFACE_SELECTOR) !== null;
+function isPresentedSurface(surface: HTMLElement): boolean {
+  return surface.isConnected
+    && !surface.hidden
+    && surface.getAttribute("aria-hidden") !== "true"
+    && surface.closest("[hidden], [aria-hidden='true']") === null;
 }
 
-function isTopmostSurface(surface: HTMLElement): boolean {
-  const surfaces = document.querySelectorAll<HTMLElement>(STUDIO_SURFACE_SELECTOR);
-  return surfaces.item(surfaces.length - 1) === surface;
+export function studioSurfaceElements(root: ParentNode = document): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(STUDIO_SURFACE_SELECTOR)).filter(isPresentedSurface);
 }
 
-/** Give Escape to exactly one modal surface: the last rendered backdrop. */
+export function hasOpenStudioOverlay(root: ParentNode = document): boolean {
+  return studioSurfaceElements(root).length > 0;
+}
+
+export function isTopmostStudioSurface(surface: HTMLElement, root: ParentNode = document): boolean {
+  const surfaces = studioSurfaceElements(root);
+  return surfaces.at(-1) === surface;
+}
+
+function eventTargetsElement(event: Event, element: HTMLElement | null): boolean {
+  if (!element) return false;
+  if (typeof event.composedPath === "function" && event.composedPath().includes(element)) return true;
+  return event.target instanceof Node && element.contains(event.target);
+}
+
+function canRestoreFocus(element: HTMLElement | null): element is HTMLElement {
+  return Boolean(
+    element?.isConnected
+      && !element.matches(":disabled")
+      && element.getAttribute("aria-disabled") !== "true"
+      && !element.closest("[inert], [hidden], [aria-hidden='true']"),
+  );
+}
+
+/** Give Escape to exactly one modal or popover surface: the last presented surface. */
 export function useTopmostSurfaceEscape(
   backdropRef: RefObject<HTMLElement | null>,
   onClose: (() => void) | undefined,
@@ -23,7 +49,7 @@ export function useTopmostSurfaceEscape(
       if (event.key !== "Escape") return;
       const backdrop = backdropRef.current;
       if (!backdrop || backdrop.querySelector("dialog[open]")) return;
-      if (!isTopmostSurface(backdrop)) return;
+      if (!isTopmostStudioSurface(backdrop)) return;
       event.stopPropagation();
       event.preventDefault();
       onClose();
@@ -33,7 +59,14 @@ export function useTopmostSurfaceEscape(
   }, [backdropRef, enabled, onClose]);
 }
 
-/** Escape ownership and trigger restoration for non-modal menus and popovers. Returns a one-close restoration suppressor for native Tab progression. */
+/**
+ * Shared non-modal menu/popover behavior.
+ *
+ * Escape restores the opener. Pointer or focus transfer outside closes without
+ * stealing focus from the destination. The trigger itself is excluded from the
+ * outside-pointer path so its click can perform the component's own toggle.
+ * Returns a one-close restoration suppressor for native Tab progression.
+ */
 export function usePopoverSurface(
   surfaceRef: RefObject<HTMLElement | null>,
   onClose: () => void,
@@ -50,10 +83,39 @@ export function usePopoverSurface(
       if (!restoreFocusRef.current) return;
       const opener = openerRef.current;
       queueMicrotask(() => {
-        if (opener?.isConnected && !opener.matches(":disabled") && !opener.closest("[inert]")) opener.focus();
+        // A command may replace the popover with a modal. That new topmost
+        // surface owns focus and must not be interrupted by stale restoration.
+        if (hasOpenStudioOverlay()) return;
+        if (canRestoreFocus(opener)) opener.focus();
       });
     };
   }, [enabled, surfaceRef]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const closeForTransfer = () => {
+      restoreFocusRef.current = false;
+      onClose();
+    };
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const surface = surfaceRef.current;
+      if (!surface || !isTopmostStudioSurface(surface)) return;
+      if (eventTargetsElement(event, surface) || eventTargetsElement(event, openerRef.current)) return;
+      closeForTransfer();
+    };
+    const closeOnOutsideFocus = (event: FocusEvent) => {
+      const surface = surfaceRef.current;
+      if (!surface || !isTopmostStudioSurface(surface)) return;
+      if (eventTargetsElement(event, surface) || eventTargetsElement(event, openerRef.current)) return;
+      closeForTransfer();
+    };
+    window.addEventListener("pointerdown", closeOnOutsidePointer, true);
+    document.addEventListener("focusin", closeOnOutsideFocus, true);
+    return () => {
+      window.removeEventListener("pointerdown", closeOnOutsidePointer, true);
+      document.removeEventListener("focusin", closeOnOutsideFocus, true);
+    };
+  }, [enabled, onClose, surfaceRef]);
 
   useTopmostSurfaceEscape(surfaceRef, onClose, enabled);
   return () => { restoreFocusRef.current = false; };
