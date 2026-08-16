@@ -1,6 +1,8 @@
 import { useLayoutEffect, useRef } from "react";
 import type { KeyboardEvent, RefObject } from "react";
 
+import { isTopmostStudioSurface } from "./surfaceEscape";
+
 const FOCUSABLE = [
   "button:not([disabled])",
   "input:not([disabled])",
@@ -64,11 +66,6 @@ function makeBackgroundInert(backdrop: HTMLElement): () => void {
   };
 }
 
-function isTopmostBackdrop(backdrop: HTMLElement): boolean {
-  const backdrops = document.querySelectorAll<HTMLElement>(".modal-backdrop, [data-studio-overlay]");
-  return backdrops.item(backdrops.length - 1) === backdrop;
-}
-
 function focusableElements(dialog: HTMLElement): HTMLElement[] {
   return Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
     (element) => !element.closest("[inert]") && element.getAttribute("aria-hidden") !== "true",
@@ -110,7 +107,7 @@ export function useModalSurfaceFocus(
 
     focusInitial();
     const containProgrammaticFocus = (event: FocusEvent) => {
-      if (!isTopmostBackdrop(backdrop) || dialog.contains(event.target as Node)) return;
+      if (!isTopmostStudioSurface(backdrop) || dialog.contains(event.target as Node)) return;
       focusInitial();
     };
     document.addEventListener("focusin", containProgrammaticFocus);
@@ -135,7 +132,7 @@ export function useModalSurfaceFocus(
     if (event.key !== "Tab") return;
     const backdrop = backdropRef.current;
     const dialog = dialogRef.current;
-    if (!backdrop || !dialog || !isTopmostBackdrop(backdrop)) return;
+    if (!backdrop || !dialog || !isTopmostStudioSurface(backdrop)) return;
     // React events from a portal still bubble through their component parent.
     // Keep the nested modal's Tab event away from the inert parent surface.
     event.stopPropagation();
