@@ -31,7 +31,7 @@ export function TitleBar({ title, actions, availability, onCommand }: {
 }) {
   const [open, setOpen] = useState<string | null>(null);
   const openMenu = useRef<HTMLSpanElement>(null);
-  usePopoverSurface(openMenu, () => setOpen(null), open !== null);
+  usePopoverSurface(openMenu, () => setOpen(null), open !== null, open);
   return <div className="studio-titlebar">
     <span className="studio-title-mark" aria-hidden="true"><i /></span><strong>Prime Studio</strong>
     <nav className="studio-title-menus" aria-label="Application menu">{menuNames.map((menu) => <span className="studio-title-menu-root" key={menu}>
