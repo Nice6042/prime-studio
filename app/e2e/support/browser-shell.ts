@@ -231,7 +231,7 @@ export const test = base.extend<ShellFixtures>({
               staleAsOf: 1_799_999_000_000,
             };
           case "pick_directory":
-            return "D:\fixture\Selected Workspace";
+            return "D:\\fixture\\Selected Workspace";
           case "get_app_settings":
             return { ...appSettings };
           case "set_app_setting": {

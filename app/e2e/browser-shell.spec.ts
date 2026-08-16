@@ -325,7 +325,7 @@ test("General settings persist applied defaults and own workspace and panel layo
   await shellPage.getByRole("combobox", { name: "Send shortcut" }).selectOption("ctrl-enter");
   await shellPage.getByRole("switch", { name: "Reduced motion" }).click();
   await shellPage.getByRole("button", { name: "Browse default workspace" }).click();
-  await expect(shellPage.getByText("D:\fixture\Selected Workspace", { exact: true })).toBeVisible();
+  await expect(shellPage.getByText("D:\\fixture\\Selected Workspace", { exact: true })).toBeVisible();
   await shellPage.getByRole("button", { name: "Back to chat" }).click();
   await shellPage.getByRole("button", { name: "New project" }).click();
   await expect(shellPage.getByRole("textbox", { name: "Folder path" })).toHaveValue("D:\\fixture\\Selected Workspace");
