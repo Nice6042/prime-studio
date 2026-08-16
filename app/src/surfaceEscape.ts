@@ -33,11 +33,17 @@ export function useTopmostSurfaceEscape(
   }, [backdropRef, enabled, onClose]);
 }
 
-/** Escape ownership and trigger restoration for non-modal menus and popovers. Returns a one-close restoration suppressor for native Tab progression. */
+/**
+ * Shared Escape, outside-pointer, and focus behavior for non-modal menus and
+ * popovers. Only the topmost Studio surface may dismiss itself. Pointer
+ * dismissal preserves the newly clicked target; Escape restores the opener.
+ * Returns a one-close restoration suppressor for native Tab progression.
+ */
 export function usePopoverSurface(
   surfaceRef: RefObject<HTMLElement | null>,
   onClose: () => void,
   enabled = true,
+  boundaryRef?: RefObject<HTMLElement | null>,
 ) {
   const openerRef = useRef<HTMLElement | null>(null);
   const restoreFocusRef = useRef(true);
@@ -54,6 +60,21 @@ export function usePopoverSurface(
       });
     };
   }, [enabled, surfaceRef]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const surface = surfaceRef.current;
+      const target = event.target;
+      if (!surface || !(target instanceof Node) || !isTopmostSurface(surface)) return;
+      const boundary = boundaryRef?.current ?? surface;
+      if (boundary.contains(target)) return;
+      restoreFocusRef.current = false;
+      onClose();
+    };
+    window.addEventListener("pointerdown", closeOnOutsidePointer, true);
+    return () => window.removeEventListener("pointerdown", closeOnOutsidePointer, true);
+  }, [boundaryRef, enabled, onClose, surfaceRef]);
 
   useTopmostSurfaceEscape(surfaceRef, onClose, enabled);
   return () => { restoreFocusRef.current = false; };
