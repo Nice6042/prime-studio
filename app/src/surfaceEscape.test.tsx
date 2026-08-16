@@ -77,6 +77,17 @@ describe("Studio surface ownership", () => {
     expect(hasOpenStudioOverlay()).toBe(false);
   });
 
+  it("dismisses on outside focus transfer without restoring the opener", async () => {
+    render(<SinglePopover />);
+    await userEvent.click(screen.getByRole("button", { name: "Open menu" }));
+    const outside = screen.getByRole("button", { name: "Outside" });
+
+    outside.focus();
+
+    await waitFor(() => expect(screen.queryByRole("menu", { name: "Single menu" })).not.toBeInTheDocument());
+    expect(outside).toHaveFocus();
+  });
+
   it("consumes registered global shortcuts while preserving the topmost surface", async () => {
     render(<SinglePopover />);
     await userEvent.click(screen.getByRole("button", { name: "Open menu" }));
@@ -112,6 +123,19 @@ describe("Studio surface ownership", () => {
     await waitFor(() => expect(trigger).toHaveFocus());
   });
 
+  it("restores a nested trigger when Escape closes only the inner surface", async () => {
+    render(<NestedPopovers />);
+    await userEvent.click(screen.getByRole("button", { name: "Outer trigger" }));
+    const innerTrigger = screen.getByRole("menuitem", { name: "Inner trigger" });
+    await userEvent.click(innerTrigger);
+
+    await userEvent.keyboard("{Escape}");
+
+    expect(screen.queryByRole("menu", { name: "Inner menu" })).not.toBeInTheDocument();
+    expect(screen.getByRole("menu", { name: "Outer menu" })).toBeVisible();
+    await waitFor(() => expect(innerTrigger).toHaveFocus());
+  });
+
   it("lets an outside pointer close only the nested topmost surface", async () => {
     render(<NestedPopovers />);
     const outerTrigger = screen.getByRole("button", { name: "Outer trigger" });
@@ -127,5 +151,14 @@ describe("Studio surface ownership", () => {
     await userEvent.keyboard("{Escape}");
     expect(screen.queryByRole("menu", { name: "Outer menu" })).not.toBeInTheDocument();
     await waitFor(() => expect(outerTrigger).toHaveFocus());
+  });
+
+  it("does not treat hidden or aria-hidden residue as an open Studio surface", () => {
+    render(<>
+      <div data-studio-overlay="menu" hidden />
+      <div data-studio-overlay="dialog" aria-hidden="true" />
+    </>);
+
+    expect(hasOpenStudioOverlay()).toBe(false);
   });
 });
