@@ -76,7 +76,7 @@ describe("Studio operation contract", () => {
 
   it("catalogues all controls with a non-noop authority and a result contract", () => {
     const descriptors = Object.values(STUDIO_ACTIONS);
-    expect(descriptors).toHaveLength(122);
+    expect(descriptors).toHaveLength(124);
     expect(descriptors.every((descriptor) => String(descriptor.owner.kind) !== "noop")).toBe(true);
     expect(descriptors.every((descriptor) => descriptor.outcomes.length > 0)).toBe(true);
   });
