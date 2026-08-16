@@ -168,7 +168,7 @@ describe("SettingsShell", () => {
   it("wires every General default through its owned persistence or dialog boundary", async () => {
     const onSetting = vi.fn();
     const onExecute = vi.fn(async (operation: StudioOperation): Promise<StudioOperationOutcome> => operation.action === "settings.default-workspace.pick"
-      ? { status: "updated", revision: "C:\work\prime" }
+      ? { status: "updated", revision: "C:\\work\\prime" }
       : { status: "updated", revision: "layout" });
     render(<SettingsShell
       section="general"
@@ -177,7 +177,7 @@ describe("SettingsShell", () => {
       compatibility={unavailable}
       onSetting={onSetting}
       onExecute={onExecute}
-      settings={{ theme: "system", density: "comfortable", sendShortcut: "enter", reducedMotion: "disabled", defaultCwd: "D:\old" }}
+      settings={{ theme: "system", density: "comfortable", sendShortcut: "enter", reducedMotion: "disabled", defaultCwd: "D:\\old" }}
       layout={{ schemaVersion: 1, sidebarOpen: true, sidebarWidth: 264, inspectorOpen: true, inspectorWidth: 384, editorOpen: false, editorWidth: 400, expandedProjectIds: [] }}
     />);
 
@@ -194,7 +194,7 @@ describe("SettingsShell", () => {
     expect(onSetting).toHaveBeenCalledWith("density", "compact");
     expect(onSetting).toHaveBeenCalledWith("sendShortcut", "ctrl-enter");
     expect(onSetting).toHaveBeenCalledWith("reducedMotion", "enabled");
-    await waitFor(() => expect(onSetting).toHaveBeenCalledWith("defaultCwd", "C:\work\prime"));
+    await waitFor(() => expect(onSetting).toHaveBeenCalledWith("defaultCwd", "C:\\work\\prime"));
     expect(onSetting).toHaveBeenCalledWith("defaultCwd", null);
     expect(onExecute).toHaveBeenCalledWith({ action: "settings.default-workspace.pick", payload: {} });
     expect(onExecute).toHaveBeenCalledWith({ action: "layout.sidebar.resize", payload: { width: 320 } });
