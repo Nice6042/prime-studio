@@ -73,6 +73,10 @@ export const PRODUCT_REFLOW_GEOMETRIES: readonly ProductReflowGeometry[] = Objec
   }),
 ]);
 
+export const PRODUCT_REFLOW_WIDE_GEOMETRY_IDS = freezeGeometryIds("desktop-1280", "desktop-1600");
+export const PRODUCT_REFLOW_COMPACT_GEOMETRY_IDS = freezeGeometryIds("compact-820", "compact-640", "zoom-200-equivalent");
+export const PRODUCT_REFLOW_ALL_GEOMETRY_IDS = freezeGeometryIds(...PRODUCT_REFLOW_GEOMETRIES.map((geometry) => geometry.id));
+
 const SETTINGS_SCREENS = freezeScreenIds(
   "settings.general",
   "settings.appearance",
@@ -89,39 +93,36 @@ const SETTINGS_SCREENS = freezeScreenIds(
   "settings.about",
 );
 
-const ALL_GEOMETRY_IDS = freezeGeometryIds(...PRODUCT_REFLOW_GEOMETRIES.map((geometry) => geometry.id));
+const WORKSPACE_COMMON_SCREENS = freezeScreenIds(
+  "workspace.conversation-empty",
+  "workspace.conversation-active",
+  "workspace.conversation-streaming",
+  "inspector.overview",
+  "inspector.current-chat-usage",
+  "inspector.activity",
+  "inspector.child-chat",
+  "inspector.child-activity",
+  "inspector.child-files",
+  "editor.diff",
+  "editor.edit",
+  "editor.canvas",
+);
 
 export const PRODUCT_REFLOW_SCENARIOS: readonly ProductReflowScenario[] = Object.freeze([
   freezeScenario(
     "workspace-wide",
-    freezeGeometryIds("desktop-1280", "desktop-1600"),
-    freezeScreenIds(
-      "workspace.sidebar-expanded",
-      "workspace.conversation-active",
-      "workspace.conversation-streaming",
-      "inspector.overview",
-      "inspector.current-chat-usage",
-      "inspector.activity",
-      "inspector.child-chat",
-      "inspector.child-activity",
-      "inspector.child-files",
-      "editor.diff",
-      "editor.edit",
-      "editor.canvas",
-    ),
+    PRODUCT_REFLOW_WIDE_GEOMETRY_IDS,
+    freezeScreenIds("workspace.sidebar-expanded", ...WORKSPACE_COMMON_SCREENS),
   ),
   freezeScenario(
     "workspace-compact",
-    freezeGeometryIds("compact-820", "compact-640", "zoom-200-equivalent"),
-    freezeScreenIds(
-      "workspace.sidebar-rail",
-      "workspace.conversation-empty",
-    ),
+    PRODUCT_REFLOW_COMPACT_GEOMETRY_IDS,
+    freezeScreenIds("workspace.sidebar-rail", ...WORKSPACE_COMMON_SCREENS),
   ),
-  freezeScenario("settings-all", ALL_GEOMETRY_IDS, SETTINGS_SCREENS),
+  freezeScenario("settings-all", PRODUCT_REFLOW_ALL_GEOMETRY_IDS, SETTINGS_SCREENS),
   freezeScenario(
     "overlays-all",
-    ALL_GEOMETRY_IDS,
+    PRODUCT_REFLOW_ALL_GEOMETRY_IDS,
     freezeScreenIds(
       "overlay.command-palette",
       "overlay.menus-popovers-toasts",
@@ -134,7 +135,18 @@ export interface ProductReflowValidation {
   readonly packageScreenCount: number;
   readonly coveredScreenCount: number;
   readonly geometryCount: number;
+  readonly evidenceCellCount: number;
   readonly errors: readonly string[];
+}
+
+function expectedGeometryIds(screenId: string): readonly ProductReflowGeometryId[] {
+  if (screenId === "workspace.sidebar-expanded") return PRODUCT_REFLOW_WIDE_GEOMETRY_IDS;
+  if (screenId === "workspace.sidebar-rail") return PRODUCT_REFLOW_COMPACT_GEOMETRY_IDS;
+  return PRODUCT_REFLOW_ALL_GEOMETRY_IDS;
+}
+
+function sameIdSet(left: ReadonlySet<string>, right: readonly string[]): boolean {
+  return left.size === right.length && right.every((id) => left.has(id));
 }
 
 export function validateProductReflowAcceptance(
@@ -148,25 +160,41 @@ export function validateProductReflowAcceptance(
   const geometryIds = geometries.map((geometry) => geometry.id);
   const geometrySet = new Set(geometryIds);
   const scenarioIds = scenarios.map((scenario) => scenario.id);
-  const coveredIds = scenarios.flatMap((scenario) => scenario.screenIds);
-  const coveredSet = new Set(coveredIds);
+  const evidence = new Map<string, Set<ProductReflowGeometryId>>();
 
   if (packageSet.size !== packageIds.length) errors.push("Package screen IDs are not unique.");
   if (geometrySet.size !== geometryIds.length) errors.push("Reflow geometry IDs are not unique.");
   if (new Set(scenarioIds).size !== scenarioIds.length) errors.push("Reflow scenario IDs are not unique.");
-  if (coveredSet.size !== coveredIds.length) errors.push("A package screen is assigned to more than one reflow scenario.");
 
-  for (const screenId of packageSet) {
-    if (!coveredSet.has(screenId)) errors.push(`Package screen ${screenId} has no reflow scenario.`);
-  }
-  for (const screenId of coveredSet) {
-    if (!packageSet.has(screenId)) errors.push(`Reflow scenario references unknown package screen ${screenId}.`);
-  }
   for (const scenario of scenarios) {
     if (scenario.geometryIds.length === 0) errors.push(`Reflow scenario ${scenario.id} has no geometry.`);
     if (scenario.screenIds.length === 0) errors.push(`Reflow scenario ${scenario.id} has no package screen.`);
+    if (new Set(scenario.geometryIds).size !== scenario.geometryIds.length) errors.push(`Reflow scenario ${scenario.id} repeats a geometry.`);
+    if (new Set(scenario.screenIds).size !== scenario.screenIds.length) errors.push(`Reflow scenario ${scenario.id} repeats a package screen.`);
     for (const geometryId of scenario.geometryIds) {
       if (!geometrySet.has(geometryId)) errors.push(`Reflow scenario ${scenario.id} references unknown geometry ${geometryId}.`);
+    }
+    for (const screenId of scenario.screenIds) {
+      if (!packageSet.has(screenId)) {
+        errors.push(`Reflow scenario references unknown package screen ${screenId}.`);
+        continue;
+      }
+      const cells = evidence.get(screenId) ?? new Set<ProductReflowGeometryId>();
+      for (const geometryId of scenario.geometryIds) {
+        if (geometrySet.has(geometryId)) cells.add(geometryId);
+      }
+      evidence.set(screenId, cells);
+    }
+  }
+
+  for (const screenId of packageSet) {
+    const actual = evidence.get(screenId) ?? new Set<ProductReflowGeometryId>();
+    const expected = expectedGeometryIds(screenId).filter((geometryId) => geometrySet.has(geometryId));
+    if (!sameIdSet(actual, expected)) {
+      const missing = expected.filter((geometryId) => !actual.has(geometryId));
+      const unexpected = [...actual].filter((geometryId) => !expected.includes(geometryId));
+      if (missing.length > 0) errors.push(`Package screen ${screenId} is missing reflow evidence at ${missing.join(", ")}.`);
+      if (unexpected.length > 0) errors.push(`Package screen ${screenId} has inapplicable reflow evidence at ${unexpected.join(", ")}.`);
     }
   }
   for (const geometryId of geometrySet) {
@@ -178,8 +206,9 @@ export function validateProductReflowAcceptance(
   return Object.freeze({
     valid: errors.length === 0,
     packageScreenCount: packageSet.size,
-    coveredScreenCount: coveredSet.size,
+    coveredScreenCount: [...evidence].filter(([screenId, cells]) => packageSet.has(screenId) && cells.size > 0).length,
     geometryCount: geometrySet.size,
+    evidenceCellCount: [...evidence].filter(([screenId]) => packageSet.has(screenId)).reduce((total, [, cells]) => total + cells.size, 0),
     errors: Object.freeze(errors),
   });
 }
