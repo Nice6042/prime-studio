@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 
 import type { StudioOperation, StudioOperationOutcome } from "../../contracts/studioOperations";
 import { usePopoverSurface } from "../../surfaceEscape";
@@ -42,20 +42,11 @@ export function WorkspaceFooter({ identity, variant, open, onExecute, railAction
   const [message, setMessage] = useState("");
   const configured = identity.status === "configured" ? identity : null;
   const close = () => { void onExecute({ action: "surface.popover.toggle", payload: { popoverId: null } }); };
-  const suppressFocusRestore = usePopoverSurface(surfaceRef, close, open);
+  const suppressFocusRestore = usePopoverSurface(surfaceRef, close, open, rootRef);
 
   useLayoutEffect(() => {
     if (!open) return;
     menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus();
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) close();
-    };
-    window.addEventListener("pointerdown", closeOnOutsidePointer);
-    return () => window.removeEventListener("pointerdown", closeOnOutsidePointer);
   }, [open]);
 
   const toggle = () => {
@@ -89,8 +80,7 @@ export function WorkspaceFooter({ identity, variant, open, onExecute, railAction
       const offset = event.shiftKey ? -1 : 1;
       const target = triggerIndex >= 0 ? candidates[(triggerIndex + offset + candidates.length) % candidates.length] : null;
       suppressFocusRestore();
-      target?.focus();
-      close();
+      if (target) target.focus(); else close();
       return;
     }
     if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;

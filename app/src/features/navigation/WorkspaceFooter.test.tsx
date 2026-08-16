@@ -46,7 +46,7 @@ describe("WorkspaceFooter", () => {
   });
 
   it("opens through the dispatcher, focuses the menu, supports arrow keys, and restores focus on Escape", async () => {
-    const execute = vi.fn(async (): Promise<StudioOperationOutcome> => ({ status: "updated", revision: 1 }));
+    const execute = vi.fn(async (_operation: StudioOperation): Promise<StudioOperationOutcome> => ({ status: "updated", revision: 1 }));
     const user = userEvent.setup();
     render(<ControlledFooter execute={execute} />);
     const trigger = screen.getByRole("button", { name: "Prime Studio workspace menu" });
@@ -70,18 +70,22 @@ describe("WorkspaceFooter", () => {
 
   it.each(["expanded", "rail"] as const)("preserves native Tab order when the %s menu closes", async (variant) => {
     const user = userEvent.setup();
-    render(<><button type="button">Before workspace</button><ControlledFooter variant={variant} execute={async () => ({ status: "updated", revision: 1 })} /><button type="button">After workspace</button></>);
+    const execute = vi.fn(async (_operation: StudioOperation): Promise<StudioOperationOutcome> => ({ status: "updated", revision: 1 }));
+    render(<><button type="button">Before workspace</button><ControlledFooter variant={variant} execute={execute} /><button type="button">After workspace</button></>);
     const trigger = screen.getByRole("button", { name: "Prime Studio workspace menu" });
+    const closeCount = () => execute.mock.calls.filter(([operation]) => operation.action === "surface.popover.toggle" && operation.payload.popoverId === null).length;
 
     await user.click(trigger);
     await user.keyboard("{Tab}");
     expect(screen.queryByRole("menu", { name: "Workspace actions" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "After workspace" })).toHaveFocus();
+    expect(closeCount()).toBe(1);
 
     await user.click(trigger);
     await user.keyboard("{Shift>}{Tab}{/Shift}");
     expect(screen.queryByRole("menu", { name: "Workspace actions" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Before workspace" })).toHaveFocus();
+    expect(closeCount()).toBe(2);
   });
 
   it("routes switch, Settings, and sign-out with the exact configured workspace identity and reports unavailable outcomes", async () => {

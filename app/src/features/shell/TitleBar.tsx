@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 
 import {
   commandAvailability,
@@ -29,24 +29,46 @@ export function TitleBar({ title, actions, availability, onCommand }: {
   readonly availability: CommandAvailabilityContext;
   readonly onCommand?: (id: StudioCommandId) => void;
 }) {
-  const [open, setOpen] = useState<string | null>(null);
-  const root = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState<TitleMenuName | null>(null);
+  const menuBar = useRef<HTMLElement>(null);
   const openMenu = useRef<HTMLSpanElement>(null);
-  usePopoverSurface(openMenu, () => setOpen(null), open !== null);
-  useEffect(() => {
-    const close = (event: PointerEvent) => { if (root.current && event.target instanceof Node && !root.current.contains(event.target)) setOpen(null); };
-    window.addEventListener("pointerdown", close);
-    return () => window.removeEventListener("pointerdown", close);
-  }, []);
-  return <div className="studio-titlebar" ref={root}>
+  const hoverOpenedMenu = useRef<TitleMenuName | null>(null);
+  const closeMenu = () => {
+    hoverOpenedMenu.current = null;
+    setOpen(null);
+  };
+  usePopoverSurface(openMenu, closeMenu, open !== null, menuBar);
+  return <div className="studio-titlebar">
     <span className="studio-title-mark" aria-hidden="true"><i /></span><strong>Prime Studio</strong>
-    <nav className="studio-title-menus" aria-label="Application menu">{menuNames.map((menu) => <span className="studio-title-menu-root" key={menu}>
-      <button type="button" {...controlBinding(`title-menu-${menu.toLocaleLowerCase()}`, "surface.popover.toggle")} aria-label={menu} aria-haspopup="menu" aria-expanded={open === menu} onClick={() => setOpen((value) => value === menu ? null : menu)} onPointerEnter={() => { if (open) setOpen(menu); }}>{menu}</button>
+    <nav ref={menuBar} className="studio-title-menus" aria-label="Application menu">{menuNames.map((menu) => <span className="studio-title-menu-root" key={menu}>
+      <button
+        type="button"
+        {...controlBinding(`title-menu-${menu.toLocaleLowerCase()}`, "surface.popover.toggle")}
+        aria-label={menu}
+        aria-haspopup="menu"
+        aria-expanded={open === menu}
+        onClick={() => {
+          if (hoverOpenedMenu.current === menu) {
+            hoverOpenedMenu.current = null;
+            return;
+          }
+          setOpen((value) => value === menu ? null : menu);
+        }}
+        onPointerEnter={() => {
+          if (open && open !== menu) {
+            hoverOpenedMenu.current = menu;
+            setOpen(menu);
+          }
+        }}
+        onPointerLeave={() => {
+          if (hoverOpenedMenu.current === menu) hoverOpenedMenu.current = null;
+        }}
+      >{menu}</button>
       {open === menu && <span ref={openMenu} data-studio-overlay="menu" className="studio-title-menu" role="menu" aria-label={`${menu} menu`}>{titlePlacements.filter((placement) => placement.menu === menu).map((placement) => {
         const command = studioCommand(placement.commandId);
         const state = commandAvailability(command, availability);
         const label = placement.label ?? command.label;
-        return <button key={placement.id} type="button" role="menuitem" aria-label={label} {...controlBinding(placement.id, command.action)} disabled={!onCommand || !state.enabled} title={state.reason} onClick={() => { setOpen(null); onCommand?.(command.id); }}><span>{label}</span>{(placement.hint ?? command.shortcuts[0]) && <kbd>{placement.hint ?? command.shortcuts[0]}</kbd>}</button>;
+        return <button key={placement.id} type="button" role="menuitem" aria-label={label} {...controlBinding(placement.id, command.action)} disabled={!onCommand || !state.enabled} title={state.reason} onClick={() => { closeMenu(); onCommand?.(command.id); }}><span>{label}</span>{(placement.hint ?? command.shortcuts[0]) && <kbd>{placement.hint ?? command.shortcuts[0]}</kbd>}</button>;
       })}</span>}
     </span>)}</nav>
     <span className="studio-title-current" title={title}>{title}</span>

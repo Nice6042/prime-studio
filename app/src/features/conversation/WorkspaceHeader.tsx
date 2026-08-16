@@ -53,7 +53,8 @@ export function WorkspaceHeader({
   const [moving, setMoving] = useState(false);
   const [moveTargetId, setMoveTargetId] = useState("");
   const [renameDraft, setRenameDraft] = useState(chat.title);
-  const menuRoot = useRef<HTMLDivElement>(null);
+  const switcherRoot = useRef<HTMLDivElement>(null);
+  const actionsRoot = useRef<HTMLDivElement>(null);
   const menuSurface = useRef<HTMLDivElement>(null);
   const optionsButton = useRef<HTMLButtonElement>(null);
   const renameBackdrop = useRef<HTMLDivElement>(null);
@@ -63,21 +64,15 @@ export function WorkspaceHeader({
   const moveDialog = useRef<HTMLElement>(null);
   const moveSelect = useRef<HTMLSelectElement>(null);
   const busy = operation.phase === "pending";
+  const activeMenuRoot = menu === "switcher" ? switcherRoot : actionsRoot;
 
-  usePopoverSurface(menuSurface, () => setMenu(null), menu !== null);
+  usePopoverSurface(menuSurface, () => setMenu(null), menu !== null, activeMenuRoot);
   useTopmostSurfaceEscape(renameBackdrop, () => { setRenameDraft(chat.title); setRenaming(false); }, renaming);
   useTopmostSurfaceEscape(moveBackdrop, () => { setMoveTargetId(""); setMoving(false); }, moving);
   const keepRenameFocus = useModalSurfaceFocus(renameBackdrop, renameDialog, renameInput, optionsButton, renaming);
   const keepMoveFocus = useModalSurfaceFocus(moveBackdrop, moveDialog, moveSelect, optionsButton, moving);
 
   useEffect(() => setRenameDraft(chat.title), [chat.title]);
-  useEffect(() => {
-    const close = (event: PointerEvent) => {
-      if (menuRoot.current && event.target instanceof Node && !menuRoot.current.contains(event.target)) setMenu(null);
-    };
-    window.addEventListener("pointerdown", close);
-    return () => window.removeEventListener("pointerdown", close);
-  }, []);
 
   const run = (callback: () => void) => {
     setMenu(null);
@@ -85,11 +80,11 @@ export function WorkspaceHeader({
   };
 
   return <>
-    <header className="conversation-header" ref={menuRoot}>
+    <header className="conversation-header">
       <HeaderIcon kind="folder" />
       <span className="conversation-breadcrumb-project">{projectName}</span>
       <span className="conversation-breadcrumb-chevron"><HeaderIcon kind="chevron" /></span>
-      <div className="conversation-header-popover-root">
+      <div ref={switcherRoot} className="conversation-header-popover-root">
         <button type="button" {...controlBinding("chat-switcher", "surface.popover.toggle")} className="conversation-chat-switcher" aria-haspopup="menu" aria-expanded={menu === "switcher"} aria-label="Switch chat" onClick={() => setMenu((value) => value === "switcher" ? null : "switcher")}>
           <span>{chat.title}</span><HeaderIcon kind="down" />
         </button>
@@ -102,7 +97,7 @@ export function WorkspaceHeader({
       </div>
       <span className="conversation-header-spacer" />
       <button type="button" className="conversation-header-action conversation-pin-action" {...controlBinding("chat-pin-toggle", "catalog.chat.pin-toggle")} aria-label={chat.pinned ? "Unpin chat" : "Pin chat"} aria-pressed={chat.pinned} disabled={busy} onClick={() => onSetPinned(!chat.pinned)}><HeaderIcon kind="pin" /></button>
-      <div className="conversation-header-popover-root">
+      <div ref={actionsRoot} className="conversation-header-popover-root">
         <button ref={optionsButton} type="button" {...controlBinding("chat-options", "surface.popover.toggle")} className="conversation-header-action" aria-label="Chat options" aria-haspopup="menu" aria-expanded={menu === "actions"} disabled={busy} onClick={() => setMenu((value) => value === "actions" ? null : "actions")}><HeaderIcon kind="more" /></button>
         {menu === "actions" && <div ref={menuSurface} data-studio-overlay="menu" className="conversation-popover conversation-action-menu" role="menu" aria-label="Chat options">
           <button type="button" role="menuitem" {...controlBinding("chat-pin-menu-toggle", "catalog.chat.pin-toggle")} onClick={() => run(() => onSetPinned(!chat.pinned))}>{chat.pinned ? "Unpin chat" : "Pin chat"}</button>

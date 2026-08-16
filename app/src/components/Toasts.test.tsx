@@ -80,6 +80,26 @@ function AdvancingHarness() {
   />;
 }
 
+function UnmountingMenuHarness() {
+  const [menuOpen, setMenuOpen] = useState(true);
+  const [toasts, setToasts] = useState(() => failure());
+  return <>
+    <button type="button" data-control-id="rail-workspace-menu">Workspace menu</button>
+    {menuOpen && <button type="button" data-control-id="workspace-switch">Switch workspace</button>}
+    <Toasts
+      toasts={toasts}
+      retry={async () => ({ status: "updated", revision: 1 })}
+      execute={async (operation) => {
+        if (operation.action === "toast.dismiss") {
+          setMenuOpen(false);
+          setToasts([]);
+        }
+        return { status: "updated", revision: 1 };
+      }}
+    />
+  </>;
+}
+
 describe("typed toasts", () => {
   it("routes toast.dismiss through the dispatcher and hands focus to a safe outside control", async () => {
     const operations: StudioOperation[] = [];
@@ -100,6 +120,22 @@ describe("typed toasts", () => {
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
     expect(operations).toEqual([{ action: "toast.dismiss", payload: { toastId: expect.any(String) } }]);
     await waitFor(() => expect(screen.getByRole("button", { name: "Outside control" })).toHaveFocus());
+  });
+
+  it("falls back to the stable workspace trigger when the prior menu item unmounts with the toast", async () => {
+    const user = userEvent.setup();
+    render(<UnmountingMenuHarness />);
+    const transientMenuItem = screen.getByRole("button", { name: "Switch workspace" });
+    const stableTrigger = screen.getByRole("button", { name: "Workspace menu" });
+    transientMenuItem.focus();
+
+    const dismiss = screen.getByRole("button", { name: "Dismiss Studio data operation failed" });
+    dismiss.focus();
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Switch workspace" })).not.toBeInTheDocument();
+    await waitFor(() => expect(stableTrigger).toHaveFocus());
   });
 
   it("async settlement does not steal focus if the user moved outside the resolving toast", async () => {

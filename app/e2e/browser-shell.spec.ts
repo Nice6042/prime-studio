@@ -131,8 +131,9 @@ test("collapsed rail preserves one dispatcher-owned keyboard action set and adap
   await expect(sheet.locator('[data-control-id="sidebar.collapse"]')).toBeFocused();
   await expect(shellPage.locator('.studio-sidebar[data-mode="rail"]')).toHaveAttribute("inert", "");
   await shellPage.setViewportSize({ width: 1280, height: 800 });
-  await expect(shellPage.locator('[data-control-id="sidebar.collapse"]')).toBeFocused();
-  await shellPage.keyboard.press("Enter");
+  const expandedCollapse = shellPage.locator('[data-control-id="sidebar.collapse"]');
+  await expect(expandedCollapse).toBeFocused();
+  await expandedCollapse.press("Enter");
   await expect(shellPage.locator('[data-control-id="rail.sidebar.toggle"]')).toBeFocused();
 });
 

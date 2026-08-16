@@ -130,10 +130,10 @@ export const FEATURE_ACCEPTANCE: readonly PackageFeatureAcceptance[] = Object.fr
   row("PL-02", "palette groups Actions, Chats, and bounded full-text Message hits", "complete", ["palette.result.execute"]),
   row("PL-03", "query, keyboard movement, Enter, Escape, empty, and disabled results work", "complete", ["palette.query.change", "palette.result.execute", "palette.close"]),
   row("PL-04", "one typed command registry owns menus, shortcuts, palette, and availability", "complete", ["palette.result.execute"]),
-  row("CM-01", "Ctrl+N, Ctrl+K, Ctrl+comma, Ctrl+B, and Ctrl+J honor topmost overlay priority", "partial", ["catalog.chat.create", "palette.open", "route.settings.open", "layout.sidebar.toggle", "layout.inspector.toggle"]),
+  row("CM-01", "Ctrl+N, Ctrl+K, Ctrl+comma, Ctrl+B, and Ctrl+J honor topmost overlay priority", "complete", ["catalog.chat.create", "palette.open", "route.settings.open", "layout.sidebar.toggle", "layout.inspector.toggle"]),
   row("CM-02", "typed toast queue deduplicates and keeps actionable failures until resolved", "complete", ["toast.dismiss"]),
   row("CM-03", "one monotonic clock drives elapsed time and progress without row timers", "complete"),
-  row("CM-04", "menus, dropdowns, and popovers use outside click, focus, Escape, and unclipped overlays", "partial", ["surface.popover.toggle", "overlay.topmost.close"]),
+  row("CM-04", "menus, dropdowns, and popovers use outside click, focus, Escape, and unclipped overlays", "complete", ["surface.popover.toggle", "overlay.topmost.close"]),
   row("CM-05", "each asynchronous surface declares loading, empty, ready, stale, degraded, disconnected, error, and blocked states", "partial"),
   row("CM-06", "the whole product reflows at 640x400, 820px, 1280px, 1600px, and 200 percent zoom", "partial"),
 ]);
