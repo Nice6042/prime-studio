@@ -149,4 +149,22 @@ describe("AccountUsageSettings", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Export CSV" }));
     expect(await screen.findByRole("status")).toHaveTextContent("Export cancelled");
   });
+
+  it("fails closed when the local ledger returns an invalid row", async () => {
+    const loadUsage = vi.fn(async () => [{ ts: -1, provider: "openai-codex", cost: 1, input: 1, output: 1, cacheRead: 0, cacheWrite: 0 }]);
+    render(<AccountUsageSettings accounts={[accounts[0]]} loadUsage={loadUsage} />);
+
+    expect(await screen.findByRole("status", { name: "Account usage unavailable" })).toHaveTextContent(/could not be read/i);
+    expect(screen.queryByText("$0.00")).not.toBeInTheDocument();
+  });
+
+  it("does not duplicate same-provider shared-ledger totals across account rows", async () => {
+    const shared = [accounts[0], { ...accounts[0], id: "work-copy", label: "Work copy" }];
+    render(<AccountUsageSettings accounts={shared} />);
+
+    await screen.findByRole("img", { name: /Daily cost over 7 days/i });
+    expect(screen.getAllByText("Shared ledger · attribution unavailable")).toHaveLength(2);
+    expect(screen.getByLabelText("Work usage attribution unavailable")).toBeVisible();
+    expect(screen.getByLabelText("Work copy usage attribution unavailable")).toBeVisible();
+  });
 });

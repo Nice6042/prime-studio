@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { residentCreationDisabledReason } from "./residentCreationPolicy";
+import {
+  RESIDENT_ACCOUNT_SELECTION_UNAVAILABLE_REASON,
+  residentCreationDisabledReason,
+} from "./residentCreationPolicy";
 
 describe("resident creation preference policy", () => {
   it("allows creation only when every unsupported selection is at Harness default", () => {
@@ -8,8 +11,14 @@ describe("resident creation preference policy", () => {
     expect(residentCreationDisabledReason({ defaultAccount: null, defaultModel: null, defaultThinking: null })).toBeNull();
   });
 
+  it("names the exact upstream account-selection boundary", () => {
+    const reason = residentCreationDisabledReason({ defaultAccount: "account-1" });
+    expect(reason).toContain(RESIDENT_ACCOUNT_SELECTION_UNAVAILABLE_REASON);
+    expect(reason).toContain("Harness default");
+  });
+
   it.each([
-    [{ defaultAccount: "account-1" }, "account"],
+    [{ defaultProvider: "openai-codex" }, "provider"],
     [{ defaultModel: "gpt-real" }, "model"],
     [{ defaultThinking: "high" }, "thinking"],
   ] as const)("gives a precise disabled reason for an unverifiable selection", (settings, selection) => {

@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 
 import { createControlBinding, type StudioOperation, type StudioOperationOutcome } from "../../contracts/studioOperations";
 import { activityAttentionForChat, type AttentionEvidence, type AttentionState } from "../../attention/attentionLedger";
@@ -73,6 +73,7 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
   const childReturnFocus = useRef<Readonly<{ scope: string; element: HTMLElement }> | null>(null);
   const stableInspectorFocus = useRef<HTMLButtonElement | null>(null);
   const stableChildFocus = useRef<HTMLButtonElement | null>(null);
+  const pendingOverviewFocus = useRef<string | null>(null);
   const pendingAttempts = useRef(new Map<string, string>());
   const activitySeenAttempt = useRef<string | null>(null);
   const requestEpoch = useRef(0);
@@ -84,6 +85,7 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
     currentRequestIdentity.current = requestIdentity;
     requestEpoch.current += 1;
   }
+  if (currentSessionScope.current !== sessionScope) pendingOverviewFocus.current = null;
   currentSessionScope.current = sessionScope;
   if (extensionAttempts.current.scope !== requestIdentity) extensionAttempts.current = { scope: requestIdentity, ids: new Set() };
   const details = detailsSnapshot?.scope === sessionScope ? detailsSnapshot.value : null;
@@ -177,15 +179,18 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
   useEffect(() => {
     const childIds = session?.children.map((child) => child.id) ?? [];
     const selectedChildDisappeared = state.route.kind === "child" && !childIds.includes(state.route.childId);
+    if (selectedChildDisappeared && sessionScope) pendingOverviewFocus.current = sessionScope;
     dispatch({ type: "children/reconciled", childIds });
-    if (selectedChildDisappeared && sessionScope && childReturnFocus.current?.scope === sessionScope) {
-      requestAnimationFrame(() => {
-        const opener = childReturnFocus.current?.element;
-        const target = opener?.isConnected ? opener : stableInspectorFocus.current;
-        target?.focus();
-      });
-    }
   }, [session?.children, sessionScope, state.route]);
+  useLayoutEffect(() => {
+    if (state.route.kind !== "overview" || !sessionScope || pendingOverviewFocus.current !== sessionScope) return;
+    pendingOverviewFocus.current = null;
+    const returnFocus = childReturnFocus.current;
+    childReturnFocus.current = null;
+    const opener = returnFocus?.scope === sessionScope ? returnFocus.element : null;
+    const target = opener?.isConnected ? opener : stableInspectorFocus.current;
+    target?.focus();
+  }, [sessionScope, state.route]);
   useEffect(() => {
     const route = restoreRoute(chatId);
     if (route.kind === "child") dispatch({ type: "child/open", childId: route.childId });
@@ -249,14 +254,9 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
     if (session) void runAction({ action: "harness.child.open", payload: { sessionId: session.sessionId, childId } }, `child:${childId}`, true);
   };
   const backFromChild = () => {
+    if (sessionScope) pendingOverviewFocus.current = sessionScope;
     dispatch({ type: "route/open", route: "overview" });
     if (session) void runAction({ action: "harness.child.back", payload: { sessionId: session.sessionId } }, "child:back", true);
-    const scope = sessionScope;
-    requestAnimationFrame(() => {
-      const opener = childReturnFocus.current?.scope === scope ? childReturnFocus.current.element : null;
-      const target = opener?.isConnected ? opener : stableInspectorFocus.current;
-      target?.focus();
-    });
   };
 
   const selectedChildId = state.route.kind === "child" ? state.route.childId : null;
@@ -278,6 +278,7 @@ export function HarnessInspector({ chatId, session, compatibility, adapter = una
     {feedback && <p className="harness-operation-feedback" role={feedback.kind}>{feedback.text}</p>}
     {session && adapter.workerRecovery?.status === "unavailable" && <p className="harness-recovery-unavailable" role="status" aria-label="Silent worker recovery unavailable"><strong>Silent worker recovery unavailable.</strong> {adapter.workerRecovery.reason}</p>}
     {session?.workerRecovery.status === "starting" && <p className="harness-recovery-status" role="status"><strong>Worker starting.</strong> The verified supervisor has not reported this worker ready yet.</p>}
+    {session?.workerRecovery.status === "stopping" && <p className="harness-recovery-status" role="status"><strong>Worker stopping.</strong> The verified supervisor is closing this worker and Studio will not report it ready.</p>}
     {session?.workerRecovery.status === "recovering" && <p className="harness-recovery-status" role="status"><strong>Worker stopped unexpectedly.</strong> The verified supervisor is recovering this session.</p>}
     {session?.workerRecovery.status === "retryable_failure" && <p className="harness-recovery-status" role="status"><strong>Supervisor recovery exhausted.</strong> Prime Studio will make the one permitted automatic retry.</p>}
     {session?.workerRecovery.status === "retrying" && <p className="harness-recovery-status" role="status"><strong>Retrying worker.</strong> Automatic retry 1 of 1 is in progress.</p>}

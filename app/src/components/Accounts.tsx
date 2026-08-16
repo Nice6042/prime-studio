@@ -45,7 +45,7 @@ export function Accounts({
   accounts: Account[];
   /** Registry changed. A strict refreshed list can be applied without another bridge read. */
   onChanged: (refreshed?: Account[]) => void;
-  /** Open a new session on this account (a session's account is fixed at spawn). */
+  /** Request a new-session account only when the verified runtime supports that selector. */
   onUse: (id: string) => void;
   newSessionDisabledReason?: string;
   defaultAccount: string | null;
@@ -199,10 +199,12 @@ export function Accounts({
 
   return (
     <>
+      {newSessionDisabledReason && <p className="studio-setting-unavailable" role="status">
+        <strong>New-session account selection unavailable.</strong> {newSessionDisabledReason} Account login, status, quota, and local usage remain available.
+      </p>}
       <p className="muted small">
-        Each account is a separate Prime agent home, so two Claude and two ChatGPT subscriptions
-        can be signed in at once. Sessions on different accounts run in parallel, and an account
-        is fixed for the life of a session.
+        Each account is a separate Prime agent home, so multiple Claude and ChatGPT subscriptions
+        can be signed in, monitored, and reported independently without exposing credential values.
       </p>
 
       {accounts.length === 0 && (
@@ -304,8 +306,8 @@ export function Accounts({
                         data-control-id={`account-default-${a.id}`}
                         data-studio-action="account.set-default"
                         className="btn"
-                        disabled={defaultAccount === a.id}
-                        title="New tabs open on this account"
+                        disabled={defaultAccount === a.id || Boolean(newSessionDisabledReason)}
+                        title={newSessionDisabledReason ?? "New tabs open on this account"}
                         onClick={() => onDefaultAccount(a.id)}
                       >
                         Set as default

@@ -481,6 +481,27 @@ describe("Accounts accessible controls", () => {
     await user.click(screen.getByRole("button", { name: "Rename" }));
     expect(screen.getByRole("textbox", { name: "Rename Claude work" })).toBeInTheDocument();
   });
+
+  it("keeps account management available while disabling an unsupported session selector", async () => {
+    const reason = "The reviewed runtime cannot select an account during resident creation.";
+    render(
+      <Accounts
+        accounts={[account]}
+        onChanged={vi.fn()}
+        onUse={vi.fn()}
+        newSessionDisabledReason={reason}
+        defaultAccount={null}
+        onDefaultAccount={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByRole("status")).toHaveTextContent(reason);
+    expect(screen.getByRole("button", { name: "Use for new sessions" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Set as default" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Re-login" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Rename" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Remove" })).toBeEnabled();
+  });
 });
 
 describe("Accounts removal confirmation", () => {

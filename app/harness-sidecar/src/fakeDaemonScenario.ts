@@ -13,7 +13,7 @@ export type ParentMessage =
   | { readonly channel: "parent"; readonly kind: "assistant"; readonly id: string; readonly blocks: readonly Record<string, unknown>[]; readonly streaming: boolean; readonly emittedAtMs: number };
 
 export interface WorkerRecoveryProjection {
-  readonly status: "starting" | "ready" | "recovering" | "retryable_failure" | "retrying" | "recovered" | "terminal_failure";
+  readonly status: "starting" | "stopping" | "ready" | "recovering" | "retryable_failure" | "retrying" | "recovered" | "terminal_failure";
   readonly closureReason: "unexpected_worker_disconnect" | "supervisor_recovery_exhausted" | null;
   readonly observationId: string | null;
   readonly automaticRetryCount: 0 | 1;

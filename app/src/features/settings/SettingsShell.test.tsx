@@ -151,14 +151,16 @@ describe("SettingsShell", () => {
     expect(screen.queryByText(/^Current chat$/i)).not.toBeInTheDocument();
   });
 
-  it("persists Accounts Use as the selected new-session preference without claiming unsupported creation binding", async () => {
+  it("keeps Accounts Use unavailable until resident creation can bind an account identity", () => {
     const onSetting = vi.fn();
     render(<SettingsShell section="accounts" onBack={() => undefined} onSection={() => undefined} compatibility={unavailable} accounts={[{ id: "account-1", label: "Work", provider: "openai-codex", agentDir: "C:\\fixture", createdAt: 1 }]} onSetting={onSetting} />);
     expect(screen.getByRole("heading", { name: "Accounts", level: 1 })).toBeVisible();
     expect(screen.getByText("Work")).toBeVisible();
-    await userEvent.click(screen.getByRole("button", { name: "Use for new sessions" }));
-    expect(onSetting).toHaveBeenCalledWith("defaultAccount", "account-1");
-    expect(screen.getByText(/cannot pass an account identity during resident creation/i)).toBeVisible();
+    const use = screen.getByRole("button", { name: "Use for new sessions" });
+    expect(use).toBeDisabled();
+    expect(use).toHaveAttribute("title", expect.stringMatching(/accepts workspace and title only/i));
+    expect(onSetting).not.toHaveBeenCalled();
+    expect(screen.getAllByText(/does not accept an account or profile identity/i)).toHaveLength(2);
     expect(screen.getByRole("textbox", { name: "Account name" })).toBeVisible();
   });
 

@@ -37,6 +37,16 @@ describe("ArchivedCatalogSettings", () => {
     expect(onRestoreChat).toHaveBeenCalledWith("project:personal", "chat:old");
   });
 
+  it("invokes the admitted archive-fork handler without restoring the source chat", async () => {
+    const onForkChat = vi.fn();
+    render(<ArchivedCatalogSettings catalog={archivedCatalog()} operation={{ phase: "idle" }}
+      onRestoreProject={vi.fn()} onRestoreChat={vi.fn()} onForkChat={onForkChat} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Fork archived chat Old chat" }));
+
+    expect(onForkChat).toHaveBeenCalledWith("chat:old");
+  });
+
   it("keeps archive fork visible but disabled when the verified Harness has no atomic archive-fork authority", () => {
     render(<ArchivedCatalogSettings catalog={archivedCatalog()} operation={{ phase: "idle" }}
       onRestoreProject={vi.fn()} onRestoreChat={vi.fn()}

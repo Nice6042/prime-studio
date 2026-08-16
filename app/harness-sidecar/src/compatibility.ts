@@ -1,7 +1,7 @@
-import { DAEMON_V7_SCHEMA13_PROFILE } from "./profiles/daemon-v7-schema13.js";
+import { profileForPackageIdentity, profileForRuntimeIdentity } from "./profiles/index.js";
 import type { RuntimeIdentity } from "./runtimeDiscovery.js";
 
-type Capability = typeof DAEMON_V7_SCHEMA13_PROFILE.supportedCapabilities[number];
+type Capability = string;
 type Reason =
   | "runtime_identity_mismatch"
   | "unsupported_protocol"
@@ -23,19 +23,13 @@ function copyRuntime(runtime: RuntimeIdentity): RuntimeIdentity {
 }
 
 export function decideCompatibility(runtime: RuntimeIdentity): Compatibility {
-  const profile = DAEMON_V7_SCHEMA13_PROFILE;
-  if (
-    runtime.packageName !== profile.packageName
-    || runtime.packageVersion !== profile.packageVersion
-    || runtime.packageDigest !== profile.packageDigest
-    || runtime.entrypointDigest !== profile.entrypointDigest
-  ) return unavailable("runtime_identity_mismatch");
-  if (runtime.protocolName !== profile.protocolName || runtime.protocolVersion !== profile.protocolVersion) {
+  const packageProfile = profileForPackageIdentity(runtime);
+  if (!packageProfile) return unavailable("runtime_identity_mismatch");
+  if (runtime.protocolName !== packageProfile.protocolName || runtime.protocolVersion !== packageProfile.protocolVersion) {
     return unavailable("unsupported_protocol");
   }
-  if (runtime.schemaRevision !== profile.schemaRevision || runtime.schemaId !== profile.schemaId) {
-    return unavailable("unsupported_schema");
-  }
+  const profile = profileForRuntimeIdentity(runtime);
+  if (!profile) return unavailable("unsupported_schema");
 
   const observed = new Set(runtime.capabilities);
   const missingMandatory = profile.mandatoryCapabilities.filter((capability) => !observed.has(capability));

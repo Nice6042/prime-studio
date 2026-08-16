@@ -1,0 +1,45 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { decideCompatibility } from "../src/compatibility.js";
+import { DAEMON_V7_SCHEMA13_PROFILE } from "../src/profiles/daemon-v7-schema13.js";
+import { DAEMON_V7_SCHEMA16_PROFILE } from "../src/profiles/daemon-v7-schema16.js";
+import { PRIME_DAEMON_PROFILES, profileForRuntimeIdentity } from "../src/profiles/index.js";
+import { loadReviewedPrimeAdapter } from "../src/reviewedPrimeAdapter.js";
+
+test("reviewed Prime profiles are exact, unique, and newest-first", () => {
+  assert.deepEqual(PRIME_DAEMON_PROFILES.map((profile) => profile.packageVersion), ["0.7.2", "0.7.1"]);
+  assert.equal(new Set(PRIME_DAEMON_PROFILES.map((profile) => profile.id)).size, PRIME_DAEMON_PROFILES.length);
+  assert.equal(new Set(PRIME_DAEMON_PROFILES.map((profile) => profile.packageDigest)).size, PRIME_DAEMON_PROFILES.length);
+});
+
+test("schema-16 runtime identity selects only its exact reviewed profile", () => {
+  const runtime = {
+    packageName: "prime-agent" as const,
+    packageVersion: DAEMON_V7_SCHEMA16_PROFILE.packageVersion,
+    packageDigest: DAEMON_V7_SCHEMA16_PROFILE.packageDigest,
+    entrypointDigest: DAEMON_V7_SCHEMA16_PROFILE.entrypointDigest,
+    protocolName: DAEMON_V7_SCHEMA16_PROFILE.protocolName,
+    protocolVersion: DAEMON_V7_SCHEMA16_PROFILE.protocolVersion,
+    schemaRevision: DAEMON_V7_SCHEMA16_PROFILE.schemaRevision,
+    schemaId: DAEMON_V7_SCHEMA16_PROFILE.schemaId,
+    capabilities: [...DAEMON_V7_SCHEMA16_PROFILE.supportedCapabilities],
+  };
+  assert.equal(profileForRuntimeIdentity(runtime)?.id, DAEMON_V7_SCHEMA16_PROFILE.id);
+  assert.deepEqual(decideCompatibility(runtime), {
+    status: "ready",
+    profile: DAEMON_V7_SCHEMA16_PROFILE.id,
+    capabilities: DAEMON_V7_SCHEMA16_PROFILE.supportedCapabilities,
+  });
+  assert.deepEqual(decideCompatibility({ ...runtime, schemaRevision: DAEMON_V7_SCHEMA13_PROFILE.schemaRevision, schemaId: DAEMON_V7_SCHEMA13_PROFILE.schemaId }), {
+    status: "unavailable",
+    reason: "unsupported_schema",
+  });
+});
+
+test("schema-16 loads only its independently reviewed adapter bytes", async () => {
+  const adapter = await loadReviewedPrimeAdapter(DAEMON_V7_SCHEMA16_PROFILE);
+  assert.deepEqual(adapter.DAEMON_PROTOCOL_INFO, { name: "prime-agent.daemon", version: 7 });
+  assert.equal(typeof adapter.DaemonClient, "function");
+  assert.equal(typeof adapter.DaemonAgentConnection, "function");
+});

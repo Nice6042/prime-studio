@@ -113,6 +113,18 @@ describe("ProjectSidebar", () => {
     }
   });
 
+  it("activates sidebar collapse exactly once through native keyboard semantics", async () => {
+    const onCollapse = vi.fn();
+    render(<ProjectSidebar {...workspaceProps} projects={projects} onSelectChat={() => undefined} onToggleProject={() => undefined}
+      onNewChat={() => undefined} onOpenSettings={() => undefined} onCollapse={onCollapse} />);
+    const collapse = screen.getByRole("button", { name: "Collapse sidebar" });
+
+    collapse.focus();
+    await userEvent.keyboard("{Enter}");
+
+    expect(onCollapse).toHaveBeenCalledOnce();
+  });
+
   it("collects a project name and folder before requesting durable creation", async () => {
     const onNewProject = vi.fn();
     render(<ProjectSidebar {...workspaceProps} projects={projects} onSelectChat={() => undefined} onToggleProject={() => undefined}

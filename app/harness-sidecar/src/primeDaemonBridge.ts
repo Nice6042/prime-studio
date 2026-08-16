@@ -6,6 +6,7 @@ import { decideCompatibility } from "./compatibility.js";
 import type { FakeRootSessionSnapshot, ParentHistoryPage, ParentMessage, ScenarioRequest, ScenarioResponse, TurnPerformanceProjection, WorkerRecoveryProjection } from "./fakeDaemonScenario.js";
 import { discoverRuntime, type RuntimeIdentity } from "./runtimeDiscovery.js";
 import { loadReviewedPrimeAdapter } from "./reviewedPrimeAdapter.js";
+import { profileForRuntimeIdentity } from "./profiles/index.js";
 import { parseStudioHarnessOperation, StudioHarnessOperationDispatcher, type StudioHarnessOperationOutcome } from "./studioHarnessOperations.js";
 import { sanitizeActivityCommand, sanitizeDiagnostic } from "./redaction.js";
 import type { RuntimeClosureLock } from "./runtimeClosure.js";
@@ -748,6 +749,7 @@ function treeContainsEntry(value: unknown, entryId: string): boolean {
   return visit(value.tree);
 }
 function rootState(state: Record<string, unknown>): FakeRootSessionSnapshot["state"] {
+  if (state.workerState === "stopping") return "stopped";
   if (state.isStreaming === true || state.isCompacting === true || state.isBashRunning === true) return "working";
   return "idle";
 }
@@ -1509,11 +1511,13 @@ export class PrimeDaemonBridge {
     const row = matches[0]! as Record<string, unknown>;
     if (row.workerState === undefined) throw new Error("daemon worker recovery state is unavailable");
     const state = boundedString(row.workerState, 32);
-    if (state !== "starting" && state !== "ready" && state !== "recovering" && state !== "failed") throw new Error("daemon worker recovery state is invalid");
+    if (state !== "starting" && state !== "stopping" && state !== "ready" && state !== "recovering" && state !== "failed") throw new Error("daemon worker recovery state is invalid");
     const prior = this.#workerRecovery.get(activeSessionId)?.projection;
     let projection: WorkerRecoveryProjection;
     if (state === "starting") {
       projection = { status: "starting", closureReason: null, observationId: null, automaticRetryCount: 0, detail: "The verified supervisor is starting this worker." };
+    } else if (state === "stopping") {
+      projection = { status: "stopping", closureReason: null, observationId: null, automaticRetryCount: 0, detail: "The verified supervisor is stopping this worker." };
     } else if (state === "ready") {
       projection = prior?.status === "retrying"
         ? { status: "recovered", closureReason: prior.closureReason, observationId: prior.observationId, automaticRetryCount: 1, detail: null }
@@ -1550,7 +1554,7 @@ export class PrimeDaemonBridge {
       ...prior,
       provider: null,
       cursor,
-      state: "failed" as const,
+      state: recovery.status === "stopping" ? "stopped" as const : "failed" as const,
       workerRecovery: Object.freeze({ ...recovery }),
       performance: bindTurnPerformance(initialTurnPerformance("generation_changed"), prior.sessionId, cursor, false),
     });
@@ -1761,6 +1765,8 @@ export async function loadVerifiedPrimeDaemonBridge(packageRoot: string): Promis
   const identity = await discoverRuntime(packageRoot);
   const compatibility = decideCompatibility(identity);
   if (compatibility.status !== "ready" && compatibility.status !== "degraded") throw new Error("runtime identity is incompatible");
+  const profile = profileForRuntimeIdentity(identity);
+  if (!profile || profile.id !== compatibility.profile) throw new Error("runtime compatibility profile is unavailable");
   const root = await realpath(packageRoot);
   const daemonEntrypoint = await realpath(resolve(root, "dist", "bundle", "cli.js"));
   if (!within(root, daemonEntrypoint)) throw new Error("daemon entrypoint escaped package root");
@@ -1769,11 +1775,13 @@ export async function loadVerifiedPrimeDaemonBridge(packageRoot: string): Promis
   if (!daemonMetadata.isFile() || daemonMetadata.isSymbolicLink() || daemonMetadata.size > 64 * 1024 * 1024) throw new Error("daemon entrypoint is untrusted");
   const daemonBytes = await readFile(daemonEntrypoint);
   const daemonDigest = `sha256:${createHash("sha256").update(daemonBytes).digest("hex")}`;
-  const { DAEMON_V7_SCHEMA13_PROFILE } = await import("./profiles/daemon-v7-schema13.js");
-  if (daemonDigest !== DAEMON_V7_SCHEMA13_PROFILE.daemonEntrypointDigest) throw new Error("daemon entrypoint identity mismatch");
-  const runtimeClosure = await lockVerifiedRuntimeClosure(root);
+  if (daemonDigest !== profile.daemonEntrypointDigest) throw new Error("daemon entrypoint identity mismatch");
+  const runtimeClosure = await lockVerifiedRuntimeClosure(root, {
+    digest: profile.distJavascriptClosureDigest,
+    files: profile.distJavascriptClosureFiles,
+  });
   try {
-    const namespace = await loadReviewedPrimeAdapter();
+    const namespace = await loadReviewedPrimeAdapter(profile);
     const Client = namespace.DaemonClient;
     const Connection = namespace.DaemonAgentConnection;
     const socket = namespace.defaultDaemonSocketPath;

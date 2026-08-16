@@ -1,14 +1,17 @@
 import { copyFile, mkdir } from "node:fs/promises";
 
-const source = new URL("../harness-sidecar/vendor/prime-daemon-adapter-v0.7.1.mjs", import.meta.url);
-const targetDirectory = new URL("../harness-sidecar/dist/src/vendor/", import.meta.url);
-const target = new URL("prime-daemon-adapter-v0.7.1.mjs", targetDirectory);
-const packageSource = new URL("../harness-sidecar/vendor/package.json", import.meta.url);
-const packageTarget = new URL("package.json", targetDirectory);
-const legalSource = new URL("../harness-sidecar/vendor/prime-daemon-adapter-v0.7.1.mjs.LEGAL.txt", import.meta.url);
-const legalTarget = new URL("prime-daemon-adapter-v0.7.1.mjs.LEGAL.txt", targetDirectory);
+const resources = Object.freeze([
+  ["../harness-sidecar/vendor/package.json", "../harness-sidecar/dist/src/vendor/package.json"],
+  ["../harness-sidecar/vendor/prime-daemon-adapter-v0.7.1.mjs", "../harness-sidecar/dist/src/vendor/prime-daemon-adapter-v0.7.1.mjs"],
+  ["../harness-sidecar/vendor/prime-daemon-adapter-v0.7.1.mjs.LEGAL.txt", "../harness-sidecar/dist/src/vendor/prime-daemon-adapter-v0.7.1.mjs.LEGAL.txt"],
+  ["../harness-sidecar/vendor/v0.7.2/package.json", "../harness-sidecar/dist/src/vendor/v0.7.2/package.json"],
+  ["../harness-sidecar/vendor/v0.7.2/prime-daemon-adapter.mjs", "../harness-sidecar/dist/src/vendor/v0.7.2/prime-daemon-adapter.mjs"],
+  ["../harness-sidecar/vendor/v0.7.2/prime-daemon-adapter.mjs.LEGAL.txt", "../harness-sidecar/dist/src/vendor/v0.7.2/prime-daemon-adapter.mjs.LEGAL.txt"],
+]);
 
-await mkdir(targetDirectory, { recursive: true });
-await copyFile(source, target);
-await copyFile(packageSource, packageTarget);
-await copyFile(legalSource, legalTarget);
+for (const [sourcePath, targetPath] of resources) {
+  const source = new URL(sourcePath, import.meta.url);
+  const target = new URL(targetPath, import.meta.url);
+  await mkdir(new URL("./", target), { recursive: true });
+  await copyFile(source, target);
+}

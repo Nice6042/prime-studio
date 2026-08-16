@@ -336,7 +336,7 @@ pub(crate) async fn harness_branch_resident_chat(
                 let source = project
                     .chats
                     .iter()
-                    .find(|chat| chat.id == request.source_chat_id && !chat.archived)
+                    .find(|chat| chat.id == request.source_chat_id)
                     .ok_or_else(|| "Source catalog chat is unavailable".to_owned())?;
                 let source_binding = source
                     .binding
@@ -413,7 +413,7 @@ pub(crate) async fn harness_branch_resident_chat(
                 let latest_source = latest_project
                     .chats
                     .iter()
-                    .find(|chat| chat.id == source.id && !chat.archived)
+                    .find(|chat| chat.id == source.id)
                     .ok_or_else(|| "Source catalog chat changed during branch".to_owned())?;
                 if latest_source.binding.as_ref() != Some(source_binding) {
                     return Err("Source Harness binding changed during branch".to_owned());

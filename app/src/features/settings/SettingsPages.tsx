@@ -9,6 +9,7 @@ import type { SendShortcut } from "../conversation/composerModel";
 import type { Account, AppSettings } from "../../types";
 import type { SubscriptionQuotaProjection } from "../../quotaProjection";
 import type { HarnessComposerProjection } from "../harness/adapter";
+import { RESIDENT_ACCOUNT_SELECTION_UNAVAILABLE_REASON } from "../navigation/residentCreationPolicy";
 
 type SettingWriter = (key: keyof AppSettings, value: string | null) => void;
 
@@ -74,9 +75,9 @@ export function ComposerSettings({ settings, onSetting }: { readonly settings: A
 
 export function AccountsSettings({ accounts, defaultAccount, onChanged, onDefaultAccount, quota }: { readonly accounts: readonly Account[]; readonly defaultAccount: string | null; readonly onChanged: (accounts?: Account[]) => void; readonly onDefaultAccount: (accountId: string | null) => void; readonly quota?: SubscriptionQuotaProjection }) {
   return <div className="studio-accounts-settings">
-    <Unavailable>Selecting an account saves the durable new-session preference. The verified resident creation route cannot pass an account identity during resident creation, so new chat stays disabled until you reset to Harness default.</Unavailable>
-    {defaultAccount && <button type="button" className="btn" data-control-id="settings.defaultAccount.reset" data-action="settings.preference.reset" onClick={() => onDefaultAccount(null)}>Use Harness default</button>}
-    <Accounts accounts={[...accounts]} onChanged={onChanged} onUse={onDefaultAccount} defaultAccount={defaultAccount} onDefaultAccount={onDefaultAccount} quota={quota} />
+    <Unavailable>{RESIDENT_ACCOUNT_SELECTION_UNAVAILABLE_REASON} Account login, status, quota, local usage, rename, and removal remain available.</Unavailable>
+    {defaultAccount && <button type="button" className="btn" data-control-id="settings.defaultAccount.reset" data-action="settings.preference.reset" onClick={() => onDefaultAccount(null)}>Clear unsupported account preference</button>}
+    <Accounts accounts={[...accounts]} onChanged={onChanged} onUse={onDefaultAccount} newSessionDisabledReason={RESIDENT_ACCOUNT_SELECTION_UNAVAILABLE_REASON} defaultAccount={defaultAccount} onDefaultAccount={onDefaultAccount} quota={quota} />
   </div>;
 }
 

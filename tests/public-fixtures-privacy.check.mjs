@@ -51,6 +51,7 @@ const TEXT_EXTENSIONS = new Set([
 // example home-directory strings are upstream code, not project data.
 const TEXT_SCAN_EXCLUDED_FILES = new Set([
   "app/harness-sidecar/vendor/prime-daemon-adapter-v0.7.1.mjs",
+  "app/harness-sidecar/vendor/v0.7.2/prime-daemon-adapter.mjs",
 ]);
 
 const captureResidue = new RegExp(
