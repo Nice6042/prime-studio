@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { STUDIO_ACTIONS } from "./studioOperations";
+import { PRODUCT_REFLOW_GEOMETRIES, validateProductReflowAcceptance } from "./productReflowAcceptance";
 import {
   DATA_REQUIREMENTS,
   FEATURE_ACCEPTANCE,
@@ -44,8 +45,8 @@ describe("Prime Studio package acceptance catalog", () => {
   it("derives the current implementation summary from the audited feature rows", () => {
     expect(PACKAGE_IMPLEMENTATION_SUMMARY).toEqual(summarizePackageImplementation(FEATURE_ACCEPTANCE));
     expect(PACKAGE_IMPLEMENTATION_SUMMARY).toEqual({
-      complete: 76,
-      partial: 37,
+      complete: 77,
+      partial: 36,
       placeholder: 0,
       missing: 0,
       explicitly_unavailable: 2,
@@ -93,8 +94,27 @@ describe("Prime Studio package acceptance catalog", () => {
 
     expect(status("CM-01")).toBe("complete");
     expect(status("CM-04")).toBe("complete");
+    expect(status("CM-06")).toBe("complete");
     expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).not.toContain("CM-01");
     expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).not.toContain("CM-04");
+    expect(PRODUCTION_BRIDGE_REAUDIT_FEATURE_IDS).not.toContain("CM-06");
+  });
+
+  it("grounds CM-06 completion in the executable browser-shell evidence boundary", () => {
+    expect(validateProductReflowAcceptance()).toMatchObject({
+      valid: true,
+      packageScreenCount: 29,
+      geometryCount: 5,
+      evidenceCellCount: 140,
+      errors: [],
+    });
+    expect(PRODUCT_REFLOW_GEOMETRIES.find((geometry) => geometry.id === "zoom-200-equivalent")).toMatchObject({
+      width: 320,
+      height: 200,
+      evidence: "browser_shell_200_percent_equivalent",
+    });
+    expect(PRODUCT_REFLOW_GEOMETRIES.find((geometry) => geometry.id === "zoom-200-equivalent")?.description)
+      .toContain("not Windows/WebView2 host-zoom attestation");
   });
 
   it("keeps the current development snapshot outside the release-ready state", () => {
