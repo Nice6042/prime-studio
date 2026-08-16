@@ -49,9 +49,8 @@ export function usePopoverSurface(
   const restoreFocusRef = useRef(true);
 
   useLayoutEffect(() => {
-    if (!enabled || !surfaceRef.current) return;
+    if (!enabled) return;
     restoreFocusRef.current = true;
-    openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     return () => {
       if (!restoreFocusRef.current) return;
       const opener = openerRef.current;
@@ -59,7 +58,14 @@ export function usePopoverSurface(
         if (opener?.isConnected && !opener.matches(":disabled") && !opener.closest("[inert]")) opener.focus();
       });
     };
-  }, [enabled, surfaceRef]);
+  }, [enabled]);
+
+  useLayoutEffect(() => {
+    const surface = surfaceRef.current;
+    const active = document.activeElement;
+    if (!enabled || !surface || !(active instanceof HTMLElement) || surface.contains(active)) return;
+    openerRef.current = active;
+  });
 
   useEffect(() => {
     if (!enabled) return;
