@@ -1,3 +1,5 @@
+import type { Locator, Page } from "@playwright/test";
+
 import { expect, expectNoSeriousOrCriticalAxeViolations, test } from "./support/browser-shell";
 import { activateWithKeyboard, settingsDestinations } from "./support/acceptance-matrix";
 import {
@@ -25,14 +27,81 @@ const wideGeometries = [geometry("desktop-1280"), geometry("desktop-1600")];
 const compactGeometries = [geometry("compact-820"), geometry("compact-640"), geometry("zoom-200-equivalent")];
 const allGeometries = [...wideGeometries, ...compactGeometries];
 
+async function exerciseStreamingConversation(
+  page: Page,
+  workspace: Locator,
+  target: ProductReflowGeometry,
+): Promise<void> {
+  const composer = page.getByPlaceholder("Message Prime Studio — try / for commands");
+  await composer.fill(STREAMING_REFLOW_FIXTURE);
+  await composer.press("Enter");
+  const streamingTurn = workspace.locator('.parent-assistant-turn[aria-busy="true"]').last();
+  await expect(streamingTurn).toContainText("Synthetic streaming response retained for deterministic reflow evidence.");
+  await expect(streamingTurn.getByRole("status")).toHaveText("Responding");
+  await expect(composer).toHaveValue("");
+  await expectProductViewport(page, `${target.id} streaming conversation`);
+}
+
+async function exerciseInspectorAndEditorScreens(
+  page: Page,
+  workspace: Locator,
+  harness: Locator,
+  target: ProductReflowGeometry,
+): Promise<void> {
+  await expect(harness.getByRole("tab", { name: "Harness" })).toHaveAttribute("aria-selected", "true");
+  await expectProductViewport(page, `${target.id} inspector overview`);
+
+  await harness.getByRole("tab", { name: "Usage" }).click();
+  await expect(harness.getByText("Current chat", { exact: true })).toBeVisible();
+  await expectProductViewport(page, `${target.id} current-chat usage`);
+
+  await harness.getByRole("tab", { name: "Activity" }).click();
+  await expect(harness.getByRole("button", { name: /Redacted shell command/ })).toBeVisible();
+  await expectProductViewport(page, `${target.id} activity`);
+
+  await harness.getByRole("tab", { name: "Harness" }).click();
+  await harness.getByRole("button", { name: "Verify runtime compatibility, running" }).click();
+  for (const tab of ["Chat", "Activity", "Files"] as const) {
+    await harness.getByRole("tab", { name: tab }).click();
+    await expect(harness.getByRole("tab", { name: tab })).toHaveAttribute("aria-selected", "true");
+    await expectProductViewport(page, `${target.id} child ${tab.toLocaleLowerCase()}`);
+  }
+  await harness.getByRole("button", { name: "Back to Harness" }).click();
+
+  const outputs = harness.locator("summary").filter({ hasText: /^Outputs/u });
+  await outputs.click();
+  await harness.getByRole("button", { name: /Harness report/ }).click();
+  const editor = page.getByRole("region", { name: "Editor" });
+  await expect(editor.getByRole("tab", { name: "Diff" })).toHaveAttribute("aria-selected", "true");
+  await expectProductViewport(page, `${target.id} editor diff`);
+  await editor.getByRole("tab", { name: "Edit" }).click();
+  await expect(editor.getByRole("tab", { name: "Edit" })).toHaveAttribute("aria-selected", "true");
+  await expectProductViewport(page, `${target.id} editor edit`);
+  await editor.getByRole("button", { name: "Close editor" }).click();
+
+  await workspace.getByRole("button", { name: "Edit answer in Canvas" }).click();
+  const canvasEditor = page.getByRole("region", { name: "Editor" });
+  await expect(canvasEditor.getByRole("tab", { name: "Canvas" })).toHaveAttribute("aria-selected", "true");
+  await expectProductViewport(page, `${target.id} editor canvas`);
+  await canvasEditor.getByRole("button", { name: "Close editor" }).click();
+}
+
+async function exerciseEmptyConversation(page: Page, target: ProductReflowGeometry): Promise<void> {
+  await page.keyboard.press("Control+N");
+  await expect(page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Message Prime Studio" })).toBeVisible();
+  await expectProductViewport(page, `${target.id} empty conversation`);
+}
+
 test.describe.configure({ timeout: 180_000 });
 
-test("the executable reflow scenarios cover every package screen and required geometry", () => {
+test("the executable reflow scenarios cover every applicable package-screen and geometry cell", () => {
   expect(validateProductReflowAcceptance()).toEqual({
     valid: true,
     packageScreenCount: 29,
     coveredScreenCount: 29,
     geometryCount: 5,
+    evidenceCellCount: 140,
     errors: [],
   });
   expect(PRODUCT_REFLOW_SCENARIOS.map((scenario) => scenario.id)).toEqual([
@@ -53,61 +122,26 @@ test("workspace, inspector, child, and editor screen families reflow at 1280 and
     await expect(sidebar).toHaveAttribute("data-mode", "pane");
     await expect(sidebar.getByRole("button", { name: /Prime Harness architecture.*status: Working/i }).first()).toHaveAttribute("data-session-status", "working");
     await expect(workspace.getByText("The parent conversation stays focused on decisions and final results.", { exact: false })).toBeVisible();
-    await expectProductViewport(shellPage, `${target.id} active and working conversation`);
+    await expectProductViewport(shellPage, `${target.id} active conversation`);
 
-    const composer = shellPage.getByPlaceholder("Message Prime Studio — try / for commands");
-    await composer.fill(STREAMING_REFLOW_FIXTURE);
-    await composer.press("Enter");
-    const streamingTurn = workspace.locator('.parent-assistant-turn[aria-busy="true"]').last();
-    await expect(streamingTurn).toContainText("Synthetic streaming response retained for deterministic reflow evidence.");
-    await expect(streamingTurn.getByRole("status")).toHaveText("Responding");
-    await expect(composer).toHaveValue("");
-    await expectProductViewport(shellPage, `${target.id} streaming conversation`);
-
-    await harness.getByRole("tab", { name: "Usage" }).click();
-    await expect(harness.getByText("Current chat", { exact: true })).toBeVisible();
-    await expectProductViewport(shellPage, `${target.id} current-chat usage`);
-
-    await harness.getByRole("tab", { name: "Activity" }).click();
-    await expect(harness.getByRole("button", { name: /Redacted shell command/ })).toBeVisible();
-    await expectProductViewport(shellPage, `${target.id} activity`);
-
-    await harness.getByRole("tab", { name: "Harness" }).click();
-    await harness.getByRole("button", { name: "Verify runtime compatibility, running" }).click();
-    for (const tab of ["Chat", "Activity", "Files"] as const) {
-      await harness.getByRole("tab", { name: tab }).click();
-      await expect(harness.getByRole("tab", { name: tab })).toHaveAttribute("aria-selected", "true");
-      await expectProductViewport(shellPage, `${target.id} child ${tab.toLocaleLowerCase()}`);
-    }
-    await harness.getByRole("button", { name: "Back to Harness" }).click();
-
-    const outputs = harness.locator("summary").filter({ hasText: /^Outputs/u });
-    await outputs.click();
-    await harness.getByRole("button", { name: /Harness report/ }).click();
-    const editor = shellPage.getByRole("region", { name: "Editor" });
-    await expect(editor.getByRole("tab", { name: "Diff" })).toHaveAttribute("aria-selected", "true");
-    await expectProductViewport(shellPage, `${target.id} editor diff`);
-    await editor.getByRole("tab", { name: "Edit" }).click();
-    await expect(editor.getByRole("tab", { name: "Edit" })).toHaveAttribute("aria-selected", "true");
-    await expectProductViewport(shellPage, `${target.id} editor edit`);
-    await editor.getByRole("button", { name: "Close editor" }).click();
-
-    await workspace.getByRole("button", { name: "Edit answer in Canvas" }).click();
-    const canvasEditor = shellPage.getByRole("region", { name: "Editor" });
-    await expect(canvasEditor.getByRole("tab", { name: "Canvas" })).toHaveAttribute("aria-selected", "true");
-    await expectProductViewport(shellPage, `${target.id} editor canvas`);
-    await canvasEditor.getByRole("button", { name: "Close editor" }).click();
+    await exerciseStreamingConversation(shellPage, workspace, target);
+    await exerciseInspectorAndEditorScreens(shellPage, workspace, harness, target);
+    await exerciseEmptyConversation(shellPage, target);
 
     await expectNoSeriousOrCriticalAxeViolations(shellPage, `product-reflow-${target.id}-workspace-wide`);
   }
 });
 
-test("rail, empty conversation, and controlled sheets reflow at 820, 640, and the 200-percent equivalent", async ({ shellPage }) => {
+test("workspace, inspector, child, editor, and rail screen families reflow at compact geometries", async ({ shellPage }) => {
   for (const target of compactGeometries) {
     await resetProductAtGeometry(shellPage, target);
     const sidebar = shellPage.getByRole("navigation", { name: "Projects and chats" });
+    const workspace = shellPage.getByRole("main", { name: "Prime Harness architecture" });
     await expect(sidebar).toHaveAttribute("data-mode", "rail");
-    await expectProductViewport(shellPage, `${target.id} rail workspace`);
+    await expect(workspace.getByText("The parent conversation stays focused on decisions and final results.", { exact: false })).toBeVisible();
+    await expectProductViewport(shellPage, `${target.id} active conversation and rail`);
+
+    await exerciseStreamingConversation(shellPage, workspace, target);
 
     const projectsButton = shellPage.getByRole("button", { name: "Projects" });
     await projectsButton.click();
@@ -117,23 +151,11 @@ test("rail, empty conversation, and controlled sheets reflow at 820, 640, and th
     await projectsButton.click();
     await expect(projectSheet).toHaveCount(0);
 
-    const harnessButton = shellPage.getByRole("button", { name: "Harness" });
-    await harnessButton.click();
+    await shellPage.getByRole("button", { name: "Harness" }).click();
     const harness = shellPage.getByRole("complementary", { name: "Harness" });
     await expectSurfaceContained(harness, shellPage, `${target.id} Harness sheet`);
-    await harnessButton.click();
-    await expect(harness).toHaveCount(0);
-
-    await shellPage.getByRole("button", { name: "Open editor" }).click();
-    const editor = shellPage.getByRole("region", { name: "Editor" });
-    await expect(editor.getByText("No verified file or Canvas revision")).toBeVisible();
-    await expectSurfaceContained(editor, shellPage, `${target.id} empty editor sheet`);
-    await shellPage.keyboard.press("Escape");
-
-    await shellPage.keyboard.press("Control+N");
-    await expect(shellPage.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
-    await expect(shellPage.getByRole("textbox", { name: "Message Prime Studio" })).toBeVisible();
-    await expectProductViewport(shellPage, `${target.id} empty conversation`);
+    await exerciseInspectorAndEditorScreens(shellPage, workspace, harness, target);
+    await exerciseEmptyConversation(shellPage, target);
 
     await expectNoSeriousOrCriticalAxeViolations(shellPage, `product-reflow-${target.id}-workspace-compact`);
   }
