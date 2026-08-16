@@ -19,7 +19,7 @@ export function hasOpenStudioOverlay(root: ParentNode = document): boolean {
 
 export function isTopmostStudioSurface(surface: HTMLElement, root: ParentNode = document): boolean {
   const surfaces = studioSurfaceElements(root);
-  return surfaces.at(-1) === surface;
+  return surfaces[surfaces.length - 1] === surface;
 }
 
 function eventTargetsElement(event: Event, element: HTMLElement | null): boolean {
