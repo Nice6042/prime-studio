@@ -5,6 +5,7 @@ Prime Studio is a Windows-first Tauri and React desktop workspace for a separate
 
 > [!IMPORTANT]
 > This repository is a development snapshot, not a supported product or release candidate.
+> This source snapshot is not a working Prime desktop client.
 > The source contains a reviewed exact-profile production activation path, but this repository
 > does not yet contain independent disposable-Windows evidence from a real provider-backed
 > account. Do not use it with important accounts, workspaces, or data.
