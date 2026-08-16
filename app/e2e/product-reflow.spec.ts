@@ -16,7 +16,7 @@ import {
 } from "./support/product-reflow";
 
 const STREAMING_REFLOW_FIXTURE = "PRIME_STUDIO_REFLOW_STREAMING_FIXTURE";
-const REFLOW_HARNESS_DEFAULTS_FLAG = "prime-studio-reflow-harness-defaults";
+const REFLOW_EMPTY_SESSION_FLAG = "prime-studio-reflow-empty-session";
 
 const geometry = (id: ProductReflowGeometry["id"]) => {
   const found = PRODUCT_REFLOW_GEOMETRIES.find((candidate) => candidate.id === id);
@@ -95,17 +95,16 @@ async function exerciseCanvasEditorScreen(page: Page, target: ProductReflowGeome
 }
 
 async function exerciseEmptyConversation(page: Page, target: ProductReflowGeometry): Promise<void> {
-  await page.evaluate((flag) => window.sessionStorage.setItem(flag, "1"), REFLOW_HARNESS_DEFAULTS_FLAG);
+  await page.evaluate((flag) => window.sessionStorage.setItem(flag, "1"), REFLOW_EMPTY_SESSION_FLAG);
   try {
     await resetProductAtGeometry(page, target);
-    const newChat = page.getByRole("button", { name: "New chat", exact: true });
-    await expect(newChat).toBeEnabled();
-    await newChat.click();
-    await expect(page.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
+    const conversation = page.getByRole("region", { name: "Prime Harness architecture" });
+    await expect(conversation.getByRole("heading", { name: "Start a conversation" })).toBeVisible();
     await expect(page.getByRole("textbox", { name: "Message Prime Studio" })).toBeVisible();
+    await expect(conversation.locator("[data-parent-message-id]")).toHaveCount(0);
     await expectProductViewport(page, `${target.id} empty conversation`);
   } finally {
-    await page.evaluate((flag) => window.sessionStorage.removeItem(flag), REFLOW_HARNESS_DEFAULTS_FLAG);
+    await page.evaluate((flag) => window.sessionStorage.removeItem(flag), REFLOW_EMPTY_SESSION_FLAG);
   }
 }
 

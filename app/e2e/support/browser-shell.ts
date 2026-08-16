@@ -70,8 +70,10 @@ export const test = base.extend<ShellFixtures>({
       });
       const listeners = new Map<string, number[]>();
       let nextCallback = 1;
+      const reflowEmptySession = window.sessionStorage.getItem("prime-studio-reflow-empty-session") === "1";
       let projectedHarnessSessions = scenario.sessions.map((session) => ({
         ...session,
+        parentMessages: reflowEmptySession ? [] : session.parentMessages,
         freshness: "live",
         workerRecovery: {
           status: "ready",
@@ -90,13 +92,12 @@ export const test = base.extend<ShellFixtures>({
           tokensPerSecond: 18.4,
         },
       }));
-      const reflowHarnessDefaults = window.sessionStorage.getItem("prime-studio-reflow-harness-defaults") === "1";
       let appSettings: Record<string, string | null> = {
         theme: "dark",
-        defaultAccount: reflowHarnessDefaults ? null : "account-e2e",
-        defaultProvider: reflowHarnessDefaults ? null : "openai-codex",
-        defaultModel: reflowHarnessDefaults ? null : "gpt-5",
-        defaultThinking: reflowHarnessDefaults ? null : "high",
+        defaultAccount: "account-e2e",
+        defaultProvider: "openai-codex",
+        defaultModel: "gpt-5",
+        defaultThinking: "high",
         defaultCwd: "D:\\fixture\\Prime Studio",
         lastSection: "accounts",
       };
