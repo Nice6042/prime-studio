@@ -90,12 +90,13 @@ export const test = base.extend<ShellFixtures>({
           tokensPerSecond: 18.4,
         },
       }));
+      const reflowHarnessDefaults = window.sessionStorage.getItem("prime-studio-reflow-harness-defaults") === "1";
       let appSettings: Record<string, string | null> = {
         theme: "dark",
-        defaultAccount: "account-e2e",
-        defaultProvider: "openai-codex",
-        defaultModel: "gpt-5",
-        defaultThinking: "high",
+        defaultAccount: reflowHarnessDefaults ? null : "account-e2e",
+        defaultProvider: reflowHarnessDefaults ? null : "openai-codex",
+        defaultModel: reflowHarnessDefaults ? null : "gpt-5",
+        defaultThinking: reflowHarnessDefaults ? null : "high",
         defaultCwd: "D:\\fixture\\Prime Studio",
         lastSection: "accounts",
       };
