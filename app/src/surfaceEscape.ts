@@ -55,7 +55,9 @@ export function useTopmostSurfaceEscape(
  * menus and popovers. Only the topmost Studio surface may dismiss itself or
  * consume application-global shortcuts. Pointer dismissal preserves the newly
  * clicked target; Escape restores the opener. If the clicked target removes
- * itself, focus falls back to the admitted opener. Returns a one-close
+ * itself, focus falls back to the admitted opener. A shared boundary may host
+ * sibling triggers; focus moving between those triggers updates the exact
+ * opener without requiring the popover to close first. Returns a one-close
  * restoration suppressor for native Tab progression.
  */
 export function usePopoverSurface(
@@ -83,6 +85,25 @@ export function usePopoverSurface(
     if (!enabled || !surface || !(active instanceof HTMLElement) || surface.contains(active)) return;
     openerRef.current = active;
   });
+
+  useEffect(() => {
+    if (!enabled || !boundaryRef) return;
+    const rememberBoundaryTrigger = (event: FocusEvent) => {
+      const boundary = boundaryRef.current;
+      const surface = surfaceRef.current;
+      const target = event.target;
+      if (
+        !boundary
+        || !surface
+        || !(target instanceof HTMLElement)
+        || !boundary.contains(target)
+        || surface.contains(target)
+      ) return;
+      openerRef.current = target;
+    };
+    document.addEventListener("focusin", rememberBoundaryTrigger, true);
+    return () => document.removeEventListener("focusin", rememberBoundaryTrigger, true);
+  }, [boundaryRef, enabled, surfaceRef]);
 
   useEffect(() => {
     if (!enabled) return;
