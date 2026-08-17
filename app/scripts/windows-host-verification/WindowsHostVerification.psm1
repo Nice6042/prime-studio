@@ -587,7 +587,7 @@ function Get-SafeObservationText {
   )
 
   if ($null -eq $Text) { return $null }
-  $withoutControls = [regex]::Replace($Text, '[ --]', ' ')
+  $withoutControls = [regex]::Replace($Text, '[\x00-\x1f\x7f-\x9f]', ' ')
   return (Get-BoundedLogText -Text $withoutControls.Trim() -MaxCodeUnits $MaxCodeUnits)
 }
 

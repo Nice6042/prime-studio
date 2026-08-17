@@ -99,6 +99,8 @@ test("collector and bundler expose only the reviewed bounded surface", async () 
   assert.match(moduleSource, /function Get-SafeEvidenceFiles/u);
   assert.match(moduleSource, /function Get-TextSha256/u);
   assert.match(moduleSource, /function Get-SafeObservationText/u);
+  assert.match(moduleSource, /'\[\\x00-\\x1f\\x7f-\\x9f\]'/u);
+  assert.doesNotMatch(moduleSource, /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/u);
   assert.doesNotMatch(moduleSource, /UnescapeDataString|MakeRelativeUri/u);
   assert.match(moduleSource, /Substring\(\$rootPrefix\.Length\)/u);
   assert.match(moduleSource, /catch \{[\s\S]*Status = 'failed'[\s\S]*ExitCode = \$null/u);
