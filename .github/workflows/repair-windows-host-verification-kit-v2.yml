@@ -27,7 +27,7 @@ jobs:
         with:
           node-version: 22.12.0
 
-      - name: Apply structural, compatibility, and redaction-oracle repairs
+      - name: Apply structural, compatibility, and multiline-redaction repairs
         shell: pwsh
         run: |
           python .github/repair-windows-host-module.py
