@@ -1,0 +1,229 @@
+name: Repair editor buffer reconciliation
+
+on:
+  push:
+    branches:
+      - work/editor-buffer-persistence
+    paths:
+      - .github/workflows/rebase-editor-buffer-integration-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out current editor branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: work/editor-buffer-persistence
+          persist-credentials: true
+
+      - name: Three-way merge reviewed editor integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=0cf372430c5bb18a07f86a34e4d9079a0733cc27
+          reviewed=c8531df121a7bb9b0429f2b912756faaed36e0ca
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+
+          merge_path() {
+            path="$1"
+            mkdir -p "$tmp/$(dirname "$path")"
+            for attempt in 1 2 3 4 5; do
+              if curl --proto '=https' --tlsv1.2 --fail --silent --show-error \
+                "https://raw.githubusercontent.com/Nice6042/prime-studio/$base/$path" \
+                --output "$tmp/$path.base"; then break; fi
+              sleep "$((attempt * 3))"
+            done
+            test -s "$tmp/$path.base"
+            for attempt in 1 2 3 4 5; do
+              if curl --proto '=https' --tlsv1.2 --fail --silent --show-error \
+                "https://raw.githubusercontent.com/Nice6042/prime-studio/$reviewed/$path" \
+                --output "$tmp/$path.reviewed"; then break; fi
+              sleep "$((attempt * 3))"
+            done
+            test -s "$tmp/$path.reviewed"
+            set +e
+            git merge-file -p "$path" "$tmp/$path.base" "$tmp/$path.reviewed" > "$tmp/$path.merged"
+            status=$?
+            set -e
+            if [ "$status" -ne 0 ]; then
+              echo "Three-way merge failed for $path" >&2
+              cat "$tmp/$path.merged" >&2
+              exit 1
+            fi
+            mv "$tmp/$path.merged" "$path"
+          }
+
+          merge_path app/src/app/StudioApp.tsx
+          merge_path app/src/features/editor/EditorPane.tsx
+          merge_path app/src/features/editor/EditorPane.test.tsx
+          merge_path app/e2e/acceptance-matrix.spec.ts
+
+      - name: Harden ownership and repair reviewed expectations
+        shell: python
+        run: |
+          from pathlib import Path
+          from textwrap import dedent
+
+          def splice(text: str, start_marker: str, end_marker: str, replacement: str, label: str) -> str:
+              start = text.find(start_marker)
+              if start < 0:
+                  raise SystemExit(f"{label}: start marker unavailable")
+              end = text.find(end_marker, start)
+              if end < 0:
+                  raise SystemExit(f"{label}: end marker unavailable")
+              return text[:start] + replacement + text[end:]
+
+          app = Path("app/src/app/StudioApp.tsx")
+          text = app.read_text(encoding="utf-8")
+          mode_block = dedent('''
+                    case "editor.mode.select": {
+                      const visibleArtifact = editorArtifact?.ref.rootSessionId === selectedSession?.sessionId ? editorArtifact : null;
+                      const visibleCanvas = canvas?.chatId === navigation.selectedChatId && canvas.sessionId === selectedSession?.sessionId ? canvas : null;
+                      const activeDocumentId = visibleArtifact
+                        ? artifactEditorDocumentId(visibleArtifact)
+                        : visibleCanvas ? canvasEditorDocumentId(visibleCanvas) : null;
+                      if (activeDocumentId === null) return { status: "unavailable", reason: "No identity-bound editor document is selected." };
+                      if (operation.payload.documentId !== activeDocumentId) {
+                        return { status: "rejected", reason: "The editor document changed before its mode could be selected.", retryable: false };
+                      }
+                      if (operation.payload.mode === "diff" && !visibleArtifact) {
+                        return { status: "rejected", reason: "Diff mode requires an admitted artifact revision.", retryable: false };
+                      }
+                      setEditorMode(operation.payload.mode);
+                      return { status: "updated", revision: activeDocumentId };
+                    }
+          ''')
+          text = splice(
+              text,
+              '      case "editor.mode.select": {',
+              '      case "conversation.suggestion.fill":',
+              mode_block,
+              "session-bound editor mode",
+          )
+
+          projection_start = text.rfind('const visibleCanvas = canvas?.chatId === navigation.selectedChatId && canvas.sessionId === selectedSession?.sessionId ? canvas : null;')
+          projection_end = text.find('  return <div className="studio-application">', projection_start)
+          if projection_start < 0 or projection_end < 0:
+              raise SystemExit("active editor projection range unavailable")
+          projection = dedent('''
+                const visibleArtifact = editorArtifact?.ref.rootSessionId === selectedSession?.sessionId ? editorArtifact : null;
+                const visibleCanvas = canvas?.chatId === navigation.selectedChatId && canvas.sessionId === selectedSession?.sessionId ? canvas : null;
+                const activeEditorDocumentId = visibleArtifact
+                  ? artifactEditorDocumentId(visibleArtifact)
+                  : visibleCanvas ? canvasEditorDocumentId(visibleCanvas) : null;
+                const activeEditorBaseline = visibleArtifact?.content ?? visibleCanvas?.content;
+                const activeEditorDraftContent = activeEditorDocumentId ? readEditorBuffer(editorBuffers, activeEditorDocumentId) : undefined;
+                const onActiveEditorDraftChange = activeEditorDocumentId && activeEditorBaseline !== undefined ? (content: string) => {
+                  setEditorBuffers((current) => content === activeEditorBaseline
+                    ? removeEditorBuffer(current, activeEditorDocumentId)
+                    : writeEditorBuffer(current, activeEditorDocumentId, content));
+                } : undefined;
+
+          ''')
+          text = text[:projection_start] + projection + text[projection_end:]
+
+          editor_render_start = text.find('editorContent={<EditorPane')
+          editor_render_end = text.find('    />\n    <RuntimeStatusBar', editor_render_start)
+          if editor_render_start < 0 or editor_render_end < 0:
+              raise SystemExit("EditorPane render range unavailable")
+          editor_render = dedent('''
+                    editorContent={<EditorPane
+                      onClose={() => { void dispatchOperation({ action: "layout.editor.close", payload: {} }); }}
+                      documentId={activeEditorDocumentId}
+                      mode={visibleArtifact || visibleCanvas ? editorMode : "edit"}
+                      onExecute={dispatchOperation}
+                      artifact={visibleArtifact}
+                      admissionRevision={editorAdmissionRevision}
+                      draftContent={activeEditorDraftContent}
+                      onDraftChange={onActiveEditorDraftChange}
+                      unsupportedReason="Open an identity-bound candidate from Harness Outputs, Sources, Activity, or a subagent file list."
+                      canvas={visibleCanvas}
+                    />}
+          ''').strip()
+          text = text[:editor_render_start] + editor_render + "\n" + text[editor_render_end:]
+          if "artifactModeDocumentId" in text:
+              raise SystemExit("stale artifact mode identity helper survived integration")
+          app.write_text(text, encoding="utf-8", newline="\n")
+
+          test_path = Path("app/src/features/editor/EditorPane.test.tsx")
+          text = test_path.read_text(encoding="utf-8")
+          start = text.find("const documentId = paneProps.artifact")
+          end = text.find("  return <EditorPane", start)
+          if start < 0 or end < 0:
+              raise SystemExit("controlled editor identity range unavailable")
+          document_block = dedent('''
+                const documentId = paneProps.artifact
+                  ? artifactEditorDocumentId(paneProps.artifact)
+                  : paneProps.canvas ? canvasEditorDocumentId(paneProps.canvas) : null;
+          ''')
+          text = text[:start] + document_block + text[end:]
+          text = text.replace(
+              'JSON.stringify(["b", "s", "a", 7, "sha256:exact"])',
+              'JSON.stringify(["artifact", "b", "s", "a", 7, "sha256:exact"])',
+          )
+          text = text.replace(
+              'JSON.stringify(["broker", "root", "artifact", 7, "sha256:old"])',
+              'JSON.stringify(["artifact", "broker", "root", "artifact", 7, "sha256:old"])',
+          )
+          canvas_start = text.find('it("restores a Canvas draft only for the same session and source identity"')
+          canvas_end = text.find('  it("uses a newly reconciled native revision and identity for the next exact save"', canvas_start)
+          if canvas_start < 0 or canvas_end < 0:
+              raise SystemExit("Canvas draft test range unavailable")
+          canvas_test = dedent('''
+                it("restores a Canvas draft only for the same session and source identity", async () => {
+                  const drafts = new Map<string, string>();
+                  const firstCanvas: CanvasDocument = { sessionId: "session-one", chatId: "chat-1", messageId: "message-1", sourceVersion: 0, displayRevision: 1, content: "original" };
+                  const otherSession: CanvasDocument = { ...firstCanvas, sessionId: "session-two" };
+                  const renderCanvas = (canvas: CanvasDocument) => {
+                    const key = canvasEditorDocumentId(canvas);
+                    return render(<ControlledEditorPane onClose={() => undefined} canvas={canvas} draftContent={drafts.get(key)} onDraftChange={(content) => drafts.set(key, content)} />);
+                  };
+
+                  const first = renderCanvas(firstCanvas);
+                  await userEvent.clear(screen.getByRole("textbox", { name: "Canvas content" }));
+                  await userEvent.type(screen.getByRole("textbox", { name: "Canvas content" }), "session one draft");
+                  first.unmount();
+
+                  const second = renderCanvas(otherSession);
+                  expect(screen.getByRole("textbox", { name: "Canvas content" })).toHaveValue("original");
+                  second.unmount();
+
+                  renderCanvas(firstCanvas);
+                  expect(screen.getByRole("textbox", { name: "Canvas content" })).toHaveValue("session one draft");
+                  expect(screen.getAllByText("Unsaved changes")).toHaveLength(2);
+                });
+
+          ''')
+          text = text[:canvas_start] + canvas_test + text[canvas_end:]
+          test_path.write_text(text, encoding="utf-8", newline="\n")
+
+          Path(".github/workflows/rebase-editor-buffer-integration.yml").unlink()
+          Path(".github/workflows/rebase-editor-buffer-integration-v2.yml").unlink()
+
+      - name: Validate final source-only tree
+        shell: bash
+        run: |
+          grep -F 'const [editorBuffers, setEditorBuffers] = useState(createEditorBufferState);' app/src/app/StudioApp.tsx
+          grep -F 'const visibleArtifact = editorArtifact?.ref.rootSessionId === selectedSession?.sessionId' app/src/app/StudioApp.tsx
+          grep -F 'file and Canvas drafts persist without crossing editor identities' app/e2e/acceptance-matrix.spec.ts
+          grep -F 'MAX_EDITOR_BUFFER_TOTAL_CODE_UNITS' app/src/features/editor/editorBufferStore.ts
+          ! grep -F 'artifactModeDocumentId' app/src/app/StudioApp.tsx
+          git diff --exit-code origin/main -- app/src/contracts/packageAcceptance.ts app/src/contracts/packageAcceptance.test.ts
+          test ! -e .github/workflows/rebase-editor-buffer-integration.yml
+          test ! -e .github/workflows/rebase-editor-buffer-integration-v2.yml
+          git diff --check
+
+      - name: Commit reconciled integration and remove temporary workflows
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/app/StudioApp.tsx app/src/features/editor/EditorPane.tsx app/src/features/editor/EditorPane.test.tsx app/e2e/acceptance-matrix.spec.ts .github/workflows/rebase-editor-buffer-integration.yml .github/workflows/rebase-editor-buffer-integration-v2.yml
+          git commit -m "feat(editor): retain identity-bound file and Canvas drafts"
+          git push origin HEAD:work/editor-buffer-persistence
