@@ -638,10 +638,13 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       case "editor.canvas.apply": {
         const { documentId, chatId, messageId, expectedRevision, content } = operation.payload;
         const activeCanvas = canvasRef.current;
+        const activeVersionState = store.getSnapshot().conversationDisplay[chatId]?.messages[messageId];
+        const activeSourceVersion = activeVersionState?.kind === "assistant" ? activeVersionState.selected : 0;
         const requestedIdentityOwned = Boolean(
           activeCanvas
           && activeCanvas.chatId === chatId
           && activeCanvas.messageId === messageId
+          && activeCanvas.sourceVersion === activeSourceVersion
           && documentId === canvasEditorDocumentId({ ...activeCanvas, displayRevision: expectedRevision })
         );
         const current = store.getSnapshot().canvasRevisions[chatId]?.[messageId];
@@ -842,7 +845,13 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       }
       case "editor.mode.select": {
         const visibleArtifact = editorArtifact?.ref.rootSessionId === selectedSession?.sessionId ? editorArtifact : null;
-        const visibleCanvas = canvas?.chatId === navigation.selectedChatId && canvas.sessionId === selectedSession?.sessionId ? canvas : null;
+        const canvasVersionState = canvas ? conversationDisplay[canvas.chatId]?.messages[canvas.messageId] : undefined;
+        const selectedCanvasSourceVersion = canvasVersionState?.kind === "assistant" ? canvasVersionState.selected : 0;
+        const visibleCanvas = canvas?.chatId === navigation.selectedChatId
+          && canvas.sessionId === selectedSession?.sessionId
+          && canvas.sourceVersion === selectedCanvasSourceVersion
+          ? canvas
+          : null;
         const activeDocumentId = visibleArtifact
           ? artifactEditorDocumentId(visibleArtifact)
           : visibleCanvas ? canvasEditorDocumentId(visibleCanvas) : null;
@@ -1440,7 +1449,13 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   };
 
   const visibleArtifact = editorArtifact?.ref.rootSessionId === selectedSession?.sessionId ? editorArtifact : null;
-  const visibleCanvas = canvas?.chatId === navigation.selectedChatId && canvas.sessionId === selectedSession?.sessionId ? canvas : null;
+  const canvasVersionState = canvas ? conversationDisplay[canvas.chatId]?.messages[canvas.messageId] : undefined;
+  const selectedCanvasSourceVersion = canvasVersionState?.kind === "assistant" ? canvasVersionState.selected : 0;
+  const visibleCanvas = canvas?.chatId === navigation.selectedChatId
+    && canvas.sessionId === selectedSession?.sessionId
+    && canvas.sourceVersion === selectedCanvasSourceVersion
+    ? canvas
+    : null;
   const activeEditorDocumentId = visibleArtifact
     ? artifactEditorDocumentId(visibleArtifact)
     : visibleCanvas ? canvasEditorDocumentId(visibleCanvas) : null;
