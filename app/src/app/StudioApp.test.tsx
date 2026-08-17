@@ -754,6 +754,9 @@ describe("Studio application state", () => {
       expect((await screen.findAllByText("Display revision 2")).length).toBe(2);
       expect(screen.getByText("Studio-only revision", { selector: ".parent-assistant-copy p" })).toBeVisible();
 
+      const successorDraft = screen.getByRole("textbox", { name: "Canvas content" });
+      await userEvent.type(successorDraft, " successor draft");
+      expect(successorDraft).toHaveValue("Studio-only revision successor draft");
       let replay: StudioOperationOutcome | undefined;
       let stale: StudioOperationOutcome | undefined;
       await act(async () => {
@@ -770,6 +773,10 @@ describe("Studio application state", () => {
       expect(applyDisplay).toHaveBeenCalledTimes(1);
       expect(applyDisplay).toHaveBeenCalledWith({ chatId: chat.id, messageId: "a1", expectedRevision: 1, sourceContent: "Original answer", content: "Studio-only revision" });
 
+      const editorRegion = screen.getByRole("region", { name: "Editor" });
+      await userEvent.click(within(editorRegion).getByRole("button", { name: "Close editor" }));
+      await userEvent.click(screen.getByRole("button", { name: "Edit answer in Canvas" }));
+      expect(await screen.findByRole("textbox", { name: "Canvas content" })).toHaveValue("Studio-only revision successor draft");
       view.unmount();
       render(<AppProviders store={store}><StudioApp harnessAdapter={conversationAdapter([])} /></AppProviders>);
       expect(await screen.findByText("Studio-only revision", { selector: ".parent-assistant-copy p" })).toBeVisible();
@@ -983,7 +990,7 @@ describe("Studio application state", () => {
         await activeDispatch({
           action: "editor.mode.select",
           payload: {
-            documentId: JSON.stringify(["broker-1", rootSession.sessionId, "candidate-1", 7, document.identity]),
+            documentId: JSON.stringify(["artifact", "broker-1", rootSession.sessionId, "candidate-1", 7, document.identity]),
             mode: "edit",
           },
         });
@@ -1034,7 +1041,7 @@ describe("Studio application state", () => {
         action: "editor.mode.select",
         operationId: expect.any(String),
         payload: {
-          documentId: JSON.stringify(["broker-1", rootSession.sessionId, "candidate-1", 7, document.identity]),
+          documentId: JSON.stringify(["artifact", "broker-1", rootSession.sessionId, "candidate-1", 7, document.identity]),
           mode: "edit",
         },
       })]);

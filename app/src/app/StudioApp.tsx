@@ -638,7 +638,12 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       case "editor.canvas.apply": {
         const { chatId, messageId, expectedRevision, content } = operation.payload;
         const activeCanvas = canvasRef.current;
-        const activeDocumentId = activeCanvas ? canvasEditorDocumentId(activeCanvas) : null;
+        const activeDocumentId = activeCanvas
+          && activeCanvas.chatId === chatId
+          && activeCanvas.messageId === messageId
+          && activeCanvas.displayRevision === expectedRevision
+          ? canvasEditorDocumentId(activeCanvas)
+          : null;
         const current = store.getSnapshot().canvasRevisions[chatId]?.[messageId];
         const activeCurrent = current?.sourceContent === activeCanvas?.sourceContent ? current : undefined;
         const currentRevision = activeCurrent?.revision ?? (activeCanvas?.chatId === chatId && activeCanvas.messageId === messageId ? activeCanvas.displayRevision : 1);
