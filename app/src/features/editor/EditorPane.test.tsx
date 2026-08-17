@@ -6,7 +6,8 @@ import { describe, expect, it } from "vitest";
 import type { StudioOperation } from "../../contracts/studioOperations";
 import type { StudioOperationOutcome } from "../../contracts/studioOperations";
 import type { ArtifactDocument } from "../../entities/editor/types";
-import { EditorPane, type EditorMode } from "./EditorPane";
+import { EditorPane, type CanvasDocument, type EditorMode } from "./EditorPane";
+import { artifactEditorDocumentId, canvasEditorDocumentId } from "./editorBufferStore";
 
 type EditorPaneProps = ComponentProps<typeof EditorPane>;
 
@@ -16,9 +17,10 @@ function ControlledEditorPane(props: Omit<EditorPaneProps, "documentId" | "mode"
 }) {
   const { initialMode, onExecute, ...paneProps } = props;
   const [mode, setMode] = useState<EditorMode>(initialMode ?? (paneProps.artifact ? "diff" : "edit"));
+
   const documentId = paneProps.artifact
-    ? JSON.stringify([paneProps.artifact.ref.brokerId, paneProps.artifact.ref.rootSessionId, paneProps.artifact.ref.artifactId, paneProps.artifact.ref.revision, paneProps.artifact.identity])
-    : paneProps.canvas ? JSON.stringify(["canvas", paneProps.canvas.chatId, paneProps.canvas.messageId, paneProps.canvas.displayRevision]) : null;
+    ? artifactEditorDocumentId(paneProps.artifact)
+    : paneProps.canvas ? canvasEditorDocumentId(paneProps.canvas) : null;
   return <EditorPane
     {...paneProps}
     documentId={documentId}
@@ -41,7 +43,7 @@ describe("EditorPane", () => {
 
   it("edits Canvas presentation without claiming a filesystem save", async () => {
     const operations: StudioOperation[] = [];
-    render(<ControlledEditorPane onClose={() => undefined} canvas={{ chatId: "chat-1", messageId: "message-1", displayRevision: 2, content: "Original answer" }} onExecute={(operation) => { operations.push(operation); }} />);
+    render(<ControlledEditorPane onClose={() => undefined} canvas={{ sessionId: "session-one", chatId: "chat-1", messageId: "message-1", sourceVersion: 0, displayRevision: 2, content: "Original answer" }} onExecute={(operation) => { operations.push(operation); }} />);
     const editor = screen.getByRole("textbox", { name: "Canvas content" });
     await userEvent.clear(editor);
     await userEvent.type(editor, "Edited answer");
@@ -49,7 +51,7 @@ describe("EditorPane", () => {
     await userEvent.click(screen.getByRole("button", { name: "Apply display revision" }));
     expect(operations).toEqual([{
       action: "editor.canvas.apply",
-      payload: { chatId: "chat-1", messageId: "message-1", expectedRevision: 2, content: "Edited answer" },
+      payload: { documentId: JSON.stringify(["canvas", "session-one", "chat-1", "message-1", 0, 2]), chatId: "chat-1", messageId: "message-1", expectedRevision: 2, content: "Edited answer" },
     }]);
     expect(screen.getByText(/does not rewrite Harness history/)).toBeVisible();
   });
@@ -69,9 +71,9 @@ describe("EditorPane", () => {
     await userEvent.click(screen.getByRole("button", { name: "Reload from disk" }));
 
     expect(operations).toEqual([
-      { action: "editor.file.save", payload: { documentId: JSON.stringify(["b", "s", "a", 7, "sha256:exact"]), ref: artifact.ref, expectedRevision: 7, expectedIdentity: "sha256:exact", content: "old changed" } },
-      { action: "editor.conflict.save-copy", payload: { documentId: JSON.stringify(["b", "s", "a", 7, "sha256:exact"]), ref: artifact.ref, expectedRevision: 7, expectedIdentity: "sha256:exact", content: "old changed" } },
-      { action: "editor.conflict.reload", payload: { documentId: JSON.stringify(["b", "s", "a", 7, "sha256:exact"]), ref: artifact.ref, expectedRevision: 7, expectedIdentity: "sha256:exact" } },
+      { action: "editor.file.save", payload: { documentId: JSON.stringify(["artifact", "b", "s", "a", 7, "sha256:exact"]), ref: artifact.ref, expectedRevision: 7, expectedIdentity: "sha256:exact", content: "old changed" } },
+      { action: "editor.conflict.save-copy", payload: { documentId: JSON.stringify(["artifact", "b", "s", "a", 7, "sha256:exact"]), ref: artifact.ref, expectedRevision: 7, expectedIdentity: "sha256:exact", content: "old changed" } },
+      { action: "editor.conflict.reload", payload: { documentId: JSON.stringify(["artifact", "b", "s", "a", 7, "sha256:exact"]), ref: artifact.ref, expectedRevision: 7, expectedIdentity: "sha256:exact" } },
     ]);
   });
 
@@ -112,7 +114,7 @@ describe("EditorPane", () => {
     expect(operations).toEqual([{
       action: "editor.mode.select",
       payload: {
-        documentId: JSON.stringify(["broker", "root", "artifact", 7, "sha256:old"]),
+        documentId: JSON.stringify(["artifact", "broker", "root", "artifact", 7, "sha256:old"]),
         mode: "edit",
       },
     }]);
@@ -188,6 +190,30 @@ describe("EditorPane", () => {
     render(<ControlledEditorPane onClose={() => undefined} artifact={artifact} draftContent={drafts.get("draft")} onDraftChange={(content) => drafts.set("draft", content)} />);
     await userEvent.click(screen.getByRole("tab", { name: "Edit" }));
     expect(screen.getByRole("textbox", { name: "File content" })).toHaveValue("original retained");
+    expect(screen.getAllByText("Unsaved changes")).toHaveLength(2);
+  });
+
+
+  it("restores a Canvas draft only for the same session and source identity", async () => {
+    const drafts = new Map<string, string>();
+    const firstCanvas: CanvasDocument = { sessionId: "session-one", chatId: "chat-1", messageId: "message-1", sourceVersion: 0, displayRevision: 1, content: "original" };
+    const otherSession: CanvasDocument = { ...firstCanvas, sessionId: "session-two" };
+    const renderCanvas = (canvas: CanvasDocument) => {
+      const key = canvasEditorDocumentId(canvas);
+      return render(<ControlledEditorPane onClose={() => undefined} canvas={canvas} draftContent={drafts.get(key)} onDraftChange={(content) => drafts.set(key, content)} />);
+    };
+
+    const first = renderCanvas(firstCanvas);
+    await userEvent.clear(screen.getByRole("textbox", { name: "Canvas content" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Canvas content" }), "session one draft");
+    first.unmount();
+
+    const second = renderCanvas(otherSession);
+    expect(screen.getByRole("textbox", { name: "Canvas content" })).toHaveValue("original");
+    second.unmount();
+
+    renderCanvas(firstCanvas);
+    expect(screen.getByRole("textbox", { name: "Canvas content" })).toHaveValue("session one draft");
     expect(screen.getAllByText("Unsaved changes")).toHaveLength(2);
   });
 

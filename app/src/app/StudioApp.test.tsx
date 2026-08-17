@@ -750,26 +750,47 @@ describe("Studio application state", () => {
       await userEvent.type(editor, "Studio-only revision");
       await userEvent.click(screen.getByRole("button", { name: "Apply display revision" }));
       const apply = operations.find((operation) => operation.action === "editor.canvas.apply");
-      expect(apply).toEqual(expect.objectContaining({ payload: { chatId: chat.id, messageId: "a1", expectedRevision: 1, content: "Studio-only revision" } }));
+      expect(apply).toEqual(expect.objectContaining({ payload: { documentId: JSON.stringify(["canvas", rootSession.sessionId, chat.id, "a1", 0, 1]), chatId: chat.id, messageId: "a1", expectedRevision: 1, content: "Studio-only revision" } }));
       expect((await screen.findAllByText("Display revision 2")).length).toBe(2);
       expect(screen.getByText("Studio-only revision", { selector: ".parent-assistant-copy p" })).toBeVisible();
 
+      const successorDraft = screen.getByRole("textbox", { name: "Canvas content" });
+      await userEvent.type(successorDraft, " successor draft");
+      expect(successorDraft).toHaveValue("Studio-only revision successor draft");
+      store.dispatch({ type: "conversation/version-appended", chatId: chat.id, messageId: "a1", kind: "assistant", text: "Alternate answer" });
+      store.dispatch({ type: "conversation/version-selected", chatId: chat.id, messageId: "a1", kind: "assistant", version: 0 });
       let replay: StudioOperationOutcome | undefined;
+      let foreignIdentity: StudioOperationOutcome | undefined;
       let stale: StudioOperationOutcome | undefined;
+      let changedSourceVersion: StudioOperationOutcome | undefined;
+      let sourceVersionReplay: StudioOperationOutcome | undefined;
       await act(async () => {
         if (!activeDispatch || !apply) throw new Error("Studio dispatcher was not installed");
         replay = await activeDispatch(apply);
-        stale = await activeDispatch({ action: "editor.canvas.apply", payload: { chatId: chat.id, messageId: "a1", expectedRevision: 1, content: "stale overwrite" } });
+        foreignIdentity = await activeDispatch({ action: "editor.canvas.apply", payload: { documentId: JSON.stringify(["canvas", rootSession.sessionId, chat.id, "a1", 1, 1]), chatId: chat.id, messageId: "a1", expectedRevision: 1, content: "Studio-only revision" } });
+        stale = await activeDispatch({ action: "editor.canvas.apply", payload: { documentId: JSON.stringify(["canvas", rootSession.sessionId, chat.id, "a1", 0, 1]), chatId: chat.id, messageId: "a1", expectedRevision: 1, content: "stale overwrite" } });
+        changedSourceVersion = await activeDispatch({ action: "conversation.assistant-version.select", payload: { chatId: chat.id, messageId: "a1", version: 1 } });
+        sourceVersionReplay = await activeDispatch(apply);
       });
       expect(replay).toEqual({ status: "updated", revision: 2 });
+      expect(foreignIdentity).toEqual({ status: "rejected", reason: "The Canvas display revision changed before Apply completed.", retryable: false });
       expect(stale).toEqual({ status: "rejected", reason: "The Canvas display revision changed before Apply completed.", retryable: false });
+      expect(changedSourceVersion).toEqual({ status: "updated", revision: 1 });
+      expect(sourceVersionReplay).toEqual({ status: "rejected", reason: "The Canvas display revision changed before Apply completed.", retryable: false });
       expect(screen.queryByText("stale overwrite")).not.toBeInTheDocument();
+      expect(await screen.findByText("No verified file or Canvas revision")).toBeVisible();
       expect(rootSession.parentMessages[1]).toEqual(expect.objectContaining({ id: "a1", blocks: [{ kind: "text", text: "Original answer" }] }));
       expect(store.getSnapshot().sessions[rootSession.sessionId]?.parentMessages[1]).toEqual(rootSession.parentMessages[1]);
       expect(store.getSnapshot().canvasRevisions[chat.id]?.a1).toEqual({ revision: 2, sourceContent: "Original answer", content: "Studio-only revision" });
       expect(applyDisplay).toHaveBeenCalledTimes(1);
       expect(applyDisplay).toHaveBeenCalledWith({ chatId: chat.id, messageId: "a1", expectedRevision: 1, sourceContent: "Original answer", content: "Studio-only revision" });
 
+      await act(async () => {
+        if (!activeDispatch) throw new Error("Studio dispatcher was not installed");
+        await activeDispatch({ action: "conversation.assistant-version.select", payload: { chatId: chat.id, messageId: "a1", version: 0 } });
+      });
+      await userEvent.click(screen.getByRole("button", { name: "Edit answer in Canvas" }));
+      expect(await screen.findByRole("textbox", { name: "Canvas content" })).toHaveValue("Studio-only revision successor draft");
       view.unmount();
       render(<AppProviders store={store}><StudioApp harnessAdapter={conversationAdapter([])} /></AppProviders>);
       expect(await screen.findByText("Studio-only revision", { selector: ".parent-assistant-copy p" })).toBeVisible();
@@ -983,7 +1004,7 @@ describe("Studio application state", () => {
         await activeDispatch({
           action: "editor.mode.select",
           payload: {
-            documentId: JSON.stringify(["broker-1", rootSession.sessionId, "candidate-1", 7, document.identity]),
+            documentId: JSON.stringify(["artifact", "broker-1", rootSession.sessionId, "candidate-1", 7, document.identity]),
             mode: "edit",
           },
         });
@@ -1034,7 +1055,7 @@ describe("Studio application state", () => {
         action: "editor.mode.select",
         operationId: expect.any(String),
         payload: {
-          documentId: JSON.stringify(["broker-1", rootSession.sessionId, "candidate-1", 7, document.identity]),
+          documentId: JSON.stringify(["artifact", "broker-1", rootSession.sessionId, "candidate-1", 7, document.identity]),
           mode: "edit",
         },
       })]);

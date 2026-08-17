@@ -117,7 +117,7 @@ export interface StudioActionPayloadMap {
   "editor.mode.select": Readonly<{ documentId: string; mode: "diff" | "edit" }>;
   "editor.content.change": Readonly<{ documentId: string; content: string }>;
   "editor.file.save": Readonly<{ documentId: string; ref: ArtifactRef; expectedRevision: number; expectedIdentity: string; content: string }>;
-  "editor.canvas.apply": Readonly<{ chatId: string; messageId: string; expectedRevision: number; content: string }>;
+  "editor.canvas.apply": Readonly<{ documentId: string; chatId: string; messageId: string; expectedRevision: number; content: string }>;
   "editor.conflict.reload": Readonly<{ documentId: string; ref: ArtifactRef; expectedRevision: number; expectedIdentity: string }>;
   "editor.conflict.save-copy": Readonly<{ documentId: string; ref: ArtifactRef; expectedRevision: number; expectedIdentity: string; content: string }>;
 
