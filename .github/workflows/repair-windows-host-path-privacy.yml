@@ -30,6 +30,8 @@ jobs:
       - name: Apply evidence-path privacy and cross-root determinism repairs
         shell: pwsh
         run: |
+          python .github/fix-windows-host-path-followup.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m py_compile .github/repair-windows-host-path-privacy.py .github/repair-windows-host-path-privacy-followup.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python .github/repair-windows-host-path-privacy.py
