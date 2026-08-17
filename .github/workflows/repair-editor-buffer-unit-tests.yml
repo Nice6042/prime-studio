@@ -77,7 +77,8 @@ jobs:
           if reopen_anchor < 0:
               raise SystemExit("Canvas successor draft reopen range unavailable")
           successor_reopen = "\n".join([
-              '      await userEvent.click(screen.getByRole("button", { name: "Close editor" }));',
+              '      const editorRegion = screen.getByRole("region", { name: "Editor" });',
+              '      await userEvent.click(within(editorRegion).getByRole("button", { name: "Close editor" }));',
               '      await userEvent.click(screen.getByRole("button", { name: "Edit answer in Canvas" }));',
               '      expect(await screen.findByRole("textbox", { name: "Canvas content" })).toHaveValue("Studio-only revision successor draft");',
               '',
