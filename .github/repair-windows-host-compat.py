@@ -29,6 +29,11 @@ test_path = Path("app/scripts/windows-host-verification/Test-WindowsHostVerifica
 test_text = test_path.read_text(encoding="utf-8")
 test_replacements = [
     (
+        "$preflightRoot = Join-Path $testRoot 'preflight'\n",
+        "$preflightRoot = Join-Path $testRoot 'preflight'\n$redactionProfileRoot = Join-Path $testRoot 'synthetic-profile'\n$redactionTempRoot = Join-Path $redactionProfileRoot 'nested-temp'\n",
+        "synthetic nested path roots",
+    ),
+    (
         '    "Authorization: Bearer $githubToken",\n    "provider_key=$providerKey",\n',
         '    "Authorization: Bearer $githubToken",\n    "github=$githubToken",\n    "provider_key=$providerKey",\n',
         "GitHub token-shape oracle",
@@ -38,6 +43,21 @@ test_replacements = [
         '    $privateKeyBlock,\n',
         "standalone private-key oracle",
     ),
+    (
+        '    "profile=$env:USERPROFILE",\n    "temporary=$env:TEMP"\n',
+        '    "profile=$redactionProfileRoot",\n    "temporary=$redactionTempRoot"\n',
+        "synthetic path evidence",
+    ),
+    (
+        "  [void](New-WindowsHostEvidenceBundle -InputRoot $inputRoot -OutputRoot $bundleA -RepositoryRoot $repositoryRoot -UserProfileRoot $env:USERPROFILE -TempRoot $env:TEMP)\n  [void](New-WindowsHostEvidenceBundle -InputRoot $inputRoot -OutputRoot $bundleB -RepositoryRoot $repositoryRoot -UserProfileRoot $env:USERPROFILE -TempRoot $env:TEMP)\n",
+        "  [void](New-WindowsHostEvidenceBundle -InputRoot $inputRoot -OutputRoot $bundleA -RepositoryRoot $repositoryRoot -UserProfileRoot $redactionProfileRoot -TempRoot $redactionTempRoot)\n  [void](New-WindowsHostEvidenceBundle -InputRoot $inputRoot -OutputRoot $bundleB -RepositoryRoot $repositoryRoot -UserProfileRoot $redactionProfileRoot -TempRoot $redactionTempRoot)\n",
+        "synthetic path bundling",
+    ),
+    (
+        "  foreach ($forbidden in @($githubToken, $providerKey, $slackToken, $gitlabToken, $npmToken, $huggingFaceToken, $awsSecret, $jwt, $email, $privateKeyBlock, $repositoryRoot, $env:USERPROFILE, $env:TEMP)) {\n",
+        "  foreach ($forbidden in @($githubToken, $providerKey, $slackToken, $gitlabToken, $npmToken, $huggingFaceToken, $awsSecret, $jwt, $email, $privateKeyBlock, $repositoryRoot, $redactionProfileRoot, $redactionTempRoot)) {\n",
+        "synthetic path forbidden values",
+    ),
 ]
 for before, after, label in test_replacements:
     count = test_text.count(before)
@@ -46,4 +66,4 @@ for before, after, label in test_replacements:
     test_text = test_text.replace(before, after)
 test_path.write_text(test_text, encoding="utf-8", newline="\n")
 
-print("patched Windows PowerShell compatibility, nested paths, and redaction oracles")
+print("patched Windows PowerShell compatibility and deterministic redaction oracles")
