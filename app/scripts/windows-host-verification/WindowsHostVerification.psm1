@@ -5,6 +5,7 @@ $script:Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $script:Utf8Strict = New-Object System.Text.UTF8Encoding($false, $true)
 $script:MaxEvidenceFileBytes = 2 * 1024 * 1024
 $script:MaxEvidenceBundleBytes = 32 * 1024 * 1024
+$script:MaxEvidenceEntries = 4096
 $script:AllowedEvidenceExtensions = @('.txt', '.json', '.xml', '.csv', '.md', '.log')
 $script:IdentityFiles = @(
   'app/package.json',
@@ -18,7 +19,7 @@ $script:IdentityFiles = @(
 function Write-Utf8NoBom {
   param(
     [Parameter(Mandatory = $true)][string]$Path,
-    [Parameter(Mandatory = $true)][string]$Content
+    [AllowEmptyString()][Parameter(Mandatory = $true)][string]$Content
   )
 
   $parent = Split-Path -Parent $Path
@@ -73,9 +74,13 @@ function Test-ReparsePointInPath {
 function Get-SafeEvidenceFiles {
   param([Parameter(Mandatory = $true)][string]$Root)
 
+  $rootItem = [IO.DirectoryInfo](Get-Item -LiteralPath $Root -Force)
+  if (($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw 'Evidence input root must not be a reparse point.'
+  }
   $pending = New-Object 'System.Collections.Generic.Queue[System.IO.DirectoryInfo]'
   $files = New-Object 'System.Collections.Generic.List[System.IO.FileInfo]'
-  $pending.Enqueue([IO.DirectoryInfo](Get-Item -LiteralPath $Root -Force))
+  $pending.Enqueue($rootItem)
   while ($pending.Count -gt 0) {
     $directory = $pending.Dequeue()
     foreach ($item in @(Get-ChildItem -LiteralPath $directory.FullName -Force -ErrorAction Stop)) {
@@ -85,6 +90,9 @@ function Get-SafeEvidenceFiles {
         continue
       }
       $files.Add([IO.FileInfo]$item)
+      if ($files.Count -gt $script:MaxEvidenceEntries) {
+        throw "Evidence input exceeds the $($script:MaxEvidenceEntries)-file limit."
+      }
     }
   }
   return @($files | Sort-Object FullName)
@@ -149,6 +157,8 @@ function Protect-WindowsHostEvidenceText {
   $protected = Add-TextRedaction -Text $protected -Pattern '(?im)^\s*(authorization|proxy-authorization)\s*:\s*.*$' -Replacement '$1: <REDACTED>' -Count $countRef -Options ([System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor [System.Text.RegularExpressions.RegexOptions]::Multiline)
   $protected = Add-TextRedaction -Text $protected -Pattern '(?im)^\s*(cookie|set-cookie)\s*:\s*.*$' -Replacement '$1: <REDACTED>' -Count $countRef -Options ([System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor [System.Text.RegularExpressions.RegexOptions]::Multiline)
   $protected = Add-TextRedaction -Text $protected -Pattern '(?is)-----BEGIN (?<kind>(?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?)-----.*?-----END \k<kind>-----' -Replacement '<REDACTED_PRIVATE_KEY_BLOCK>' -Count $countRef
+  $protected = Add-TextRedaction -Text $protected -Pattern '(?i)(?<q>["''])(?<key>[A-Za-z0-9_.-]*(?:authorization|token|secret|password|passphrase|api[_-]?key|access[_-]?key|private[_-]?key|credential|cookie|signingkey))\k<q>\s*:\s*(?:"(?:\\.|[^"])*"|''(?:\\.|[^''])*''|[^,\r\n}\]]+)' -Replacement '${q}${key}${q}: "<REDACTED>"' -Count $countRef
+  $protected = Add-TextRedaction -Text $protected -Pattern '(?is)<(?<tag>[A-Za-z_][A-Za-z0-9_.:-]*(?:authorization|token|secret|password|passphrase|apikey|accesskey|privatekey|credential|cookie|signingkey))\b(?<attrs>[^>]*)>.*?</\k<tag>\s*>' -Replacement '<${tag}${attrs}><REDACTED></${tag}>' -Count $countRef
   $protected = Add-TextRedaction -Text $protected -Pattern '(?i)\b([A-Za-z0-9_.-]*(?:authorization|token|secret|password|passphrase|api[_-]?key|access[_-]?key|private[_-]?key|credential|cookie)[A-Za-z0-9_.-]*)\b\s*[:=]\s*(?:"[^"]*"|''[^'']*''|[^\s,;]+)' -Replacement '$1=<REDACTED>' -Count $countRef
   $protected = Add-TextRedaction -Text $protected -Pattern '(?i)\b(?:bearer|basic)\s+[A-Za-z0-9._~+\-/=]{12,}' -Replacement '<REDACTED_AUTH>' -Count $countRef
   $protected = Add-TextRedaction -Text $protected -Pattern '(?i)\bhttps?://[^/\s:@]+:[^/\s@]+@' -Replacement 'https://<REDACTED_URI_CREDENTIALS>@' -Count $countRef
@@ -224,7 +234,8 @@ function Protect-JsonNode {
     return $copy
   }
   if ($Node -is [System.Collections.IEnumerable] -and -not ($Node -is [string])) {
-    return @($Node | ForEach-Object { Protect-JsonNode -Node $_ -Count $Count })
+    $items = @($Node | ForEach-Object { Protect-JsonNode -Node $_ -Count $Count })
+    return ,$items
   }
   return $Node
 }
@@ -281,7 +292,7 @@ function Read-EvidenceTextFile {
 }
 
 function Assert-NoHighRiskEvidenceResidue {
-  param([Parameter(Mandatory = $true)][string]$Text)
+  param([AllowEmptyString()][Parameter(Mandatory = $true)][string]$Text)
 
   $patterns = @(
     '(?im)^\s*(authorization|proxy-authorization|cookie|set-cookie)\s*:\s*(?!<REDACTED>)',
@@ -292,6 +303,8 @@ function Assert-NoHighRiskEvidenceResidue {
     '(?i)\bnpm_[A-Za-z0-9]{20,}\b',
     '(?i)\bhf_[A-Za-z0-9]{20,}\b',
     '(?i)\bsk-(?:ant-|proj-)?[A-Za-z0-9_-]{20,}\b',
+    '(?i)\bhttps?://[^/\s:@]+:[^/\s@]+@',
+    '\bA(?:KIA|SIA)[A-Z0-9]{16}\b',
     '(?is)-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----',
     '\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b',
     '(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b'
@@ -403,6 +416,17 @@ function New-WindowsHostEvidenceBundle {
 
       Assert-NoHighRiskEvidenceResidue -Text $protected.Content
       $outputBytes = $script:Utf8NoBom.GetByteCount($protected.Content)
+      if ($outputBytes -gt $script:MaxEvidenceFileBytes) {
+        $entry = [ordered]@{
+          path = $base.path
+          sourceSize = $base.sourceSize
+          sourceSha256 = $base.sourceSha256
+          status = 'excluded'
+          reason = 'redacted_file_too_large'
+        }
+        $entries.Add([pscustomobject]$entry)
+        continue
+      }
       if (($includedBytes + $outputBytes) -gt $script:MaxEvidenceBundleBytes) {
         $entry = [ordered]@{
           path = $base.path
@@ -438,12 +462,17 @@ function New-WindowsHostEvidenceBundle {
         allowedExtensions = @($script:AllowedEvidenceExtensions)
         maxFileBytes = $script:MaxEvidenceFileBytes
         maxBundleBytes = $script:MaxEvidenceBundleBytes
+        maxEntries = $script:MaxEvidenceEntries
       }
       files = $entries.ToArray()
     }
     $manifestJson = $manifest | ConvertTo-Json -Depth 16
-    if ($manifestJson.Contains($inputFull) -or $manifestJson.Contains($outputFull)) {
-      throw 'Evidence manifest leaked an absolute input or output path.'
+    foreach ($forbiddenPath in @($inputFull, $outputFull)) {
+      foreach ($candidate in @($forbiddenPath, $forbiddenPath.Replace('\', '\\'), $forbiddenPath.Replace('\', '/'))) {
+        if ($manifestJson.IndexOf($candidate, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+          throw 'Evidence manifest leaked an absolute input or output path.'
+        }
+      }
     }
     Write-Utf8NoBom -Path (Join-Path $stage 'bundle-manifest.json') -Content $manifestJson
     Move-Item -LiteralPath $stage -Destination $outputFull

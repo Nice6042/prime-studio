@@ -113,14 +113,16 @@ powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass `
 The bundler:
 
 - includes only `.txt`, `.json`, `.xml`, `.csv`, `.md`, and `.log` files;
-- caps each file at 2 MiB and the included bundle at 32 MiB;
-- does not traverse reparse-point directories and rejects reparse-point files before hashing or
-  reading them;
+- caps source and redacted files at 2 MiB, the included bundle at 32 MiB, and the input at
+  4,096 files;
+- rejects a reparse-point input root, does not traverse reparse-point directories, and rejects
+  reparse-point files before hashing or reading them;
 - rejects binary content, screenshots, archives, executables, installers,
   traces, databases, and other non-allowlisted evidence;
 - redacts repository, user-profile, and temporary paths;
-- redacts authorization and cookie headers, secret-named JSON properties, common provider and
-  collaboration token shapes, JWTs, and email addresses;
+- redacts authorization and cookie headers, secret-named JSON properties, quoted-key fallback
+  records, secret-named XML elements, common provider and collaboration token shapes, JWTs, and
+  email addresses;
 - writes UTF-8 without a byte-order mark and normalizes line endings;
 - writes a deterministic `bundle-manifest.json` sorted by relative path, with source and bundled
   SHA-256 hashes plus explicit exclusion reasons;

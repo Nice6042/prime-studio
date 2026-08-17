@@ -74,8 +74,9 @@ test("collector and bundler expose only the reviewed bounded surface", async () 
 
   assert.match(moduleSource, /MaxEvidenceFileBytes\s*=\s*2\s*\*\s*1024\s*\*\s*1024/u);
   assert.match(moduleSource, /MaxEvidenceBundleBytes\s*=\s*32\s*\*\s*1024\s*\*\s*1024/u);
+  assert.match(moduleSource, /MaxEvidenceEntries\s*=\s*4096/u);
   assert.match(moduleSource, /AllowedEvidenceExtensions\s*=\s*@\('\.txt', '\.json', '\.xml', '\.csv', '\.md', '\.log'\)/u);
-  for (const exclusion of ["reparse_point", "extension_not_allowed", "file_too_large", "binary_content", "bundle_budget_exceeded"]) {
+  for (const exclusion of ["reparse_point", "extension_not_allowed", "file_too_large", "redacted_file_too_large", "binary_content", "bundle_budget_exceeded"]) {
     assert.match(moduleSource, new RegExp(`['\"]${exclusion}['\"]`, "u"));
   }
   for (const marker of [
@@ -96,6 +97,8 @@ test("collector and bundler expose only the reviewed bounded surface", async () 
   }
 
   assert.match(moduleSource, /function Get-SafeEvidenceFiles/u);
+  assert.match(moduleSource, /Evidence input root must not be a reparse point/u);
+  assert.match(moduleSource, /return ,\$items/u);
   assert.match(moduleSource, /sourceSize = \$null[\s\S]+reason = 'reparse_point'/u);
   assert.match(moduleSource, /elseif \(\$result\.Status -eq 'unavailable'\) \{ 'unavailable' \}/u);
   assert.match(collectSource, /Invoke-WindowsHostPreflightCollection/u);

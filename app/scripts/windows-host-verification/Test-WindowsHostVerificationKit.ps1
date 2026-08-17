@@ -73,6 +73,8 @@ try {
       clientSecret = $providerKey
       owner = $email
     }
+    oneElementArray = @([ordered]@{ apiToken = 'opaque-array-secret'; label = 'one' })
+    emptyArray = @()
   }
   [IO.File]::WriteAllText(
     (Join-Path $inputRoot 'nested.json'),
@@ -80,6 +82,10 @@ try {
     (New-Object Text.UTF8Encoding($false))
   )
   [IO.File]::WriteAllText((Join-Path $inputRoot 'safe.md'), '# Safe evidence', (New-Object Text.UTF8Encoding($false)))
+  [IO.File]::WriteAllText((Join-Path $inputRoot 'empty.log'), '', (New-Object Text.UTF8Encoding($false)))
+  [IO.File]::WriteAllText((Join-Path $inputRoot 'malformed.json'), '{"password":"opaque-malformed-secret",}', (New-Object Text.UTF8Encoding($false)))
+  [IO.File]::WriteAllText((Join-Path $inputRoot 'named-secret.xml'), '<root><apiToken>opaque-xml-secret</apiToken><tokenCount>7</tokenCount></root>', (New-Object Text.UTF8Encoding($false)))
+  [IO.File]::WriteAllText((Join-Path $inputRoot 'expanding.log'), ((1..150000 | ForEach-Object { 'apiToken=x' }) -join "`n"), (New-Object Text.UTF8Encoding($false)))
   [IO.File]::WriteAllBytes((Join-Path $inputRoot 'binary.log'), [byte[]](0, 255, 0, 1, 2, 3))
   [IO.File]::WriteAllBytes((Join-Path $inputRoot 'screenshot.png'), [byte[]](137, 80, 78, 71))
   [IO.File]::WriteAllText(
@@ -111,6 +117,16 @@ try {
   Assert-True -Condition ($redactedJson.tokenCount -eq 7) -Message 'Benign token-count metadata was over-redacted.'
   Assert-True -Condition ($redactedJson.repositoryPath -eq '<REPOSITORY_ROOT>') -Message 'Repository path in JSON was not redacted.'
   Assert-True -Condition ($redactedJson.nested.owner -eq '<EMAIL_REDACTED>') -Message 'Email in JSON was not redacted.'
+  Assert-True -Condition (@($redactedJson.oneElementArray).Count -eq 1) -Message 'One-element JSON array lost its array identity.'
+  Assert-True -Condition ($redactedJson.oneElementArray[0].apiToken -eq '<REDACTED>') -Message 'Secret inside a JSON array was not redacted.'
+  Assert-True -Condition (@($redactedJson.emptyArray).Count -eq 0) -Message 'Empty JSON array did not remain empty.'
+  Assert-True -Condition ([IO.File]::ReadAllText((Join-Path $bundleA 'empty.log')).Length -eq 0) -Message 'Empty text evidence was not preserved.'
+  $malformedJson = [IO.File]::ReadAllText((Join-Path $bundleA 'malformed.json'))
+  Assert-True -Condition (-not $malformedJson.Contains('opaque-malformed-secret')) -Message 'Quoted secret in malformed JSON survived fallback redaction.'
+  Assert-True -Condition ($malformedJson.Contains('<REDACTED>')) -Message 'Malformed JSON did not receive a redaction marker.'
+  $redactedXml = [IO.File]::ReadAllText((Join-Path $bundleA 'named-secret.xml'))
+  Assert-True -Condition (-not $redactedXml.Contains('opaque-xml-secret')) -Message 'Secret-named XML element survived redaction.'
+  Assert-True -Condition ($redactedXml.Contains('<tokenCount>7</tokenCount>')) -Message 'Benign XML token-count metadata was over-redacted.'
 
   $manifest = [IO.File]::ReadAllText($manifestAPath) | ConvertFrom-Json
   Assert-True -Condition ($manifest.classification -eq 'HOST_COLLECTED_UNREVIEWED') -Message 'Bundle classification was not fail-closed.'
@@ -122,6 +138,8 @@ try {
   Assert-True -Condition (($entries | Where-Object { $_.path -eq 'binary.log' }).reason -eq 'binary_content') -Message 'Binary content was not excluded.'
   Assert-True -Condition (($entries | Where-Object { $_.path -eq 'screenshot.png' }).reason -eq 'extension_not_allowed') -Message 'Screenshot evidence was not excluded for separate review.'
   Assert-True -Condition (($entries | Where-Object { $_.path -eq 'oversized.log' }).reason -eq 'file_too_large') -Message 'Oversized evidence was not excluded.'
+  Assert-True -Condition (($entries | Where-Object { $_.path -eq 'expanding.log' }).reason -eq 'redacted_file_too_large') -Message 'Post-redaction file growth was not bounded.'
+  Assert-True -Condition ($manifest.limits.maxEntries -eq 4096) -Message 'Manifest did not record the evidence-entry budget.'
   foreach ($entry in $entries) {
     Assert-True -Condition ($entry.sourceSha256 -match '^[a-f0-9]{64}$') -Message 'Manifest source hash was malformed.'
     if ($entry.status -eq 'included') {
