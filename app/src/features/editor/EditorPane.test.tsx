@@ -51,7 +51,7 @@ describe("EditorPane", () => {
     await userEvent.click(screen.getByRole("button", { name: "Apply display revision" }));
     expect(operations).toEqual([{
       action: "editor.canvas.apply",
-      payload: { chatId: "chat-1", messageId: "message-1", expectedRevision: 2, content: "Edited answer" },
+      payload: { documentId: JSON.stringify(["canvas", "session-one", "chat-1", "message-1", 0, 2]), chatId: "chat-1", messageId: "message-1", expectedRevision: 2, content: "Edited answer" },
     }]);
     expect(screen.getByText(/does not rewrite Harness history/)).toBeVisible();
   });

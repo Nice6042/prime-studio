@@ -5,6 +5,7 @@ import {
   MAX_EDITOR_BUFFER_ENTRIES,
   MAX_EDITOR_BUFFER_TOTAL_CODE_UNITS,
   artifactEditorDocumentId,
+  boundEditorBufferContent,
   canvasEditorDocumentId,
   createEditorBufferState,
   readEditorBuffer,
@@ -90,6 +91,12 @@ describe("identity-keyed editor buffers", () => {
     expect(state.order).toHaveLength(admitted);
     expect(readEditorBuffer(state, "large-0")).toBeUndefined();
     expect(readEditorBuffer(state, `large-${admitted}`)).toHaveLength(MAX_EDITOR_BUFFER_CODE_UNITS);
+  });
+
+  it("shares the surrogate-safe input bound with the editor surface", () => {
+    const bounded = boundEditorBufferContent(`${"x".repeat(MAX_EDITOR_BUFFER_CODE_UNITS - 1)}😀`);
+    expect(bounded).toHaveLength(MAX_EDITOR_BUFFER_CODE_UNITS - 1);
+    expect(bounded.endsWith("\ud83d")).toBe(false);
   });
 
   it("preserves an intentional empty draft, bounds content without splitting a surrogate pair, and clears one identity", () => {

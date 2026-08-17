@@ -636,24 +636,26 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         store.dispatch({ type: "conversation/version-selected", chatId: operation.payload.chatId, messageId: operation.payload.messageId, kind: operation.action === "conversation.user-version.select" ? "user" : "assistant", version: operation.payload.version });
         return { status: "updated", revision: operation.payload.version };
       case "editor.canvas.apply": {
-        const { chatId, messageId, expectedRevision, content } = operation.payload;
+        const { documentId, chatId, messageId, expectedRevision, content } = operation.payload;
         const activeCanvas = canvasRef.current;
-        const activeDocumentId = activeCanvas
+        const requestedIdentityOwned = Boolean(
+          activeCanvas
           && activeCanvas.chatId === chatId
           && activeCanvas.messageId === messageId
-          && activeCanvas.displayRevision === expectedRevision
-          ? canvasEditorDocumentId(activeCanvas)
-          : null;
+          && documentId === canvasEditorDocumentId({ ...activeCanvas, displayRevision: expectedRevision })
+        );
         const current = store.getSnapshot().canvasRevisions[chatId]?.[messageId];
         const activeCurrent = current?.sourceContent === activeCanvas?.sourceContent ? current : undefined;
         const currentRevision = activeCurrent?.revision ?? (activeCanvas?.chatId === chatId && activeCanvas.messageId === messageId ? activeCanvas.displayRevision : 1);
         const currentContent = activeCurrent?.content ?? (activeCanvas?.chatId === chatId && activeCanvas.messageId === messageId ? activeCanvas.content : null);
         if (currentRevision === expectedRevision + 1 && currentContent === content) {
-          if (activeDocumentId) setEditorBuffers((currentBuffers) => removeEditorBuffer(currentBuffers, activeDocumentId));
+          if (!requestedIdentityOwned) return { status: "rejected", reason: "The Canvas display revision changed before Apply completed.", retryable: false };
+          setEditorBuffers((currentBuffers) => removeEditorBuffer(currentBuffers, documentId));
           return { status: "updated", revision: currentRevision };
         }
         if (
-          navigationRef.current.selectedChatId !== chatId
+          !requestedIdentityOwned
+          || navigationRef.current.selectedChatId !== chatId
           || !activeCanvas
           || activeCanvas.chatId !== chatId
           || activeCanvas.messageId !== messageId
@@ -682,7 +684,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
           canvasRef.current = nextCanvas;
           setCanvas(nextCanvas);
         }
-        if (activeDocumentId) setEditorBuffers((currentBuffers) => removeEditorBuffer(currentBuffers, activeDocumentId));
+        setEditorBuffers((currentBuffers) => removeEditorBuffer(currentBuffers, documentId));
         return { status: "updated", revision };
       }
       case "workspace.switch":

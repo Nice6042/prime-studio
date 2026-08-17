@@ -750,7 +750,7 @@ describe("Studio application state", () => {
       await userEvent.type(editor, "Studio-only revision");
       await userEvent.click(screen.getByRole("button", { name: "Apply display revision" }));
       const apply = operations.find((operation) => operation.action === "editor.canvas.apply");
-      expect(apply).toEqual(expect.objectContaining({ payload: { chatId: chat.id, messageId: "a1", expectedRevision: 1, content: "Studio-only revision" } }));
+      expect(apply).toEqual(expect.objectContaining({ payload: { documentId: JSON.stringify(["canvas", rootSession.sessionId, chat.id, "a1", 0, 1]), chatId: chat.id, messageId: "a1", expectedRevision: 1, content: "Studio-only revision" } }));
       expect((await screen.findAllByText("Display revision 2")).length).toBe(2);
       expect(screen.getByText("Studio-only revision", { selector: ".parent-assistant-copy p" })).toBeVisible();
 
@@ -758,13 +758,16 @@ describe("Studio application state", () => {
       await userEvent.type(successorDraft, " successor draft");
       expect(successorDraft).toHaveValue("Studio-only revision successor draft");
       let replay: StudioOperationOutcome | undefined;
+      let foreignIdentity: StudioOperationOutcome | undefined;
       let stale: StudioOperationOutcome | undefined;
       await act(async () => {
         if (!activeDispatch || !apply) throw new Error("Studio dispatcher was not installed");
         replay = await activeDispatch(apply);
-        stale = await activeDispatch({ action: "editor.canvas.apply", payload: { chatId: chat.id, messageId: "a1", expectedRevision: 1, content: "stale overwrite" } });
+        foreignIdentity = await activeDispatch({ action: "editor.canvas.apply", payload: { documentId: JSON.stringify(["canvas", rootSession.sessionId, chat.id, "a1", 1, 1]), chatId: chat.id, messageId: "a1", expectedRevision: 1, content: "Studio-only revision" } });
+        stale = await activeDispatch({ action: "editor.canvas.apply", payload: { documentId: JSON.stringify(["canvas", rootSession.sessionId, chat.id, "a1", 0, 1]), chatId: chat.id, messageId: "a1", expectedRevision: 1, content: "stale overwrite" } });
       });
       expect(replay).toEqual({ status: "updated", revision: 2 });
+      expect(foreignIdentity).toEqual({ status: "rejected", reason: "The Canvas display revision changed before Apply completed.", retryable: false });
       expect(stale).toEqual({ status: "rejected", reason: "The Canvas display revision changed before Apply completed.", retryable: false });
       expect(screen.queryByText("stale overwrite")).not.toBeInTheDocument();
       expect(rootSession.parentMessages[1]).toEqual(expect.objectContaining({ id: "a1", blocks: [{ kind: "text", text: "Original answer" }] }));

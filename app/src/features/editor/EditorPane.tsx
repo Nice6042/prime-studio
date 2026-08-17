@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes } from 
 
 import { createControlBinding, type StudioOperation, type StudioOperationOutcome } from "../../contracts/studioOperations";
 import type { ArtifactDocument } from "../../entities/editor/types";
+import { boundEditorBufferContent } from "./editorBufferStore";
 import "./editor.css";
 
 export interface CanvasDocument {
@@ -168,7 +169,7 @@ export function EditorPane({
     if (!canvas || !documentId || !dirty) return;
     const requestedDocumentId = documentId;
     try {
-      const outcome = await onExecute({ action: "editor.canvas.apply", payload: { chatId: canvas.chatId, messageId: canvas.messageId, expectedRevision: canvas.displayRevision, content } });
+      const outcome = await onExecute({ action: "editor.canvas.apply", payload: { documentId: requestedDocumentId, chatId: canvas.chatId, messageId: canvas.messageId, expectedRevision: canvas.displayRevision, content } });
       const currentCanvas = activeCanvasRef.current;
       const exactSuccessor = outcome.status === "updated" && typeof outcome.revision === "number" && currentCanvas?.chatId === canvas.chatId
         && currentCanvas.messageId === canvas.messageId && currentCanvas.displayRevision === outcome.revision && currentCanvas.content === content;
@@ -207,7 +208,7 @@ export function EditorPane({
       </div> : <div className="studio-source-editor">
         <div className="studio-editor-meta"><span>{displayArtifact ? `Revision ${savedRevision}` : `Display revision ${canvas!.displayRevision}`}</span><span>{dirty ? "Unsaved changes" : "No unsaved changes"}</span></div>
         <textarea aria-label={displayArtifact ? "File content" : "Canvas content"} spellCheck={false} value={content} readOnly={Boolean(displayArtifact && !displayArtifact.writable)} onChange={(event) => {
-          const next = event.target.value.slice(0, 2 * 1024 * 1024);
+          const next = boundEditorBufferContent(event.target.value);
           setContent(next);
           onDraftChange?.(next);
           setNotice(null);

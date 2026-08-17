@@ -55,7 +55,7 @@ function assertDocumentId(documentId: string): void {
   ) throw new TypeError("Editor document identity is invalid.");
 }
 
-function boundedContent(content: string): string {
+export function boundEditorBufferContent(content: string): string {
   if (content.length <= MAX_EDITOR_BUFFER_CODE_UNITS) return content;
   let end = MAX_EDITOR_BUFFER_CODE_UNITS;
   const finalCodeUnit = content.charCodeAt(end - 1);
@@ -98,7 +98,7 @@ export function writeEditorBuffer(
   assertDocumentId(documentId);
   if (typeof content !== "string") throw new TypeError("Editor buffer content is invalid.");
 
-  const nextContent = boundedContent(content);
+  const nextContent = boundEditorBufferContent(content);
   const previousLength = own(state.values, documentId) ? state.values[documentId]!.length : 0;
   const values: Record<string, string> = Object.create(null) as Record<string, string>;
   for (const [key, value] of Object.entries(state.values)) values[key] = value;
