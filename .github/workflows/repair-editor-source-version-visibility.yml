@@ -34,6 +34,9 @@ jobs:
         run: |
           from pathlib import Path
 
+          def block(*lines: str) -> str:
+              return "\n".join(lines)
+
           def replace_once(text: str, before: str, after: str, label: str) -> str:
               count = text.count(before)
               if count != 1:
@@ -44,108 +47,146 @@ jobs:
           text = app.read_text(encoding="utf-8")
           text = replace_once(
               text,
-              '''        const activeCanvas = canvasRef.current;
-        const requestedIdentityOwned = Boolean(
-          activeCanvas
-          && activeCanvas.chatId === chatId
-          && activeCanvas.messageId === messageId
-          && documentId === canvasEditorDocumentId({ ...activeCanvas, displayRevision: expectedRevision })
-        );''',
-              '''        const activeCanvas = canvasRef.current;
-        const activeVersionState = store.getSnapshot().conversationDisplay[chatId]?.messages[messageId];
-        const activeSourceVersion = activeVersionState?.kind === "assistant" ? activeVersionState.selected : 0;
-        const requestedIdentityOwned = Boolean(
-          activeCanvas
-          && activeCanvas.chatId === chatId
-          && activeCanvas.messageId === messageId
-          && activeCanvas.sourceVersion === activeSourceVersion
-          && documentId === canvasEditorDocumentId({ ...activeCanvas, displayRevision: expectedRevision })
-        );''',
+              block(
+                  '        const activeCanvas = canvasRef.current;',
+                  '        const requestedIdentityOwned = Boolean(',
+                  '          activeCanvas',
+                  '          && activeCanvas.chatId === chatId',
+                  '          && activeCanvas.messageId === messageId',
+                  '          && documentId === canvasEditorDocumentId({ ...activeCanvas, displayRevision: expectedRevision })',
+                  '        );',
+              ),
+              block(
+                  '        const activeCanvas = canvasRef.current;',
+                  '        const activeVersionState = store.getSnapshot().conversationDisplay[chatId]?.messages[messageId];',
+                  '        const activeSourceVersion = activeVersionState?.kind === "assistant" ? activeVersionState.selected : 0;',
+                  '        const requestedIdentityOwned = Boolean(',
+                  '          activeCanvas',
+                  '          && activeCanvas.chatId === chatId',
+                  '          && activeCanvas.messageId === messageId',
+                  '          && activeCanvas.sourceVersion === activeSourceVersion',
+                  '          && documentId === canvasEditorDocumentId({ ...activeCanvas, displayRevision: expectedRevision })',
+                  '        );',
+              ),
               "Canvas Apply source-version ownership",
           )
-
-          mode_before = '''        const visibleArtifact = editorArtifact?.ref.rootSessionId === selectedSession?.sessionId ? editorArtifact : null;
-        const visibleCanvas = canvas?.chatId === navigation.selectedChatId && canvas.sessionId === selectedSession?.sessionId ? canvas : null;
-        const activeDocumentId = visibleArtifact'''
-          mode_after = '''        const visibleArtifact = editorArtifact?.ref.rootSessionId === selectedSession?.sessionId ? editorArtifact : null;
-        const canvasVersionState = canvas ? conversationDisplay[canvas.chatId]?.messages[canvas.messageId] : undefined;
-        const selectedCanvasSourceVersion = canvasVersionState?.kind === "assistant" ? canvasVersionState.selected : 0;
-        const visibleCanvas = canvas?.chatId === navigation.selectedChatId
-          && canvas.sessionId === selectedSession?.sessionId
-          && canvas.sourceVersion === selectedCanvasSourceVersion
-          ? canvas
-          : null;
-        const activeDocumentId = visibleArtifact'''
-          text = replace_once(text, mode_before, mode_after, "mode source-version visibility")
-
-          projection_before = '''  const visibleArtifact = editorArtifact?.ref.rootSessionId === selectedSession?.sessionId ? editorArtifact : null;
-  const visibleCanvas = canvas?.chatId === navigation.selectedChatId && canvas.sessionId === selectedSession?.sessionId ? canvas : null;
-  const activeEditorDocumentId = visibleArtifact'''
-          projection_after = '''  const visibleArtifact = editorArtifact?.ref.rootSessionId === selectedSession?.sessionId ? editorArtifact : null;
-  const canvasVersionState = canvas ? conversationDisplay[canvas.chatId]?.messages[canvas.messageId] : undefined;
-  const selectedCanvasSourceVersion = canvasVersionState?.kind === "assistant" ? canvasVersionState.selected : 0;
-  const visibleCanvas = canvas?.chatId === navigation.selectedChatId
-    && canvas.sessionId === selectedSession?.sessionId
-    && canvas.sourceVersion === selectedCanvasSourceVersion
-    ? canvas
-    : null;
-  const activeEditorDocumentId = visibleArtifact'''
-          text = replace_once(text, projection_before, projection_after, "render source-version visibility")
+          text = replace_once(
+              text,
+              block(
+                  '        const visibleArtifact = editorArtifact?.ref.rootSessionId === selectedSession?.sessionId ? editorArtifact : null;',
+                  '        const visibleCanvas = canvas?.chatId === navigation.selectedChatId && canvas.sessionId === selectedSession?.sessionId ? canvas : null;',
+                  '        const activeDocumentId = visibleArtifact',
+              ),
+              block(
+                  '        const visibleArtifact = editorArtifact?.ref.rootSessionId === selectedSession?.sessionId ? editorArtifact : null;',
+                  '        const canvasVersionState = canvas ? conversationDisplay[canvas.chatId]?.messages[canvas.messageId] : undefined;',
+                  '        const selectedCanvasSourceVersion = canvasVersionState?.kind === "assistant" ? canvasVersionState.selected : 0;',
+                  '        const visibleCanvas = canvas?.chatId === navigation.selectedChatId',
+                  '          && canvas.sessionId === selectedSession?.sessionId',
+                  '          && canvas.sourceVersion === selectedCanvasSourceVersion',
+                  '          ? canvas',
+                  '          : null;',
+                  '        const activeDocumentId = visibleArtifact',
+              ),
+              "mode source-version visibility",
+          )
+          text = replace_once(
+              text,
+              block(
+                  '  const visibleArtifact = editorArtifact?.ref.rootSessionId === selectedSession?.sessionId ? editorArtifact : null;',
+                  '  const visibleCanvas = canvas?.chatId === navigation.selectedChatId && canvas.sessionId === selectedSession?.sessionId ? canvas : null;',
+                  '  const activeEditorDocumentId = visibleArtifact',
+              ),
+              block(
+                  '  const visibleArtifact = editorArtifact?.ref.rootSessionId === selectedSession?.sessionId ? editorArtifact : null;',
+                  '  const canvasVersionState = canvas ? conversationDisplay[canvas.chatId]?.messages[canvas.messageId] : undefined;',
+                  '  const selectedCanvasSourceVersion = canvasVersionState?.kind === "assistant" ? canvasVersionState.selected : 0;',
+                  '  const visibleCanvas = canvas?.chatId === navigation.selectedChatId',
+                  '    && canvas.sessionId === selectedSession?.sessionId',
+                  '    && canvas.sourceVersion === selectedCanvasSourceVersion',
+                  '    ? canvas',
+                  '    : null;',
+                  '  const activeEditorDocumentId = visibleArtifact',
+              ),
+              "render source-version visibility",
+          )
           app.write_text(text, encoding="utf-8", newline="\n")
 
           tests = Path("app/src/app/StudioApp.test.tsx")
           text = tests.read_text(encoding="utf-8")
-          setup_anchor = '''      const successorDraft = screen.getByRole("textbox", { name: "Canvas content" });
-      await userEvent.type(successorDraft, " successor draft");
-      expect(successorDraft).toHaveValue("Studio-only revision successor draft");
-      let replay: StudioOperationOutcome | undefined;'''
-          setup_replacement = '''      const successorDraft = screen.getByRole("textbox", { name: "Canvas content" });
-      await userEvent.type(successorDraft, " successor draft");
-      expect(successorDraft).toHaveValue("Studio-only revision successor draft");
-      store.dispatch({ type: "conversation/version-appended", chatId: chat.id, messageId: "a1", kind: "assistant", text: "Alternate answer" });
-      let replay: StudioOperationOutcome | undefined;'''
-          text = replace_once(text, setup_anchor, setup_replacement, "alternate source-version setup")
-
-          declarations = '''      let replay: StudioOperationOutcome | undefined;
-      let foreignIdentity: StudioOperationOutcome | undefined;
-      let stale: StudioOperationOutcome | undefined;'''
-          replacement_declarations = '''      let replay: StudioOperationOutcome | undefined;
-      let foreignIdentity: StudioOperationOutcome | undefined;
-      let stale: StudioOperationOutcome | undefined;
-      let changedSourceVersion: StudioOperationOutcome | undefined;
-      let sourceVersionReplay: StudioOperationOutcome | undefined;'''
-          text = replace_once(text, declarations, replacement_declarations, "source-version outcomes")
-
-          act_anchor = '''        foreignIdentity = await activeDispatch({ action: "editor.canvas.apply", payload: { documentId: JSON.stringify(["canvas", rootSession.sessionId, chat.id, "a1", 1, 1]), chatId: chat.id, messageId: "a1", expectedRevision: 1, content: "Studio-only revision" } });
-        stale = await activeDispatch({ action: "editor.canvas.apply", payload: { documentId: JSON.stringify(["canvas", rootSession.sessionId, chat.id, "a1", 0, 1]), chatId: chat.id, messageId: "a1", expectedRevision: 1, content: "stale overwrite" } });'''
-          act_replacement = '''        foreignIdentity = await activeDispatch({ action: "editor.canvas.apply", payload: { documentId: JSON.stringify(["canvas", rootSession.sessionId, chat.id, "a1", 1, 1]), chatId: chat.id, messageId: "a1", expectedRevision: 1, content: "Studio-only revision" } });
-        stale = await activeDispatch({ action: "editor.canvas.apply", payload: { documentId: JSON.stringify(["canvas", rootSession.sessionId, chat.id, "a1", 0, 1]), chatId: chat.id, messageId: "a1", expectedRevision: 1, content: "stale overwrite" } });
-        changedSourceVersion = await activeDispatch({ action: "conversation.assistant-version.select", payload: { chatId: chat.id, messageId: "a1", version: 1 } });
-        sourceVersionReplay = await activeDispatch(apply);'''
-          text = replace_once(text, act_anchor, act_replacement, "source-version replay operations")
-
-          expectation_anchor = '''      expect(foreignIdentity).toEqual({ status: "rejected", reason: "The Canvas display revision changed before Apply completed.", retryable: false });
-      expect(stale).toEqual({ status: "rejected", reason: "The Canvas display revision changed before Apply completed.", retryable: false });
-      expect(screen.queryByText("stale overwrite")).not.toBeInTheDocument();'''
-          expectation_replacement = '''      expect(foreignIdentity).toEqual({ status: "rejected", reason: "The Canvas display revision changed before Apply completed.", retryable: false });
-      expect(stale).toEqual({ status: "rejected", reason: "The Canvas display revision changed before Apply completed.", retryable: false });
-      expect(changedSourceVersion).toEqual({ status: "updated", revision: 1 });
-      expect(sourceVersionReplay).toEqual({ status: "rejected", reason: "The Canvas display revision changed before Apply completed.", retryable: false });
-      expect(screen.queryByText("stale overwrite")).not.toBeInTheDocument();
-      expect(await screen.findByText("No verified file or Canvas revision")).toBeVisible();'''
-          text = replace_once(text, expectation_anchor, expectation_replacement, "source-version replay expectations")
-
-          reopen_anchor = '''      const editorRegion = screen.getByRole("region", { name: "Editor" });
-      await userEvent.click(within(editorRegion).getByRole("button", { name: "Close editor" }));
-      await userEvent.click(screen.getByRole("button", { name: "Edit answer in Canvas" }));
-      expect(await screen.findByRole("textbox", { name: "Canvas content" })).toHaveValue("Studio-only revision successor draft");'''
-          reopen_replacement = '''      await act(async () => {
-        if (!activeDispatch) throw new Error("Studio dispatcher was not installed");
-        await activeDispatch({ action: "conversation.assistant-version.select", payload: { chatId: chat.id, messageId: "a1", version: 0 } });
-      });
-      await userEvent.click(screen.getByRole("button", { name: "Edit answer in Canvas" }));
-      expect(await screen.findByRole("textbox", { name: "Canvas content" })).toHaveValue("Studio-only revision successor draft");'''
-          text = replace_once(text, reopen_anchor, reopen_replacement, "source-version restoration")
+          text = replace_once(
+              text,
+              block(
+                  '      const successorDraft = screen.getByRole("textbox", { name: "Canvas content" });',
+                  '      await userEvent.type(successorDraft, " successor draft");',
+                  '      expect(successorDraft).toHaveValue("Studio-only revision successor draft");',
+                  '      let replay: StudioOperationOutcome | undefined;',
+                  '      let foreignIdentity: StudioOperationOutcome | undefined;',
+                  '      let stale: StudioOperationOutcome | undefined;',
+              ),
+              block(
+                  '      const successorDraft = screen.getByRole("textbox", { name: "Canvas content" });',
+                  '      await userEvent.type(successorDraft, " successor draft");',
+                  '      expect(successorDraft).toHaveValue("Studio-only revision successor draft");',
+                  '      store.dispatch({ type: "conversation/version-appended", chatId: chat.id, messageId: "a1", kind: "assistant", text: "Alternate answer" });',
+                  '      store.dispatch({ type: "conversation/version-selected", chatId: chat.id, messageId: "a1", kind: "assistant", version: 0 });',
+                  '      let replay: StudioOperationOutcome | undefined;',
+                  '      let foreignIdentity: StudioOperationOutcome | undefined;',
+                  '      let stale: StudioOperationOutcome | undefined;',
+                  '      let changedSourceVersion: StudioOperationOutcome | undefined;',
+                  '      let sourceVersionReplay: StudioOperationOutcome | undefined;',
+              ),
+              "alternate source-version setup",
+          )
+          text = replace_once(
+              text,
+              block(
+                  '        foreignIdentity = await activeDispatch({ action: "editor.canvas.apply", payload: { documentId: JSON.stringify(["canvas", rootSession.sessionId, chat.id, "a1", 1, 1]), chatId: chat.id, messageId: "a1", expectedRevision: 1, content: "Studio-only revision" } });',
+                  '        stale = await activeDispatch({ action: "editor.canvas.apply", payload: { documentId: JSON.stringify(["canvas", rootSession.sessionId, chat.id, "a1", 0, 1]), chatId: chat.id, messageId: "a1", expectedRevision: 1, content: "stale overwrite" } });',
+              ),
+              block(
+                  '        foreignIdentity = await activeDispatch({ action: "editor.canvas.apply", payload: { documentId: JSON.stringify(["canvas", rootSession.sessionId, chat.id, "a1", 1, 1]), chatId: chat.id, messageId: "a1", expectedRevision: 1, content: "Studio-only revision" } });',
+                  '        stale = await activeDispatch({ action: "editor.canvas.apply", payload: { documentId: JSON.stringify(["canvas", rootSession.sessionId, chat.id, "a1", 0, 1]), chatId: chat.id, messageId: "a1", expectedRevision: 1, content: "stale overwrite" } });',
+                  '        changedSourceVersion = await activeDispatch({ action: "conversation.assistant-version.select", payload: { chatId: chat.id, messageId: "a1", version: 1 } });',
+                  '        sourceVersionReplay = await activeDispatch(apply);',
+              ),
+              "source-version replay operations",
+          )
+          text = replace_once(
+              text,
+              block(
+                  '      expect(foreignIdentity).toEqual({ status: "rejected", reason: "The Canvas display revision changed before Apply completed.", retryable: false });',
+                  '      expect(stale).toEqual({ status: "rejected", reason: "The Canvas display revision changed before Apply completed.", retryable: false });',
+                  '      expect(screen.queryByText("stale overwrite")).not.toBeInTheDocument();',
+              ),
+              block(
+                  '      expect(foreignIdentity).toEqual({ status: "rejected", reason: "The Canvas display revision changed before Apply completed.", retryable: false });',
+                  '      expect(stale).toEqual({ status: "rejected", reason: "The Canvas display revision changed before Apply completed.", retryable: false });',
+                  '      expect(changedSourceVersion).toEqual({ status: "updated", revision: 1 });',
+                  '      expect(sourceVersionReplay).toEqual({ status: "rejected", reason: "The Canvas display revision changed before Apply completed.", retryable: false });',
+                  '      expect(screen.queryByText("stale overwrite")).not.toBeInTheDocument();',
+                  '      expect(await screen.findByText("No verified file or Canvas revision")).toBeVisible();',
+              ),
+              "source-version replay expectations",
+          )
+          text = replace_once(
+              text,
+              block(
+                  '      const editorRegion = screen.getByRole("region", { name: "Editor" });',
+                  '      await userEvent.click(within(editorRegion).getByRole("button", { name: "Close editor" }));',
+                  '      await userEvent.click(screen.getByRole("button", { name: "Edit answer in Canvas" }));',
+                  '      expect(await screen.findByRole("textbox", { name: "Canvas content" })).toHaveValue("Studio-only revision successor draft");',
+              ),
+              block(
+                  '      await act(async () => {',
+                  '        if (!activeDispatch) throw new Error("Studio dispatcher was not installed");',
+                  '        await activeDispatch({ action: "conversation.assistant-version.select", payload: { chatId: chat.id, messageId: "a1", version: 0 } });',
+                  '      });',
+                  '      await userEvent.click(screen.getByRole("button", { name: "Edit answer in Canvas" }));',
+                  '      expect(await screen.findByRole("textbox", { name: "Canvas content" })).toHaveValue("Studio-only revision successor draft");',
+              ),
+              "source-version restoration",
+          )
           tests.write_text(text, encoding="utf-8", newline="\n")
 
       - name: Run focused regressions and production build
