@@ -215,10 +215,14 @@ test("file and Canvas drafts persist without crossing editor identities", async 
   await editor.getByRole("button", { name: "Close editor" }).click();
   await sidebar.getByRole("button", { name: /Prime Harness architecture.*status: Working/i }).first().click();
   await expect(shellPage.getByRole("main", { name: "Prime Harness architecture" })).toBeVisible();
-  await shellPage.getByRole("button", { name: "Open editor" }).click();
+  const report = harness.getByRole("button", { name: /Harness report/ });
+  if (!(await report.isVisible())) {
+    await harness.locator("summary").filter({ hasText: /^Outputs/u }).click();
+  }
+  await report.click();
+  await editor.getByRole("tab", { name: "Edit" }).click();
   await expect(editor.getByRole("textbox", { name: "File content" })).toHaveValue("Unapplied file draft.");
   await editor.getByRole("button", { name: "Close editor" }).click();
-
   await harness.locator("summary").filter({ hasText: /^Sources/u }).click();
   await harness.getByRole("button", { name: /Harness contract/ }).click();
   await editor.getByRole("tab", { name: "Edit" }).click();
