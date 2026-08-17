@@ -30,6 +30,10 @@ jobs:
       - name: Apply adversarial boundary hardening
         shell: pwsh
         run: |
+          python .github/fix-windows-host-adversarial-patcher.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m py_compile .github/repair-windows-host-adversarial.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python .github/repair-windows-host-adversarial.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
