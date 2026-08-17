@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createControlBinding, type StudioOperation, type StudioOperationOutcome } from "../../contracts/studioOperations";
 import type { CommandAvailabilityContext } from "../../entities/commands/commandRegistry";
 import type { HarnessCompatibility, RuntimeIdentity } from "../../shared/ipc/harness.generated";
-import type { Account, AppSettings } from "../../types";
+import type { Account, AppSettings, LayoutPreferencesV1 } from "../../types";
 import type { SubscriptionQuotaProjection } from "../../quotaProjection";
 import type { HarnessComposerProjection } from "../harness/adapter";
 import { AccountUsageSettings } from "./AccountUsageSettings";
@@ -25,6 +25,7 @@ interface SettingsSharedProps {
   readonly runtime?: RuntimeIdentity | null;
   readonly onExecute?: (operation: StudioOperation) => Promise<StudioOperationOutcome>;
   readonly settings?: AppSettings;
+  readonly layout?: LayoutPreferencesV1;
   readonly onSetting?: (key: keyof AppSettings, value: string | null) => void;
   readonly onHarnessSetting?: (key: keyof AppSettings, value: string | null) => void;
   readonly onToolSetting?: (key: keyof AppSettings, value: string | null) => void;
@@ -39,9 +40,9 @@ interface SettingsSharedProps {
   readonly composerShortcutAvailability?: Readonly<{ enabled: boolean; reason?: string }>;
 }
 
-function SettingsPage({ section, compatibility, runtime = null, onExecute, settings = {}, onSetting, onHarnessSetting, onToolSetting, accounts = [], onAccountsChanged, onExportUsageCsv, composer, quota, quotaStatus, onRefreshQuota, commandAvailability = { admissionConnected: false }, composerShortcutAvailability = { enabled: false, reason: "Prompt admission is not connected." } }: SettingsSharedProps & { readonly section: StudioSettingsSectionId }) {
+function SettingsPage({ section, compatibility, runtime = null, onExecute, settings = {}, layout, onSetting, onHarnessSetting, onToolSetting, accounts = [], onAccountsChanged, onExportUsageCsv, composer, quota, quotaStatus, onRefreshQuota, commandAvailability = { admissionConnected: false }, composerShortcutAvailability = { enabled: false, reason: "Prompt admission is not connected." } }: SettingsSharedProps & { readonly section: StudioSettingsSectionId }) {
   switch (section) {
-    case "general": return <GeneralSettings settings={settings} onSetting={onSetting} />;
+    case "general": return <GeneralSettings settings={settings} layout={layout} onSetting={onSetting} onExecute={onExecute} />;
     case "appearance": return <AppearanceSettings settings={settings} onSetting={onSetting} />;
     case "composer": return <ComposerSettings settings={settings} onSetting={onSetting} />;
     case "harness": return <HarnessSettings compatibility={compatibility} settings={settings} onSetting={onHarnessSetting} />;
@@ -57,7 +58,7 @@ function SettingsPage({ section, compatibility, runtime = null, onExecute, setti
   }
 }
 
-export function SettingsShell({ section, onSection, onBack, compatibility, runtime, onExecute, settings, onSetting, onHarnessSetting, onToolSetting, accounts = [], onAccountsChanged, onExportUsageCsv, composer, quota, quotaStatus, onRefreshQuota, commandAvailability, composerShortcutAvailability }: SettingsSharedProps & {
+export function SettingsShell({ section, onSection, onBack, compatibility, runtime, onExecute, settings, layout, onSetting, onHarnessSetting, onToolSetting, accounts = [], onAccountsChanged, onExportUsageCsv, composer, quota, quotaStatus, onRefreshQuota, commandAvailability, composerShortcutAvailability }: SettingsSharedProps & {
   readonly section: string | null;
   readonly onSection: (section: StudioSettingsSectionId) => void;
   readonly onBack: () => void;
@@ -80,6 +81,6 @@ export function SettingsShell({ section, onSection, onBack, compatibility, runti
       <label className="studio-settings-search"><span className="sr-only">Search settings</span><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" /><path d="m16 16 5 5" /></svg><input type="search" aria-label="Search settings" data-control-id={controls.search.controlId} data-action={controls.search.action} value={query} onChange={(event) => setQuery(event.currentTarget.value.slice(0, 200))} placeholder="Search settings" /></label>
       <nav aria-label="Settings sections">{groups.map((group) => <section key={group}><h2>{group}</h2>{visible.filter((candidate) => candidate.group === group).map((candidate) => <button type="button" key={candidate.id} data-control-id={`${controls.section.controlId}.${candidate.id}`} data-action={controls.section.action} aria-current={active === candidate.id ? "page" : undefined} onClick={() => onSection(candidate.id)}><span>{candidate.label}</span><small>{candidate.description}</small></button>)}</section>)}</nav>
     </aside>
-    <section className="studio-settings-content" data-settings-section={active} aria-labelledby="studio-settings-title"><div className="studio-settings-page"><header><h1 id="studio-settings-title">{definition.label}</h1><span>{definition.description}</span></header><SettingsPage section={active} compatibility={compatibility} runtime={runtime} onExecute={onExecute} settings={settings} onSetting={onSetting} onHarnessSetting={onHarnessSetting} onToolSetting={onToolSetting} accounts={accounts} onAccountsChanged={onAccountsChanged} onExportUsageCsv={onExportUsageCsv} composer={composer} quota={quota} quotaStatus={quotaStatus} onRefreshQuota={onRefreshQuota} commandAvailability={commandAvailability} composerShortcutAvailability={composerShortcutAvailability} /></div></section>
+    <section className="studio-settings-content" data-settings-section={active} aria-labelledby="studio-settings-title"><div className="studio-settings-page"><header><h1 id="studio-settings-title">{definition.label}</h1><span>{definition.description}</span></header><SettingsPage section={active} compatibility={compatibility} runtime={runtime} onExecute={onExecute} settings={settings} layout={layout} onSetting={onSetting} onHarnessSetting={onHarnessSetting} onToolSetting={onToolSetting} accounts={accounts} onAccountsChanged={onAccountsChanged} onExportUsageCsv={onExportUsageCsv} composer={composer} quota={quota} quotaStatus={quotaStatus} onRefreshQuota={onRefreshQuota} commandAvailability={commandAvailability} composerShortcutAvailability={composerShortcutAvailability} /></div></section>
   </main>;
 }

@@ -125,6 +125,21 @@ describe("ProjectSidebar", () => {
     expect(onCollapse).toHaveBeenCalledOnce();
   });
 
+  it("prefills a new folder project from the configured default without silently creating it", async () => {
+  const onNewProject = vi.fn();
+  render(<ProjectSidebar {...workspaceProps} projects={projects} defaultProjectFolder={String.raw`D:\work\prime`} onSelectChat={() => undefined} onToggleProject={() => undefined}
+    onNewChat={() => undefined} onOpenSettings={() => undefined} onNewProject={onNewProject} />);
+
+  await userEvent.click(screen.getByRole("button", { name: "New project" }));
+  expect(screen.getByRole("textbox", { name: "Folder path" })).toHaveValue("D:\\work\\prime");
+  expect(screen.getByRole("button", { name: "Create project" })).toBeDisabled();
+  expect(onNewProject).not.toHaveBeenCalled();
+
+  await userEvent.type(screen.getByRole("textbox", { name: "Project name" }), "Default-root project");
+  await userEvent.click(screen.getByRole("button", { name: "Create project" }));
+  expect(onNewProject).toHaveBeenCalledWith("Default-root project", "D:\\work\\prime");
+});
+
   it("collects a project name and folder before requesting durable creation", async () => {
     const onNewProject = vi.fn();
     render(<ProjectSidebar {...workspaceProps} projects={projects} onSelectChat={() => undefined} onToggleProject={() => undefined}

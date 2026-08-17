@@ -230,6 +230,8 @@ export const test = base.extend<ShellFixtures>({
               secondary: { usedPercent: 70, windowMinutes: 10_080, resetsAt: 1_800_600_000 },
               staleAsOf: 1_799_999_000_000,
             };
+          case "pick_directory":
+            return "D:\\fixture\\Selected Workspace";
           case "get_app_settings":
             return { ...appSettings };
           case "set_app_setting": {

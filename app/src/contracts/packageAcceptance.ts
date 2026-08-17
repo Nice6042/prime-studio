@@ -107,7 +107,7 @@ export const FEATURE_ACCEPTANCE: readonly PackageFeatureAcceptance[] = Object.fr
 
   row("ST-01", "Settings replaces the workspace and Back to chat restores it", "complete", ["route.settings.open", "route.settings.back"]),
   row("ST-02", "left navigation groups and live-filters all 13 actual settings pages", "complete", ["settings.search.change", "settings.section.select"]),
-  row("ST-03", "General page wires theme, density, default project, send shortcut, panel width, restore, and motion", "partial", ["settings.preference.set", "settings.preference.reset"]),
+  row("ST-03", "General page wires theme, density, default project, send shortcut, panel width, restore, and motion", "complete", ["settings.preference.set", "settings.preference.reset", "settings.default-workspace.pick", "layout.sidebar.resize", "layout.inspector.resize", "layout.editor.resize", "layout.panels.reset"]),
   row("ST-04", "Appearance page wires accent, font size, timestamps, and compact bubbles", "complete", ["settings.preference.set"]),
   row("ST-05", "Composer page wires voice visibility, token estimate, and spell check", "complete", ["settings.preference.set"]),
   row("ST-06", "Harness page wires concurrency, turn budget, retry policy, and context discovery", "partial", ["settings.harness-policy.set"]),
