@@ -98,6 +98,11 @@ test("collector and bundler expose only the reviewed bounded surface", async () 
 
   assert.match(moduleSource, /function Get-SafeEvidenceFiles/u);
   assert.match(moduleSource, /function Get-TextSha256/u);
+  assert.match(moduleSource, /function Get-SafeObservationText/u);
+  assert.doesNotMatch(moduleSource, /UnescapeDataString|MakeRelativeUri/u);
+  assert.match(moduleSource, /Substring\(\$rootPrefix\.Length\)/u);
+  assert.match(moduleSource, /catch \{[\s\S]*Status = 'failed'[\s\S]*ExitCode = \$null/u);
+  assert.match(moduleSource, /version = if \(\$versionLine\.Count -eq 1\) \{ Get-SafeObservationText/u);
   assert.match(moduleSource, /Evidence input root must not be a reparse point/u);
   assert.match(moduleSource, /sourcePathSha256/u);
   assert.match(moduleSource, /Sort-Object PathHash/u);

@@ -66,8 +66,10 @@ The preflight binds the evidence to:
   `tauri.conf.json`, and `rust-toolchain.toml`;
 - Windows build, architecture, PowerShell, and WebView2 observations;
 - executable path after path redaction and SHA-256 when a concrete executable is available;
-- version-command status for Node, npm, Rust, Cargo, Git, and the first available reviewed Prime
-  command candidate.
+- bounded, control-free version-command status for Node, npm, Rust, Cargo, Git, and the first
+  available reviewed Prime command candidate;
+- command-start failures as explicit failed observations with no invented exit code, rather than
+  aborting or silently skipping the rest of collection.
 
 A discovered Prime command is only an observation. The preflight does not prove that its package,
 entrypoint, daemon, schema, adapter, or capability closure matches a reviewed profile.
@@ -126,7 +128,9 @@ The bundler:
 - writes UTF-8 without a byte-order mark and normalizes line endings;
 - never writes the raw relative evidence filename; every manifest and output path is a deterministic
   ordinal plus a SHA-256-derived source-path pseudonym, preventing filenames from leaking personal
-  data, credentials, reserved device names, or excessive path length;
+  data, credentials, reserved device names, or excessive path length; source-path identity is
+  derived from literal canonical path text without URI decoding, so `%xx` filename sequences remain
+  distinct;
 - writes a deterministic `bundle-manifest.json` sorted by pseudonymous path, with a full
   source-path SHA-256, bounded source and bundled SHA-256 hashes, plus explicit exclusion reasons;
 - records no content hash for reparse points, disallowed extensions, or over-limit source files,

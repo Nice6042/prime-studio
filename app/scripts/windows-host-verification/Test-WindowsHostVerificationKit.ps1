@@ -119,6 +119,8 @@ try {
     (New-Object Text.UTF8Encoding($false))
   )
   [IO.File]::WriteAllText((Join-Path $inputRoot 'safe.md'), '# Safe evidence', (New-Object Text.UTF8Encoding($false)))
+  [IO.File]::WriteAllText((Join-Path $inputRoot 'percent%41.log'), 'literal percent path', (New-Object Text.UTF8Encoding($false)))
+  [IO.File]::WriteAllText((Join-Path $inputRoot 'percentA.log'), 'literal A path', (New-Object Text.UTF8Encoding($false)))
   $privateFileName = "$email.log"
   [IO.File]::WriteAllText((Join-Path $inputRoot $privateFileName), 'Private source name, safe content.', (New-Object Text.UTF8Encoding($false)))
   [IO.File]::WriteAllText((Join-Path $inputRoot 'empty.log'), '', (New-Object Text.UTF8Encoding($false)))
@@ -154,6 +156,9 @@ try {
   $screenshotEntry = Get-ManifestEntryForRelativePath -Manifest $manifest -RelativePath 'screenshot.png'
   $oversizedEntry = Get-ManifestEntryForRelativePath -Manifest $manifest -RelativePath 'oversized.log'
   $expandingEntry = Get-ManifestEntryForRelativePath -Manifest $manifest -RelativePath 'expanding.log'
+  $percentEncodedEntry = Get-ManifestEntryForRelativePath -Manifest $manifest -RelativePath 'percent%41.log'
+  $percentLiteralEntry = Get-ManifestEntryForRelativePath -Manifest $manifest -RelativePath 'percentA.log'
+  Assert-True -Condition ($percentEncodedEntry.sourcePathSha256 -ne $percentLiteralEntry.sourcePathSha256) -Message 'Literal percent sequences were decoded while deriving evidence identity.'
 
   $redactedPlain = [IO.File]::ReadAllText((Get-BundledEvidencePath -BundleRoot $bundleA -Entry $plainEntry))
   foreach ($forbidden in @($githubToken, $providerKey, $slackToken, $gitlabToken, $npmToken, $huggingFaceToken, $awsSecret, $jwt, $email, $privateKeyBlock, $repositoryRoot, $redactionProfileRoot, $redactionTempRoot)) {
@@ -216,6 +221,21 @@ try {
       Assert-True -Condition ((Get-FileHash $bundleAPath -Algorithm SHA256).Hash -eq (Get-FileHash $bundleBPath -Algorithm SHA256).Hash) -Message 'Included evidence output was not deterministic.'
     }
   }
+
+  $module = Get-Module WindowsHostVerification
+  $safeObservation = & $module { param($value) Get-SafeObservationText -Text $value } (([string]::new('z', 5000)) + [char]9 + 'tail')
+  Assert-True -Condition ($safeObservation.Length -eq 4096) -Message 'Tool observation text did not honor the schema bound.'
+  Assert-True -Condition ($safeObservation.IndexOf([char]9) -lt 0) -Message 'Tool observation text retained a control character.'
+
+  $brokenExecutable = Join-Path $testRoot 'broken-command.exe'
+  [IO.File]::WriteAllText($brokenExecutable, 'not a Windows executable', (New-Object Text.UTF8Encoding($false)))
+  $failedStart = & $module {
+    param($executable, $workingDirectory, $repository, $profile, $temporary)
+    Invoke-BoundedExternalCommand -Command $executable -WorkingDirectory $workingDirectory -TimeoutSeconds 5 -RepositoryRoot $repository -UserProfileRoot $profile -TempRoot $temporary
+  } $brokenExecutable $testRoot $repositoryRoot $redactionProfileRoot $redactionTempRoot
+  Assert-True -Condition ($failedStart.Status -eq 'failed') -Message 'An executable start failure escaped instead of becoming failed evidence.'
+  Assert-True -Condition ($null -eq $failedStart.ExitCode) -Message 'An executable start failure invented an exit code.'
+  Assert-True -Condition (-not [string]::IsNullOrWhiteSpace($failedStart.Output)) -Message 'An executable start failure did not preserve a redacted reason.'
 
   $preflight = Invoke-WindowsHostPreflightCollection -RepositoryRoot $repositoryRoot -OutputRoot $preflightRoot
   Assert-True -Condition $preflight.Success -Message 'Preflight without source checks should complete.'

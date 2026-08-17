@@ -55,10 +55,18 @@ function Get-RelativeEvidencePath {
 
   $rootFull = [IO.Path]::GetFullPath($Root).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
   $pathFull = [IO.Path]::GetFullPath($Path)
-  $rootUri = New-Object System.Uri(($rootFull + [IO.Path]::DirectorySeparatorChar))
-  $pathUri = New-Object System.Uri($pathFull)
-  $relative = [Uri]::UnescapeDataString($rootUri.MakeRelativeUri($pathUri).ToString()).Replace('/', [IO.Path]::DirectorySeparatorChar)
-  if ([IO.Path]::IsPathRooted($relative) -or $relative -eq '..' -or $relative.StartsWith(('..' + [IO.Path]::DirectorySeparatorChar), [StringComparison]::Ordinal)) {
+  $rootPrefix = $rootFull + [IO.Path]::DirectorySeparatorChar
+  $comparison = if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+    [StringComparison]::OrdinalIgnoreCase
+  }
+  else {
+    [StringComparison]::Ordinal
+  }
+  if (-not $pathFull.StartsWith($rootPrefix, $comparison)) {
+    throw 'Evidence path escaped its declared root.'
+  }
+  $relative = $pathFull.Substring($rootPrefix.Length)
+  if ([string]::IsNullOrWhiteSpace($relative) -or [IO.Path]::IsPathRooted($relative) -or $relative -eq '..' -or $relative.StartsWith(('..' + [IO.Path]::DirectorySeparatorChar), [StringComparison]::Ordinal)) {
     throw 'Evidence path escaped its declared root.'
   }
   return $relative
@@ -572,6 +580,17 @@ function Get-BoundedLogText {
   return $Text.Substring(0, $head) + $marker + $Text.Substring($Text.Length - $tail)
 }
 
+function Get-SafeObservationText {
+  param(
+    [AllowNull()][AllowEmptyString()][string]$Text,
+    [int]$MaxCodeUnits = 4096
+  )
+
+  if ($null -eq $Text) { return $null }
+  $withoutControls = [regex]::Replace($Text, '[ --]', ' ')
+  return (Get-BoundedLogText -Text $withoutControls.Trim() -MaxCodeUnits $MaxCodeUnits)
+}
+
 function Invoke-BoundedExternalCommand {
   param(
     [Parameter(Mandatory = $true)][string]$Command,
@@ -658,9 +677,37 @@ function Invoke-BoundedExternalCommand {
       ExitCode = if ($completed) { $process.ExitCode } else { $null }
       DurationMs = [int64]$stopwatch.ElapsedMilliseconds
       Output = $protected.Content
-      ExecutablePath = $protectedPath
+      ExecutablePath = Get-SafeObservationText -Text $protectedPath
       ExecutableSha256 = $executableHash
-      CommandLine = $protectedCommand.Content
+      CommandLine = Get-SafeObservationText -Text $protectedCommand.Content
+    }
+  }
+  catch {
+    $message = if ($null -ne $_.Exception -and -not [string]::IsNullOrWhiteSpace($_.Exception.Message)) {
+      $_.Exception.Message
+    }
+    else {
+      'The external command failed before an exit code was available.'
+    }
+    $protectedFailure = Protect-WindowsHostEvidenceText -Text (Get-BoundedLogText -Text $message) -RepositoryRoot $RepositoryRoot -UserProfileRoot $UserProfileRoot -TempRoot $TempRoot
+    $commandLine = ($Command + ' ' + ($Arguments -join ' ')).Trim()
+    $protectedCommand = Protect-WindowsHostEvidenceText -Text $commandLine -RepositoryRoot $RepositoryRoot -UserProfileRoot $UserProfileRoot -TempRoot $TempRoot
+    $executableHash = if (Test-Path -LiteralPath $path -PathType Leaf) {
+      try { Get-Sha256 -Path $path } catch { $null }
+    }
+    else { $null }
+    $protectedPath = if (Test-Path -LiteralPath $path -PathType Leaf) {
+      try { (Protect-WindowsHostEvidenceText -Text ([IO.Path]::GetFullPath($path)) -RepositoryRoot $RepositoryRoot -UserProfileRoot $UserProfileRoot -TempRoot $TempRoot).Content } catch { $null }
+    }
+    else { $null }
+    return [pscustomobject]@{
+      Status = 'failed'
+      ExitCode = $null
+      DurationMs = [int64]$stopwatch.ElapsedMilliseconds
+      Output = $protectedFailure.Content
+      ExecutablePath = Get-SafeObservationText -Text $protectedPath
+      ExecutableSha256 = $executableHash
+      CommandLine = Get-SafeObservationText -Text $protectedCommand.Content
     }
   }
   finally {
@@ -687,8 +734,8 @@ function Get-ToolObservation {
     return [ordered]@{
       status = if ($result.Status -eq 'passed') { 'available' } else { $result.Status }
       command = $candidate
-      version = if ($versionLine.Count -eq 1) { $versionLine[0].Trim() } else { $null }
-      path = $result.ExecutablePath
+      version = if ($versionLine.Count -eq 1) { Get-SafeObservationText -Text $versionLine[0] } else { $null }
+      path = Get-SafeObservationText -Text $result.ExecutablePath
       sha256 = $result.ExecutableSha256
       exitCode = $result.ExitCode
       candidates = @($Candidates)
