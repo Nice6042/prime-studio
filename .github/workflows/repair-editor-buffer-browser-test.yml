@@ -39,24 +39,29 @@ jobs:
 
           path = Path("app/e2e/acceptance-matrix.spec.ts")
           text = path.read_text(encoding="utf-8")
-          before = '''  await shellPage.getByRole("button", { name: "Open editor" }).click();
-          await expect(editor.getByRole("textbox", { name: "File content" })).toHaveValue("Unapplied file draft.");
-          await editor.getByRole("button", { name: "Close editor" }).click();
-
-          await harness.locator("summary").filter({ hasText: /^Sources/u }).click();'''
-          after = '''  const report = harness.getByRole("button", { name: /Harness report/ });
-          if (!(await report.isVisible())) {
-            await harness.locator("summary").filter({ hasText: /^Outputs/u }).click();
-          }
-          await report.click();
-          await editor.getByRole("tab", { name: "Edit" }).click();
-          await expect(editor.getByRole("textbox", { name: "File content" })).toHaveValue("Unapplied file draft.");
-          await editor.getByRole("button", { name: "Close editor" }).click();
-
-          await harness.locator("summary").filter({ hasText: /^Sources/u }).click();'''
-          if text.count(before) != 1:
-              raise SystemExit(f"expected one browser-evidence anchor, found {text.count(before)}")
-          path.write_text(text.replace(before, after), encoding="utf-8", newline="\n")
+          test_start = text.find('test("file and Canvas drafts persist without crossing editor identities"')
+          if test_start < 0:
+              raise SystemExit("editor buffer browser test unavailable")
+          empty_state = text.find('No verified file or Canvas revision', test_start)
+          return_chat = text.find('  await sidebar.getByRole("button", { name: /Prime Harness architecture.*status: Working/i }).first().click();', empty_state)
+          open_marker = '  await shellPage.getByRole("button", { name: "Open editor" }).click();'
+          replace_start = text.find(open_marker, return_chat)
+          end_marker = '  await harness.locator("summary").filter({ hasText: /^Sources/u }).click();'
+          replace_end = text.find(end_marker, replace_start)
+          if empty_state < 0 or return_chat < 0 or replace_start < 0 or replace_end < 0:
+              raise SystemExit("identity-bound artifact reopen range unavailable")
+          replacement = "\n".join([
+              '  const report = harness.getByRole("button", { name: /Harness report/ });',
+              '  if (!(await report.isVisible())) {',
+              '    await harness.locator("summary").filter({ hasText: /^Outputs/u }).click();',
+              '  }',
+              '  await report.click();',
+              '  await editor.getByRole("tab", { name: "Edit" }).click();',
+              '  await expect(editor.getByRole("textbox", { name: "File content" })).toHaveValue("Unapplied file draft.");',
+              '  await editor.getByRole("button", { name: "Close editor" }).click();',
+              '',
+          ])
+          path.write_text(text[:replace_start] + replacement + text[replace_end:], encoding="utf-8", newline="\n")
 
       - name: Run exact failing browser scenario
         working-directory: app
