@@ -65,9 +65,29 @@ function Test-ReparsePointInPath {
     if ($current.FullName.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) -eq $rootFull) {
       break
     }
-    $current = $current.Parent
+    $current = if ($current -is [IO.FileInfo]) { $current.Directory } else { $current.Parent }
   }
   return $false
+}
+
+function Get-SafeEvidenceFiles {
+  param([Parameter(Mandatory = $true)][string]$Root)
+
+  $pending = New-Object 'System.Collections.Generic.Queue[System.IO.DirectoryInfo]'
+  $files = New-Object 'System.Collections.Generic.List[System.IO.FileInfo]'
+  $pending.Enqueue([IO.DirectoryInfo](Get-Item -LiteralPath $Root -Force))
+  while ($pending.Count -gt 0) {
+    $directory = $pending.Dequeue()
+    foreach ($item in @(Get-ChildItem -LiteralPath $directory.FullName -Force -ErrorAction Stop)) {
+      $isReparse = (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+      if ($item.PSIsContainer) {
+        if (-not $isReparse) { $pending.Enqueue([IO.DirectoryInfo]$item) }
+        continue
+      }
+      $files.Add([IO.FileInfo]$item)
+    }
+  }
+  return @($files | Sort-Object FullName)
 }
 
 function Add-TextRedaction {
@@ -120,16 +140,21 @@ function Protect-WindowsHostEvidenceText {
   $countRef = [ref]$count
   $protected = $Text
   $protected = Protect-ExactPath -Text $protected -Path $RepositoryRoot -Replacement '<REPOSITORY_ROOT>' -Count $countRef
-  $protected = Protect-ExactPath -Text $protected -Path $UserProfileRoot -Replacement '<USER_PROFILE>' -Count $countRef
   $protected = Protect-ExactPath -Text $protected -Path $TempRoot -Replacement '<TEMP>' -Count $countRef
+  $protected = Protect-ExactPath -Text $protected -Path $UserProfileRoot -Replacement '<USER_PROFILE>' -Count $countRef
 
   $protected = Add-TextRedaction -Text $protected -Pattern '(?im)^\s*(authorization|proxy-authorization)\s*:\s*.*$' -Replacement '$1: <REDACTED>' -Count $countRef -Options ([System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor [System.Text.RegularExpressions.RegexOptions]::Multiline)
   $protected = Add-TextRedaction -Text $protected -Pattern '(?im)^\s*(cookie|set-cookie)\s*:\s*.*$' -Replacement '$1: <REDACTED>' -Count $countRef -Options ([System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor [System.Text.RegularExpressions.RegexOptions]::Multiline)
-  $protected = Add-TextRedaction -Text $protected -Pattern '(?i)\b(authorization|token|secret|password|passphrase|api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|private[_-]?key|credential|cookie)\b\s*[:=]\s*(?:"[^"]*"|''[^'']*''|[^\s,;]+)' -Replacement '$1=<REDACTED>' -Count $countRef
+  $protected = Add-TextRedaction -Text $protected -Pattern '(?is)-----BEGIN (?<kind>(?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?)-----.*?-----END \k<kind>-----' -Replacement '<REDACTED_PRIVATE_KEY_BLOCK>' -Count $countRef
+  $protected = Add-TextRedaction -Text $protected -Pattern '(?i)\b([A-Za-z0-9_.-]*(?:authorization|token|secret|password|passphrase|api[_-]?key|access[_-]?key|private[_-]?key|credential|cookie)[A-Za-z0-9_.-]*)\b\s*[:=]\s*(?:"[^"]*"|''[^'']*''|[^\s,;]+)' -Replacement '$1=<REDACTED>' -Count $countRef
   $protected = Add-TextRedaction -Text $protected -Pattern '(?i)\b(?:bearer|basic)\s+[A-Za-z0-9._~+\-/=]{12,}' -Replacement '<REDACTED_AUTH>' -Count $countRef
+  $protected = Add-TextRedaction -Text $protected -Pattern '(?i)\bhttps?://[^/\s:@]+:[^/\s@]+@' -Replacement 'https://<REDACTED_URI_CREDENTIALS>@' -Count $countRef
   $protected = Add-TextRedaction -Text $protected -Pattern '(?i)\bgh[pousr]_[A-Za-z0-9_]{20,}\b' -Replacement '<REDACTED_GITHUB_TOKEN>' -Count $countRef
   $protected = Add-TextRedaction -Text $protected -Pattern '(?i)\bgithub_pat_[A-Za-z0-9_]{20,}\b' -Replacement '<REDACTED_GITHUB_TOKEN>' -Count $countRef
   $protected = Add-TextRedaction -Text $protected -Pattern '(?i)\bxox[baprs]-[A-Za-z0-9-]{10,}\b' -Replacement '<REDACTED_SLACK_TOKEN>' -Count $countRef
+  $protected = Add-TextRedaction -Text $protected -Pattern '(?i)\bglpat-[A-Za-z0-9_-]{20,}\b' -Replacement '<REDACTED_COLLABORATION_TOKEN>' -Count $countRef
+  $protected = Add-TextRedaction -Text $protected -Pattern '(?i)\bnpm_[A-Za-z0-9]{20,}\b' -Replacement '<REDACTED_PACKAGE_TOKEN>' -Count $countRef
+  $protected = Add-TextRedaction -Text $protected -Pattern '(?i)\bhf_[A-Za-z0-9]{20,}\b' -Replacement '<REDACTED_PROVIDER_KEY>' -Count $countRef
   $protected = Add-TextRedaction -Text $protected -Pattern '(?i)\bsk-(?:ant-|proj-)?[A-Za-z0-9_-]{20,}\b' -Replacement '<REDACTED_PROVIDER_KEY>' -Count $countRef
   $protected = Add-TextRedaction -Text $protected -Pattern '\bAIza[0-9A-Za-z_-]{30,}\b' -Replacement '<REDACTED_PROVIDER_KEY>' -Count $countRef
   $protected = Add-TextRedaction -Text $protected -Pattern '\bA(?:KIA|SIA)[A-Z0-9]{16}\b' -Replacement '<REDACTED_ACCESS_KEY>' -Count $countRef
@@ -149,13 +174,15 @@ function Test-SecretPropertyName {
   param([Parameter(Mandatory = $true)][string]$Name)
 
   $normalized = ($Name -replace '[^A-Za-z0-9]', '').ToLowerInvariant()
-  return $normalized -in @(
+  if ($normalized -in @(
     'authorization', 'proxyauthorization', 'cookie', 'setcookie',
     'token', 'accesstoken', 'refreshtoken', 'idtoken',
     'secret', 'clientsecret', 'password', 'passphrase',
     'apikey', 'accesskey', 'privatekey', 'credential', 'credentials',
     'sessionkey', 'signingkey'
-  )
+  )) { return $true }
+
+  return $normalized -match '(?:authorization|token|secret|password|passphrase|apikey|accesskey|privatekey|credential|cookie|signingkey)$'
 }
 
 function Protect-JsonNode {
@@ -258,7 +285,11 @@ function Assert-NoHighRiskEvidenceResidue {
     '(?i)\bgh[pousr]_[A-Za-z0-9_]{20,}\b',
     '(?i)\bgithub_pat_[A-Za-z0-9_]{20,}\b',
     '(?i)\bxox[baprs]-[A-Za-z0-9-]{10,}\b',
+    '(?i)\bglpat-[A-Za-z0-9_-]{20,}\b',
+    '(?i)\bnpm_[A-Za-z0-9]{20,}\b',
+    '(?i)\bhf_[A-Za-z0-9]{20,}\b',
     '(?i)\bsk-(?:ant-|proj-)?[A-Za-z0-9_-]{20,}\b',
+    '(?is)-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----',
     '\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b',
     '(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b'
   )
@@ -299,10 +330,21 @@ function New-WindowsHostEvidenceBundle {
   $includedBytes = 0L
 
   try {
-    $files = @(Get-ChildItem -LiteralPath $inputFull -Recurse -Force -File | Sort-Object FullName)
+    $files = @(Get-SafeEvidenceFiles -Root $inputFull)
     foreach ($file in $files) {
       $relative = Get-RelativeEvidencePath -Root $inputFull -Path $file.FullName
       $relativeManifestPath = $relative.Replace([IO.Path]::DirectorySeparatorChar, '/')
+      if (Test-ReparsePointInPath -Root $inputFull -Path $file.FullName) {
+        $entries.Add([pscustomobject][ordered]@{
+          path = $relativeManifestPath
+          sourceSize = $null
+          sourceSha256 = $null
+          status = 'excluded'
+          reason = 'reparse_point'
+        })
+        continue
+      }
+
       $sourceHash = Get-Sha256 -Path $file.FullName
       $base = [ordered]@{
         path = $relativeManifestPath
@@ -311,10 +353,7 @@ function New-WindowsHostEvidenceBundle {
       }
 
       $reason = $null
-      if (Test-ReparsePointInPath -Root $inputFull -Path $file.FullName) {
-        $reason = 'reparse_point'
-      }
-      elseif ($script:AllowedEvidenceExtensions -notcontains $file.Extension.ToLowerInvariant()) {
+      if ($script:AllowedEvidenceExtensions -notcontains $file.Extension.ToLowerInvariant()) {
         $reason = 'extension_not_allowed'
       }
       elseif ($file.Length -gt $script:MaxEvidenceFileBytes) {
@@ -397,7 +436,7 @@ function New-WindowsHostEvidenceBundle {
         maxFileBytes = $script:MaxEvidenceFileBytes
         maxBundleBytes = $script:MaxEvidenceBundleBytes
       }
-      files = @($entries)
+      files = $entries.ToArray()
     }
     $manifestJson = $manifest | ConvertTo-Json -Depth 16
     if ($manifestJson.Contains($inputFull) -or $manifestJson.Contains($outputFull)) {
@@ -523,12 +562,23 @@ function Invoke-BoundedExternalCommand {
     $stderrTask = $process.StandardError.ReadToEndAsync()
     $completed = $process.WaitForExit($TimeoutSeconds * 1000)
     if (-not $completed) {
-      try { $process.Kill() } catch { }
+      try {
+        $taskKill = Get-Command 'taskkill.exe' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($null -ne $taskKill) {
+          [void](& $taskKill.Source /PID $process.Id /T /F 2>$null)
+        }
+        else { $process.Kill() }
+      }
+      catch { try { $process.Kill() } catch { } }
       [void]$process.WaitForExit(5000)
     }
-    [void]$stdoutTask.Wait(5000)
-    [void]$stderrTask.Wait(5000)
-    $output = ($stdoutTask.Result + "`n" + $stderrTask.Result).Trim()
+    $stdoutCompleted = $false
+    $stderrCompleted = $false
+    try { $stdoutCompleted = $stdoutTask.Wait(5000) } catch { }
+    try { $stderrCompleted = $stderrTask.Wait(5000) } catch { }
+    $stdout = if ($stdoutCompleted -and -not $stdoutTask.IsFaulted) { $stdoutTask.Result } else { '<STDOUT_CAPTURE_INCOMPLETE>' }
+    $stderr = if ($stderrCompleted -and -not $stderrTask.IsFaulted) { $stderrTask.Result } else { '<STDERR_CAPTURE_INCOMPLETE>' }
+    $output = ($stdout + "`n" + $stderr).Trim()
     $output = Get-BoundedLogText -Text $output
     $protected = Protect-WindowsHostEvidenceText -Text $output -RepositoryRoot $RepositoryRoot -UserProfileRoot $UserProfileRoot -TempRoot $TempRoot
     $commandLine = ($Command + ' ' + ($Arguments -join ' ')).Trim()
@@ -750,7 +800,7 @@ function Invoke-WindowsHostSourceChecks {
     $logPath = Join-Path $logsRoot $logName
     Assert-NoHighRiskEvidenceResidue -Text $result.Output
     Write-Utf8NoBom -Path $logPath -Content $result.Output
-    $status = if ($result.Status -eq 'passed') { 'passed' } elseif ($result.Status -eq 'timed_out') { 'timed_out' } else { 'failed' }
+    $status = if ($result.Status -eq 'passed') { 'passed' } elseif ($result.Status -eq 'timed_out') { 'timed_out' } elseif ($result.Status -eq 'unavailable') { 'unavailable' } else { 'failed' }
     if ($status -ne 'passed') { $failed = $true }
     $records.Add([pscustomobject][ordered]@{
       id = $definition.id
@@ -765,7 +815,7 @@ function Invoke-WindowsHostSourceChecks {
 
   return [ordered]@{
     overall = if ($failed) { 'FAILED' } else { 'PASSED' }
-    commands = @($records)
+    commands = $records.ToArray()
   }
 }
 

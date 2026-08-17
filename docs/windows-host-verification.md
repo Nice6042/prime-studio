@@ -55,8 +55,8 @@ powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass `
 ```
 
 The requested checks are run independently and their redacted logs are preserved. If any check
-fails or times out, the script writes the failed evidence and exits non-zero. It never edits a
-failure into a pass.
+is unavailable, fails, or times out, the script writes that exact result and exits non-zero. It
+never edits a failure into a pass.
 
 The preflight binds the evidence to:
 
@@ -114,7 +114,9 @@ The bundler:
 
 - includes only `.txt`, `.json`, `.xml`, `.csv`, `.md`, and `.log` files;
 - caps each file at 2 MiB and the included bundle at 32 MiB;
-- rejects reparse-point paths, binary content, screenshots, archives, executables, installers,
+- does not traverse reparse-point directories and rejects reparse-point files before hashing or
+  reading them;
+- rejects binary content, screenshots, archives, executables, installers,
   traces, databases, and other non-allowlisted evidence;
 - redacts repository, user-profile, and temporary paths;
 - redacts authorization and cookie headers, secret-named JSON properties, common provider and

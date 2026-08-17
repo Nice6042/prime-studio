@@ -54,6 +54,8 @@ test("preflight schema is fail-closed for every external authority", async () =>
   );
   assert.equal(schema.$defs.sourceIdentity.properties.identityFiles.minItems, 6);
   assert.equal(schema.$defs.sourceIdentity.properties.identityFiles.maxItems, 6);
+  assert.ok(schema.$defs.sourceCheck.properties.status.enum.includes("unavailable"));
+  assert.equal(schema.$defs.toolObservation.properties.path.$ref, "#/$defs/nullableSafeText");
 });
 
 test("collector and bundler expose only the reviewed bounded surface", async () => {
@@ -83,12 +85,19 @@ test("collector and bundler expose only the reviewed bounded surface", async () 
     "<REDACTED_GITHUB_TOKEN>",
     "<REDACTED_PROVIDER_KEY>",
     "<REDACTED_SLACK_TOKEN>",
+    "<REDACTED_COLLABORATION_TOKEN>",
+    "<REDACTED_PACKAGE_TOKEN>",
+    "<REDACTED_PRIVATE_KEY_BLOCK>",
+    "<REDACTED_URI_CREDENTIALS>",
     "<REDACTED_JWT>",
     "<EMAIL_REDACTED>",
   ]) {
     assert.ok(moduleSource.includes(marker), `missing redaction marker ${marker}`);
   }
 
+  assert.match(moduleSource, /function Get-SafeEvidenceFiles/u);
+  assert.match(moduleSource, /sourceSize = \$null[\s\S]+reason = 'reparse_point'/u);
+  assert.match(moduleSource, /elseif \(\$result\.Status -eq 'unavailable'\) \{ 'unavailable' \}/u);
   assert.match(collectSource, /Invoke-WindowsHostPreflightCollection/u);
   assert.match(bundleSource, /New-WindowsHostEvidenceBundle/u);
   assert.match(selfTestSource, /Management\.Automation\.Language\.Parser/u);
@@ -109,7 +118,7 @@ test("documentation keeps collection, review, effects, signing, and release sepa
 
   assert.match(guide, /does\s+not attest the user's machine/iu);
   assert.match(guide, /includes only `\.txt`, `\.json`, `\.xml`, `\.csv`, `\.md`, and `\.log`/u);
-  assert.match(guide, /fails or times out, the script writes the failed evidence and exits non-zero/iu);
+  assert.match(guide, /is unavailable, fails, or times out, the script writes that exact result and exits non-zero/iu);
   assert.match(review, /HOST_REVIEWED_NOT_RELEASED/u);
   assert.match(review, /A successful `--version` probe alone is insufficient/u);
   assert.match(review, /Admission-only source contracts or deterministic fixtures\s+cannot satisfy this section/u);

@@ -29,29 +29,44 @@ $inputRoot = Join-Path $testRoot 'raw'
 $bundleA = Join-Path $testRoot 'bundle-a'
 $bundleB = Join-Path $testRoot 'bundle-b'
 $preflightRoot = Join-Path $testRoot 'preflight'
+$redactionProfileRoot = Join-Path $testRoot 'synthetic-profile'
+$redactionTempRoot = Join-Path $redactionProfileRoot 'nested-temp'
 [void](New-Item -ItemType Directory -Path $inputRoot -Force)
 
 try {
   $githubToken = 'gh' + 'p_' + ((1..28 | ForEach-Object { 'a' }) -join '')
   $providerKey = 'sk-' + ((1..28 | ForEach-Object { 'b' }) -join '')
   $slackToken = 'xox' + 'b-' + ((1..20 | ForEach-Object { 'c' }) -join '')
+  $gitlabToken = 'glpat-' + ((1..24 | ForEach-Object { 'g' }) -join '')
+  $npmToken = 'npm_' + ((1..24 | ForEach-Object { 'h' }) -join '')
+  $huggingFaceToken = 'hf_' + ((1..24 | ForEach-Object { 'i' }) -join '')
+  $awsSecret = ((1..40 | ForEach-Object { 'j' }) -join '')
   $jwt = 'eyJ' + ((1..12 | ForEach-Object { 'd' }) -join '') + '.' + ((1..16 | ForEach-Object { 'e' }) -join '') + '.' + ((1..16 | ForEach-Object { 'f' }) -join '')
   $email = 'operator' + '@' + 'example.invalid'
+  $privateKeyBlock = "-----BEGIN PRIVATE KEY-----`n" + ((1..48 | ForEach-Object { 'k' }) -join '') + "`n-----END PRIVATE KEY-----"
 
   $plain = @(
     "Authorization: Bearer $githubToken",
+    "github=$githubToken",
     "provider_key=$providerKey",
     "slack=$slackToken",
+    "gitlab=$gitlabToken",
+    "npm=$npmToken",
+    "huggingface=$huggingFaceToken",
+    "AWS_SECRET_ACCESS_KEY=$awsSecret",
     "jwt=$jwt",
     "contact=$email",
+    $privateKeyBlock,
+    "remote=https://operator:$providerKey@example.invalid/repository",
     "repository=$repositoryRoot",
-    "profile=$env:USERPROFILE",
-    "temporary=$env:TEMP"
+    "profile=$redactionProfileRoot",
+    "temporary=$redactionTempRoot"
   ) -join "`r`n"
   [IO.File]::WriteAllText((Join-Path $inputRoot 'plain.log'), $plain, (New-Object Text.UTF8Encoding($false)))
 
   $nested = [ordered]@{
     accessToken = $githubToken
+    apiToken = $providerKey
     tokenCount = 7
     repositoryPath = $repositoryRoot
     nested = [ordered]@{
@@ -73,24 +88,25 @@ try {
     (New-Object Text.UTF8Encoding($false))
   )
 
-  [void](New-WindowsHostEvidenceBundle -InputRoot $inputRoot -OutputRoot $bundleA -RepositoryRoot $repositoryRoot -UserProfileRoot $env:USERPROFILE -TempRoot $env:TEMP)
-  [void](New-WindowsHostEvidenceBundle -InputRoot $inputRoot -OutputRoot $bundleB -RepositoryRoot $repositoryRoot -UserProfileRoot $env:USERPROFILE -TempRoot $env:TEMP)
+  [void](New-WindowsHostEvidenceBundle -InputRoot $inputRoot -OutputRoot $bundleA -RepositoryRoot $repositoryRoot -UserProfileRoot $redactionProfileRoot -TempRoot $redactionTempRoot)
+  [void](New-WindowsHostEvidenceBundle -InputRoot $inputRoot -OutputRoot $bundleB -RepositoryRoot $repositoryRoot -UserProfileRoot $redactionProfileRoot -TempRoot $redactionTempRoot)
 
   $manifestAPath = Join-Path $bundleA 'bundle-manifest.json'
   $manifestBPath = Join-Path $bundleB 'bundle-manifest.json'
   Assert-True -Condition ((Get-FileHash $manifestAPath -Algorithm SHA256).Hash -eq (Get-FileHash $manifestBPath -Algorithm SHA256).Hash) -Message 'Bundle manifests were not deterministic.'
 
   $redactedPlain = [IO.File]::ReadAllText((Join-Path $bundleA 'plain.log'))
-  foreach ($forbidden in @($githubToken, $providerKey, $slackToken, $jwt, $email, $repositoryRoot, $env:USERPROFILE, $env:TEMP)) {
+  foreach ($forbidden in @($githubToken, $providerKey, $slackToken, $gitlabToken, $npmToken, $huggingFaceToken, $awsSecret, $jwt, $email, $privateKeyBlock, $repositoryRoot, $redactionProfileRoot, $redactionTempRoot)) {
     if ([string]::IsNullOrWhiteSpace($forbidden)) { continue }
     Assert-True -Condition ($redactedPlain.IndexOf($forbidden, [StringComparison]::OrdinalIgnoreCase) -lt 0) -Message 'A high-risk value survived text redaction.'
   }
-  foreach ($expected in @('<REDACTED>', '<REDACTED_GITHUB_TOKEN>', '<REDACTED_PROVIDER_KEY>', '<REDACTED_SLACK_TOKEN>', '<REDACTED_JWT>', '<EMAIL_REDACTED>', '<REPOSITORY_ROOT>', '<USER_PROFILE>', '<TEMP>')) {
+  foreach ($expected in @('<REDACTED>', '<REDACTED_GITHUB_TOKEN>', '<REDACTED_PROVIDER_KEY>', '<REDACTED_SLACK_TOKEN>', '<REDACTED_COLLABORATION_TOKEN>', '<REDACTED_PACKAGE_TOKEN>', '<REDACTED_PRIVATE_KEY_BLOCK>', '<REDACTED_URI_CREDENTIALS>', '<REDACTED_JWT>', '<EMAIL_REDACTED>', '<REPOSITORY_ROOT>', '<USER_PROFILE>', '<TEMP>')) {
     Assert-True -Condition ($redactedPlain.Contains($expected)) -Message "Expected redaction marker was missing: $expected"
   }
 
   $redactedJson = [IO.File]::ReadAllText((Join-Path $bundleA 'nested.json')) | ConvertFrom-Json
   Assert-True -Condition ($redactedJson.accessToken -eq '<REDACTED>') -Message 'Secret-named JSON property was not redacted.'
+  Assert-True -Condition ($redactedJson.apiToken -eq '<REDACTED>') -Message 'Compound token property was not redacted.'
   Assert-True -Condition ($redactedJson.nested.clientSecret -eq '<REDACTED>') -Message 'Nested secret-named JSON property was not redacted.'
   Assert-True -Condition ($redactedJson.tokenCount -eq 7) -Message 'Benign token-count metadata was over-redacted.'
   Assert-True -Condition ($redactedJson.repositoryPath -eq '<REPOSITORY_ROOT>') -Message 'Repository path in JSON was not redacted.'

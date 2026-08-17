@@ -45,6 +45,12 @@
     "nullableString": {
       "type": ["string", "null"]
     },
+    "nullableSafeText": {
+      "oneOf": [
+        { "$ref": "#/$defs/safeText" },
+        { "type": "null" }
+      ]
+    },
     "nullableInteger": {
       "type": ["integer", "null"]
     },
@@ -137,7 +143,7 @@
         "status": { "type": "string", "const": "available" },
         "version": { "$ref": "#/$defs/safeText" },
         "edition": { "$ref": "#/$defs/safeText" },
-        "path": { "$ref": "#/$defs/nullableString" },
+        "path": { "$ref": "#/$defs/nullableSafeText" },
         "sha256": { "$ref": "#/$defs/nullableSha256" }
       }
     },
@@ -150,8 +156,8 @@
           "type": "string",
           "enum": ["available", "unavailable"]
         },
-        "version": { "$ref": "#/$defs/nullableString" },
-        "path": { "$ref": "#/$defs/nullableString" },
+        "version": { "$ref": "#/$defs/nullableSafeText" },
+        "path": { "$ref": "#/$defs/nullableSafeText" },
         "sha256": { "$ref": "#/$defs/nullableSha256" }
       },
       "allOf": [
@@ -194,8 +200,8 @@
           "minLength": 1,
           "maxLength": 128
         },
-        "version": { "$ref": "#/$defs/nullableString" },
-        "path": { "$ref": "#/$defs/nullableString" },
+        "version": { "$ref": "#/$defs/nullableSafeText" },
+        "path": { "$ref": "#/$defs/nullableSafeText" },
         "sha256": { "$ref": "#/$defs/nullableSha256" },
         "exitCode": { "$ref": "#/$defs/nullableInteger" },
         "candidates": {
@@ -268,7 +274,7 @@
         },
         "status": {
           "type": "string",
-          "enum": ["passed", "failed", "timed_out"]
+          "enum": ["passed", "failed", "timed_out", "unavailable"]
         },
         "command": { "$ref": "#/$defs/safeText" },
         "exitCode": { "$ref": "#/$defs/nullableInteger" },
