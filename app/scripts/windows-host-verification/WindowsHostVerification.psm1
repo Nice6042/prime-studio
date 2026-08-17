@@ -34,6 +34,19 @@ function Get-Sha256 {
   return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
+function Get-TextSha256 {
+  param([AllowEmptyString()][Parameter(Mandatory = $true)][string]$Text)
+
+  $algorithm = [Security.Cryptography.SHA256]::Create()
+  try {
+    $bytes = $script:Utf8NoBom.GetBytes($Text)
+    return -join ($algorithm.ComputeHash($bytes) | ForEach-Object { $_.ToString('x2') })
+  }
+  finally {
+    $algorithm.Dispose()
+  }
+}
+
 function Get-RelativeEvidencePath {
   param(
     [Parameter(Mandatory = $true)][string]$Root,
@@ -95,7 +108,11 @@ function Get-SafeEvidenceFiles {
       }
     }
   }
-  return @($files | Sort-Object FullName)
+  $descriptors = @($files | ForEach-Object {
+    $relative = (Get-RelativeEvidencePath -Root $Root -Path $_.FullName).Replace([IO.Path]::DirectorySeparatorChar, '/')
+    [pscustomobject]@{ File = $_; PathHash = Get-TextSha256 -Text $relative }
+  })
+  return @($descriptors | Sort-Object PathHash | ForEach-Object { $_.File })
 }
 
 function Add-TextRedaction {
@@ -344,15 +361,23 @@ function New-WindowsHostEvidenceBundle {
   [void](New-Item -ItemType Directory -Path $stage)
   $entries = New-Object System.Collections.Generic.List[object]
   $includedBytes = 0L
+  $fileOrdinal = 0
 
   try {
     $files = @(Get-SafeEvidenceFiles -Root $inputFull)
     foreach ($file in $files) {
+      $fileOrdinal += 1
       $relative = Get-RelativeEvidencePath -Root $inputFull -Path $file.FullName
       $relativeManifestPath = $relative.Replace([IO.Path]::DirectorySeparatorChar, '/')
+      $sourcePathSha256 = Get-TextSha256 -Text $relativeManifestPath
+      $extension = $file.Extension.ToLowerInvariant()
+      $safeExtension = if ($script:AllowedEvidenceExtensions -contains $extension) { $extension } else { '.excluded' }
+      $bundlePath = 'evidence/{0:d4}-{1}{2}' -f $fileOrdinal, $sourcePathSha256.Substring(0, 16), $safeExtension
+
       if (Test-ReparsePointInPath -Root $inputFull -Path $file.FullName) {
         $entries.Add([pscustomobject][ordered]@{
-          path = $relativeManifestPath
+          path = $bundlePath
+          sourcePathSha256 = $sourcePathSha256
           sourceSize = $null
           sourceSha256 = $null
           status = 'excluded'
@@ -361,26 +386,21 @@ function New-WindowsHostEvidenceBundle {
         continue
       }
 
-      $sourceHash = Get-Sha256 -Path $file.FullName
-      $base = [ordered]@{
-        path = $relativeManifestPath
-        sourceSize = [int64]$file.Length
-        sourceSha256 = $sourceHash
-      }
-
+      $sourceSize = [int64]$file.Length
       $reason = $null
-      if ($script:AllowedEvidenceExtensions -notcontains $file.Extension.ToLowerInvariant()) {
+      if ($script:AllowedEvidenceExtensions -notcontains $extension) {
         $reason = 'extension_not_allowed'
       }
-      elseif ($file.Length -gt $script:MaxEvidenceFileBytes) {
+      elseif ($sourceSize -gt $script:MaxEvidenceFileBytes) {
         $reason = 'file_too_large'
       }
 
       if ($null -ne $reason) {
         $entry = [ordered]@{
-          path = $base.path
-          sourceSize = $base.sourceSize
-          sourceSha256 = $base.sourceSha256
+          path = $bundlePath
+          sourcePathSha256 = $sourcePathSha256
+          sourceSize = $sourceSize
+          sourceSha256 = $null
           status = 'excluded'
           reason = $reason
         }
@@ -388,10 +408,19 @@ function New-WindowsHostEvidenceBundle {
         continue
       }
 
+      $sourceHash = Get-Sha256 -Path $file.FullName
+      $base = [ordered]@{
+        path = $bundlePath
+        sourcePathSha256 = $sourcePathSha256
+        sourceSize = $sourceSize
+        sourceSha256 = $sourceHash
+      }
+
       $decoded = Read-EvidenceTextFile -Path $file.FullName
       if (-not $decoded.IsText) {
         $entry = [ordered]@{
           path = $base.path
+          sourcePathSha256 = $base.sourcePathSha256
           sourceSize = $base.sourceSize
           sourceSha256 = $base.sourceSha256
           status = 'excluded'
@@ -419,6 +448,7 @@ function New-WindowsHostEvidenceBundle {
       if ($outputBytes -gt $script:MaxEvidenceFileBytes) {
         $entry = [ordered]@{
           path = $base.path
+          sourcePathSha256 = $base.sourcePathSha256
           sourceSize = $base.sourceSize
           sourceSha256 = $base.sourceSha256
           status = 'excluded'
@@ -430,6 +460,7 @@ function New-WindowsHostEvidenceBundle {
       if (($includedBytes + $outputBytes) -gt $script:MaxEvidenceBundleBytes) {
         $entry = [ordered]@{
           path = $base.path
+          sourcePathSha256 = $base.sourcePathSha256
           sourceSize = $base.sourceSize
           sourceSha256 = $base.sourceSha256
           status = 'excluded'
@@ -439,11 +470,12 @@ function New-WindowsHostEvidenceBundle {
         continue
       }
 
-      $destination = Join-Path $stage $relative
+      $destination = Join-Path $stage ($base.path.Replace('/', [IO.Path]::DirectorySeparatorChar))
       Write-Utf8NoBom -Path $destination -Content $protected.Content
       $includedBytes += $outputBytes
       $entry = [ordered]@{
         path = $base.path
+        sourcePathSha256 = $base.sourcePathSha256
         sourceSize = $base.sourceSize
         sourceSha256 = $base.sourceSha256
         status = 'included'

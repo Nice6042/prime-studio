@@ -124,8 +124,13 @@ The bundler:
   records, secret-named XML elements, common provider and collaboration token shapes, JWTs, and
   email addresses;
 - writes UTF-8 without a byte-order mark and normalizes line endings;
-- writes a deterministic `bundle-manifest.json` sorted by relative path, with source and bundled
-  SHA-256 hashes plus explicit exclusion reasons;
+- never writes the raw relative evidence filename; every manifest and output path is a deterministic
+  ordinal plus a SHA-256-derived source-path pseudonym, preventing filenames from leaking personal
+  data, credentials, reserved device names, or excessive path length;
+- writes a deterministic `bundle-manifest.json` sorted by pseudonymous path, with a full
+  source-path SHA-256, bounded source and bundled SHA-256 hashes, plus explicit exclusion reasons;
+- records no content hash for reparse points, disallowed extensions, or over-limit source files,
+  so excluded unbounded inputs are not read merely to produce a digest;
 - scans included output again and fails closed if a high-risk pattern remains.
 
 Excluded screenshots or binary artifacts may be reviewed separately only after a person checks

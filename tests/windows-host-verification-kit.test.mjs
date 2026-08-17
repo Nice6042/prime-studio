@@ -97,7 +97,11 @@ test("collector and bundler expose only the reviewed bounded surface", async () 
   }
 
   assert.match(moduleSource, /function Get-SafeEvidenceFiles/u);
+  assert.match(moduleSource, /function Get-TextSha256/u);
   assert.match(moduleSource, /Evidence input root must not be a reparse point/u);
+  assert.match(moduleSource, /sourcePathSha256/u);
+  assert.match(moduleSource, /Sort-Object PathHash/u);
+  assert.match(moduleSource, /evidence\/\{0:d4\}-\{1\}\{2\}/u);
   assert.match(moduleSource, /return ,\$items/u);
   assert.match(moduleSource, /sourceSize = \$null[\s\S]+reason = 'reparse_point'/u);
   assert.match(moduleSource, /elseif \(\$result\.Status -eq 'unavailable'\) \{ 'unavailable' \}/u);
