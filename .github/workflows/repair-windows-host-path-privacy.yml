@@ -27,12 +27,14 @@ jobs:
         with:
           node-version: 22.12.0
 
-      - name: Apply evidence-path privacy repair
+      - name: Apply evidence-path privacy and cross-root determinism repairs
         shell: pwsh
         run: |
-          python -m py_compile .github/repair-windows-host-path-privacy.py
+          python -m py_compile .github/repair-windows-host-path-privacy.py .github/repair-windows-host-path-privacy-followup.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python .github/repair-windows-host-path-privacy.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python .github/repair-windows-host-path-privacy-followup.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run source contract test
