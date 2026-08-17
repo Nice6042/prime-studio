@@ -16,6 +16,7 @@ jobs:
     timeout-minutes: 20
     env:
       PRIME_STUDIO_BROWSER_PORT: 43173
+      PRIME_STUDIO_AXE_MODE: strict
     steps:
       - name: Check out editor branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -35,29 +36,24 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
-          from textwrap import dedent
 
           path = Path("app/e2e/acceptance-matrix.spec.ts")
           text = path.read_text(encoding="utf-8")
-          before = dedent('''
-              await shellPage.getByRole("button", { name: "Open editor" }).click();
-              await expect(editor.getByRole("textbox", { name: "File content" })).toHaveValue("Unapplied file draft.");
-              await editor.getByRole("button", { name: "Close editor" }).click();
+          before = '''  await shellPage.getByRole("button", { name: "Open editor" }).click();
+          await expect(editor.getByRole("textbox", { name: "File content" })).toHaveValue("Unapplied file draft.");
+          await editor.getByRole("button", { name: "Close editor" }).click();
 
-              await harness.locator("summary").filter({ hasText: /^Sources/u }).click();
-          ''').strip()
-          after = dedent('''
-              const report = harness.getByRole("button", { name: /Harness report/ });
-              if (!(await report.isVisible())) {
-                await harness.locator("summary").filter({ hasText: /^Outputs/u }).click();
-              }
-              await report.click();
-              await editor.getByRole("tab", { name: "Edit" }).click();
-              await expect(editor.getByRole("textbox", { name: "File content" })).toHaveValue("Unapplied file draft.");
-              await editor.getByRole("button", { name: "Close editor" }).click();
+          await harness.locator("summary").filter({ hasText: /^Sources/u }).click();'''
+          after = '''  const report = harness.getByRole("button", { name: /Harness report/ });
+          if (!(await report.isVisible())) {
+            await harness.locator("summary").filter({ hasText: /^Outputs/u }).click();
+          }
+          await report.click();
+          await editor.getByRole("tab", { name: "Edit" }).click();
+          await expect(editor.getByRole("textbox", { name: "File content" })).toHaveValue("Unapplied file draft.");
+          await editor.getByRole("button", { name: "Close editor" }).click();
 
-              await harness.locator("summary").filter({ hasText: /^Sources/u }).click();
-          ''').strip()
+          await harness.locator("summary").filter({ hasText: /^Sources/u }).click();'''
           if text.count(before) != 1:
               raise SystemExit(f"expected one browser-evidence anchor, found {text.count(before)}")
           path.write_text(text.replace(before, after), encoding="utf-8", newline="\n")
@@ -69,9 +65,8 @@ jobs:
           set -euo pipefail
           npm ci
           npx playwright install --with-deps chromium
-          npm run build
           npx playwright test e2e/acceptance-matrix.spec.ts \
-            --config=e2e/playwright.config.ts \
+            --config=playwright.config.mjs \
             --project=browser-shell-chromium \
             --grep='file and Canvas drafts persist without crossing editor identities' \
             --workers=1 \
