@@ -14,4 +14,14 @@ for before, after, label in replacements:
     text = text.replace(before, after)
 
 path.write_text(text, encoding="utf-8", newline="\n")
-print("patched Windows PowerShell generic-list compatibility")
+
+test_path = Path("app/scripts/windows-host-verification/Test-WindowsHostVerificationKit.ps1")
+test_text = test_path.read_text(encoding="utf-8")
+before = '    "Authorization: Bearer $githubToken",\n    "provider_key=$providerKey",\n'
+after = '    "Authorization: Bearer $githubToken",\n    "github=$githubToken",\n    "provider_key=$providerKey",\n'
+count = test_text.count(before)
+if count != 1:
+    raise SystemExit(f"GitHub token-shape oracle: expected one anchor, found {count}")
+test_path.write_text(test_text.replace(before, after), encoding="utf-8", newline="\n")
+
+print("patched Windows PowerShell compatibility and token-shape oracle")
