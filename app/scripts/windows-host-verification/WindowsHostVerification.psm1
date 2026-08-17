@@ -92,7 +92,7 @@ function Get-SafeEvidenceFiles {
 
 function Add-TextRedaction {
   param(
-    [Parameter(Mandatory = $true)][string]$Text,
+    [AllowEmptyString()][Parameter(Mandatory = $true)][string]$Text,
     [Parameter(Mandatory = $true)][string]$Pattern,
     [Parameter(Mandatory = $true)][string]$Replacement,
     [Parameter(Mandatory = $true)][ref]$Count,
@@ -109,7 +109,7 @@ function Add-TextRedaction {
 
 function Protect-ExactPath {
   param(
-    [Parameter(Mandatory = $true)][string]$Text,
+    [AllowEmptyString()][Parameter(Mandatory = $true)][string]$Text,
     [AllowNull()][string]$Path,
     [Parameter(Mandatory = $true)][string]$Replacement,
     [Parameter(Mandatory = $true)][ref]$Count
@@ -139,6 +139,9 @@ function Protect-WindowsHostEvidenceText {
   $count = 0
   $countRef = [ref]$count
   $protected = $Text
+  if ($protected.Length -eq 0) {
+    return [pscustomobject]@{ Content = ''; Redactions = 0 }
+  }
   $protected = Protect-ExactPath -Text $protected -Path $RepositoryRoot -Replacement '<REPOSITORY_ROOT>' -Count $countRef
   $protected = Protect-ExactPath -Text $protected -Path $TempRoot -Replacement '<TEMP>' -Count $countRef
   $protected = Protect-ExactPath -Text $protected -Path $UserProfileRoot -Replacement '<USER_PROFILE>' -Count $countRef
