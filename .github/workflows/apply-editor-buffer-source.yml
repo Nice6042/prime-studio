@@ -1,0 +1,72 @@
+name: Apply editor buffer source integration
+
+on:
+  push:
+    branches:
+      - work/editor-buffer-persistence
+    paths:
+      - .github/workflows/apply-editor-buffer-source.yml
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out editor branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: work/editor-buffer-persistence
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6.0.0
+        with:
+          node-version: 22.12.0
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Fetch reviewed merge identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
+          git fetch --no-tags --depth=1 origin 0cf372430c5bb18a07f86a34e4d9079a0733cc27
+          git fetch --no-tags --depth=1 origin c8531df121a7bb9b0429f2b912756faaed36e0ca
+
+      - name: Apply reviewed integration and hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/dev/reconcile-editor-buffers.py
+          test ! -e scripts/dev/reconcile-editor-buffers.py
+          git diff --check
+
+      - name: Verify acceptance truth is unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code origin/main -- app/src/contracts/packageAcceptance.ts app/src/contracts/packageAcceptance.test.ts
+          grep -F 'row("ED-06", "file and Canvas buffers persist per session and artifact identity", "partial")' app/src/contracts/packageAcceptance.ts
+
+      - name: Run focused frontend validation
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npx vitest run src/features/editor/editorBufferStore.test.ts src/features/editor/EditorPane.test.tsx
+          npm run build
+
+      - name: Commit source integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/app/StudioApp.tsx app/src/features/editor/EditorPane.tsx app/src/features/editor/EditorPane.test.tsx app/e2e/acceptance-matrix.spec.ts scripts/dev/reconcile-editor-buffers.py
+          git commit -m "feat(editor): retain identity-bound file and Canvas drafts"
+          git push origin HEAD:work/editor-buffer-persistence
