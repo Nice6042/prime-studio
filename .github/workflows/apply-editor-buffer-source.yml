@@ -1,4 +1,5 @@
 name: Apply editor buffer source integration
+# Retry after the focused buffer assertion was corrected.
 
 on:
   push:
