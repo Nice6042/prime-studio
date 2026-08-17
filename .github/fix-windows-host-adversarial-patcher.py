@@ -27,5 +27,12 @@ replacement = r'''text = replace_once(
     "node entry budget assertion",
 )
 '''
-path.write_text(text[:start] + replacement + text[end:], encoding='utf-8', newline='\n')
-print('repaired adversarial patcher syntax')
+text = text[:start] + replacement + text[end:]
+quoted_before = r'''(?<key>[A-Za-z0-9_.-]*(?:authorization|token|secret|password|passphrase|api[_-]?key|access[_-]?key|private[_-]?key|credential|cookie)[A-Za-z0-9_.-]*)\\k<q>'''
+quoted_after = r'''(?<key>[A-Za-z0-9_.-]*(?:authorization|token|secret|password|passphrase|api[_-]?key|access[_-]?key|private[_-]?key|credential|cookie|signingkey))\\k<q>'''
+count = text.count(quoted_before)
+if count != 1:
+    raise SystemExit(f'quoted-key policy anchor expected one match, found {count}')
+text = text.replace(quoted_before, quoted_after)
+path.write_text(text, encoding='utf-8', newline='\n')
+print('repaired adversarial patcher syntax and quoted-key policy')
