@@ -1,0 +1,105 @@
+name: Repair editor identity regressions
+
+on:
+  push:
+    branches:
+      - work/editor-buffer-persistence
+    paths:
+      - .github/workflows/repair-editor-buffer-unit-tests.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out editor branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: work/editor-buffer-persistence
+          persist-credentials: true
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6.0.0
+        with:
+          node-version: 22.12.0
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Repair exact identities and idempotent Canvas cleanup
+        shell: python
+        run: |
+          from pathlib import Path
+
+          app = Path("app/src/app/StudioApp.tsx")
+          text = app.read_text(encoding="utf-8")
+          before = '''        const activeCanvas = canvasRef.current;
+          const activeDocumentId = activeCanvas ? canvasEditorDocumentId(activeCanvas) : null;'''
+          after = '''        const activeCanvas = canvasRef.current;
+          const activeDocumentId = activeCanvas
+            && activeCanvas.chatId === chatId
+            && activeCanvas.messageId === messageId
+            && activeCanvas.displayRevision === expectedRevision
+            ? canvasEditorDocumentId(activeCanvas)
+            : null;'''
+          if text.count(before) != 1:
+              raise SystemExit(f"Canvas cleanup identity anchor count was {text.count(before)}")
+          app.write_text(text.replace(before, after), encoding="utf-8", newline="\n")
+
+          tests = Path("app/src/app/StudioApp.test.tsx")
+          text = tests.read_text(encoding="utf-8")
+          old_id = 'JSON.stringify(["broker-1", rootSession.sessionId, "candidate-1", 7, document.identity])'
+          new_id = 'JSON.stringify(["artifact", "broker-1", rootSession.sessionId, "candidate-1", 7, document.identity])'
+          if text.count(old_id) != 2:
+              raise SystemExit(f"editor document expectation count was {text.count(old_id)}")
+          text = text.replace(old_id, new_id)
+
+          draft_anchor = '''      expect(screen.getByText("Studio-only revision", { selector: ".parent-assistant-copy p" })).toBeVisible();
+
+          let replay: StudioOperationOutcome | undefined;'''
+          draft_replacement = '''      expect(screen.getByText("Studio-only revision", { selector: ".parent-assistant-copy p" })).toBeVisible();
+          const successorDraft = screen.getByRole("textbox", { name: "Canvas content" });
+          await userEvent.type(successorDraft, " successor draft");
+          expect(successorDraft).toHaveValue("Studio-only revision successor draft");
+
+          let replay: StudioOperationOutcome | undefined;'''
+          if text.count(draft_anchor) != 1:
+              raise SystemExit(f"successor draft setup anchor count was {text.count(draft_anchor)}")
+          text = text.replace(draft_anchor, draft_replacement)
+
+          reopen_anchor = '''      expect(applyDisplay).toHaveBeenCalledWith({ chatId: chat.id, messageId: "a1", expectedRevision: 1, sourceContent: "Original answer", content: "Studio-only revision" });
+
+          view.unmount();'''
+          reopen_replacement = '''      expect(applyDisplay).toHaveBeenCalledWith({ chatId: chat.id, messageId: "a1", expectedRevision: 1, sourceContent: "Original answer", content: "Studio-only revision" });
+
+          await userEvent.click(screen.getByRole("button", { name: "Close editor" }));
+          await userEvent.click(screen.getByRole("button", { name: "Edit answer in Canvas" }));
+          expect(await screen.findByRole("textbox", { name: "Canvas content" })).toHaveValue("Studio-only revision successor draft");
+
+          view.unmount();'''
+          if text.count(reopen_anchor) != 1:
+              raise SystemExit(f"successor draft reopen anchor count was {text.count(reopen_anchor)}")
+          tests.write_text(text.replace(reopen_anchor, reopen_replacement), encoding="utf-8", newline="\n")
+
+      - name: Run focused regressions and production build
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npx vitest run src/app/StudioApp.test.tsx src/features/editor/EditorPane.test.tsx src/features/editor/editorBufferStore.test.ts --maxWorkers=2 --no-file-parallelism
+          npm run build
+
+      - name: Commit repaired source and tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/app/StudioApp.tsx app/src/app/StudioApp.test.tsx
+          git commit -m "fix(editor): preserve successor drafts across Canvas replay"
+          git push origin HEAD:work/editor-buffer-persistence
