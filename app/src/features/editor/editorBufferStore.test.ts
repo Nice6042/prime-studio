@@ -44,7 +44,7 @@ describe("identity-keyed editor buffers", () => {
       displayRevision: 1,
     });
 
-    expect(new Set([artifact, canvasA, canvasB, canvasVersion])).toHaveSize(4);
+    expect(new Set([artifact, canvasA, canvasB, canvasVersion]).size).toBe(4);
 
     let state = createEditorBufferState();
     state = writeEditorBuffer(state, artifact, "file draft");
