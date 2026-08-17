@@ -33,6 +33,7 @@ import { CommandPalette } from "../features/command-palette/CommandPalette";
 import type { PaletteChat, PaletteMessage } from "../features/command-palette/searchIndex";
 import { commandPlacements, createStudioCommandExecutor, shortcutStudioCommand, studioCommand, type StudioCommandId } from "../entities/commands/commandRegistry";
 import { EditorPane, type EditorMode } from "../features/editor/EditorPane";
+import { artifactEditorDocumentId, canvasEditorDocumentId, createEditorBufferState, readEditorBuffer, removeEditorBuffer, writeEditorBuffer } from "../features/editor/editorBufferStore";
 import { applyChatDisplayRevision, loadChatDisplayRevisions } from "../features/editor/chatDisplayClient";
 import type { ArtifactDocument } from "../entities/editor/types";
 import type { StudioOperation, StudioOperationOutcome } from "../contracts/studioOperations";
@@ -96,26 +97,6 @@ function operationAccepted(status: string): boolean {
   return status === "accepted" || status === "updated";
 }
 
-function artifactDraftKey(document: ArtifactDocument): string {
-  return JSON.stringify([
-    document.ref.brokerId,
-    document.ref.rootSessionId,
-    document.ref.artifactId,
-    document.ref.revision,
-    document.identity,
-  ]);
-}
-
-function artifactModeDocumentId(document: ArtifactDocument): string {
-  return JSON.stringify([
-    document.ref.brokerId,
-    document.ref.rootSessionId,
-    document.ref.artifactId,
-    document.ref.revision,
-    document.identity,
-  ]);
-}
-
 function ownsArtifactRevision(
   document: ArtifactDocument | null,
   documentId: string,
@@ -125,7 +106,7 @@ function ownsArtifactRevision(
 ): document is ArtifactDocument {
   return Boolean(
     document
-    && artifactModeDocumentId(document) === documentId
+    && artifactEditorDocumentId(document) === documentId
     && ref.revision === expectedRevision
     && document.ref.brokerId === ref.brokerId
     && document.ref.rootSessionId === ref.rootSessionId
@@ -133,10 +114,6 @@ function ownsArtifactRevision(
     && document.ref.revision === expectedRevision
     && document.identity === expectedIdentity,
   );
-}
-
-function canvasModeDocumentId(document: Readonly<{ chatId: string; messageId: string; displayRevision: number }>): string {
-  return JSON.stringify(["canvas", document.chatId, document.messageId, document.displayRevision]);
 }
 
 export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter }: { readonly harnessAdapter?: HarnessInspectorAdapter } = {}) {
@@ -194,7 +171,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const sidebarReplacementFocus = useRef<"rail.sidebar.toggle" | "sidebar.collapse" | null>(null);
   const sidebarHadFocus = useRef(false);
   const previousSidebarHost = useRef<"pane" | "rail" | "sheet" | null>(null);
-  const [canvas, setCanvas] = useState<Readonly<{ chatId: string; messageId: string; displayRevision: number; authorityRevision: number; sourceContent: string; content: string }> | null>(null);
+  const [canvas, setCanvas] = useState<Readonly<{ sessionId: string; chatId: string; messageId: string; sourceVersion: number; displayRevision: number; authorityRevision: number; sourceContent: string; content: string }> | null>(null);
   const canvasRef = useRef(canvas);
   canvasRef.current = canvas;
   const [editorArtifact, setEditorArtifact] = useState<ArtifactDocument | null>(null);
@@ -204,7 +181,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const artifactOpenGeneration = useRef(0);
   const editorOpenAdmission = useRef(0);
   const [editorMode, setEditorMode] = useState<EditorMode>("edit");
-  const [artifactDrafts, setArtifactDrafts] = useState<Readonly<Record<string, string>>>({});
+  const [editorBuffers, setEditorBuffers] = useState(createEditorBufferState);
   const navigationRef = useRef(navigation);
   navigationRef.current = navigation;
   const selectedSessionRef = useRef(selectedSession);
@@ -661,11 +638,13 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       case "editor.canvas.apply": {
         const { chatId, messageId, expectedRevision, content } = operation.payload;
         const activeCanvas = canvasRef.current;
+        const activeDocumentId = activeCanvas ? canvasEditorDocumentId(activeCanvas) : null;
         const current = store.getSnapshot().canvasRevisions[chatId]?.[messageId];
         const activeCurrent = current?.sourceContent === activeCanvas?.sourceContent ? current : undefined;
         const currentRevision = activeCurrent?.revision ?? (activeCanvas?.chatId === chatId && activeCanvas.messageId === messageId ? activeCanvas.displayRevision : 1);
         const currentContent = activeCurrent?.content ?? (activeCanvas?.chatId === chatId && activeCanvas.messageId === messageId ? activeCanvas.content : null);
         if (currentRevision === expectedRevision + 1 && currentContent === content) {
+          if (activeDocumentId) setEditorBuffers((currentBuffers) => removeEditorBuffer(currentBuffers, activeDocumentId));
           return { status: "updated", revision: currentRevision };
         }
         if (
@@ -698,6 +677,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
           canvasRef.current = nextCanvas;
           setCanvas(nextCanvas);
         }
+        if (activeDocumentId) setEditorBuffers((currentBuffers) => removeEditorBuffer(currentBuffers, activeDocumentId));
         return { status: "updated", revision };
       }
       case "workspace.switch":
@@ -807,14 +787,19 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       case "toast.dismiss": break;
       case "conversation.canvas.open": {
         const { chatId, messageId, expectedRevision, content } = operation.payload;
+        const admittedSessionId = selectedSessionRef.current?.sessionId;
+        const admittedVersionState = store.getSnapshot().conversationDisplay[chatId]?.messages[messageId];
+        const admittedSourceVersion = admittedVersionState?.kind === "assistant" ? admittedVersionState.selected : 0;
+        if (!admittedSessionId) return { status: "rejected", reason: "The selected response has no authoritative root session.", retryable: false };
         const stillExact = () => {
-          if (navigationRef.current.selectedChatId !== chatId) return false;
+          if (navigationRef.current.selectedChatId !== chatId || selectedSessionRef.current?.sessionId !== admittedSessionId) return false;
           const message = selectedSessionRef.current?.parentMessages.find((candidate) => candidate.kind === "assistant" && candidate.id === messageId);
           if (!message || message.kind !== "assistant" || message.streaming) return false;
           const snapshot = store.getSnapshot();
           const displayed = snapshot.canvasRevisions[chatId]?.[messageId];
           const source = message.blocks.filter((block) => block.kind === "text").map((block) => block.text).join("\n\n");
           const versionState = snapshot.conversationDisplay[chatId]?.messages[messageId];
+          if ((versionState?.kind === "assistant" ? versionState.selected : 0) !== admittedSourceVersion) return false;
           const selectedVersion = versionState?.kind === "assistant" ? versionState.versions[versionState.selected]?.text : null;
           const selectedContent = selectedVersion ?? source;
           const activeDisplay = displayed?.sourceContent === selectedContent ? displayed : undefined;
@@ -842,22 +827,23 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         const selectedVersion = versionState?.kind === "assistant" ? versionState.versions[versionState.selected]?.text : null;
         const selectedContent = selectedVersion ?? source;
         const activeDisplay = displayed?.sourceContent === selectedContent ? displayed : undefined;
-        const nextCanvas = Object.freeze({ chatId, messageId, displayRevision: expectedRevision, authorityRevision: displayed?.revision ?? 1, sourceContent: activeDisplay?.sourceContent ?? selectedContent, content });
+        const nextCanvas = Object.freeze({ sessionId: admittedSessionId, chatId, messageId, sourceVersion: admittedSourceVersion, displayRevision: expectedRevision, authorityRevision: displayed?.revision ?? 1, sourceContent: activeDisplay?.sourceContent ?? selectedContent, content });
         canvasRef.current = nextCanvas;
         setCanvas(nextCanvas);
         setActiveSheet("editor");
         return { status: "updated", revision: expectedRevision };
       }
       case "editor.mode.select": {
-        const visibleCanvas = canvas?.chatId === navigation.selectedChatId ? canvas : null;
-        const activeDocumentId = editorArtifact
-          ? artifactModeDocumentId(editorArtifact)
-          : visibleCanvas ? canvasModeDocumentId(visibleCanvas) : null;
+        const visibleArtifact = editorArtifact?.ref.rootSessionId === selectedSession?.sessionId ? editorArtifact : null;
+        const visibleCanvas = canvas?.chatId === navigation.selectedChatId && canvas.sessionId === selectedSession?.sessionId ? canvas : null;
+        const activeDocumentId = visibleArtifact
+          ? artifactEditorDocumentId(visibleArtifact)
+          : visibleCanvas ? canvasEditorDocumentId(visibleCanvas) : null;
         if (activeDocumentId === null) return { status: "unavailable", reason: "No identity-bound editor document is selected." };
         if (operation.payload.documentId !== activeDocumentId) {
           return { status: "rejected", reason: "The editor document changed before its mode could be selected.", retryable: false };
         }
-        if (operation.payload.mode === "diff" && !editorArtifact) {
+        if (operation.payload.mode === "diff" && !visibleArtifact) {
           return { status: "rejected", reason: "Diff mode requires an admitted artifact revision.", retryable: false };
         }
         setEditorMode(operation.payload.mode);
@@ -916,7 +902,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         editorArtifactRef.current = savedDocument;
         setEditorArtifact(savedDocument);
         setEditorAdmissionRevision((revision) => revision + 1);
-        setArtifactDrafts((current) => { const next = { ...current }; delete next[artifactDraftKey(latest)]; return Object.freeze(next); });
+        setEditorBuffers((current) => removeEditorBuffer(current, artifactEditorDocumentId(latest)));
         return { status: "updated", revision: result.revision, identity: result.identity };
       }
       case "editor.conflict.reload": {
@@ -935,7 +921,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
         editorArtifactRef.current = result.document;
         setEditorArtifact(result.document);
         setEditorAdmissionRevision((revision) => revision + 1);
-        setArtifactDrafts((current) => { const next = { ...current }; delete next[artifactDraftKey(latest)]; return Object.freeze(next); });
+        setEditorBuffers((current) => removeEditorBuffer(current, artifactEditorDocumentId(latest)));
         return { status: "updated", revision: result.document.ref.revision, identity: result.document.identity };
       }
       case "editor.conflict.save-copy": {
@@ -1445,6 +1431,20 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       setAdmissionPhase("idle");
     }
   };
+
+  const visibleArtifact = editorArtifact?.ref.rootSessionId === selectedSession?.sessionId ? editorArtifact : null;
+  const visibleCanvas = canvas?.chatId === navigation.selectedChatId && canvas.sessionId === selectedSession?.sessionId ? canvas : null;
+  const activeEditorDocumentId = visibleArtifact
+    ? artifactEditorDocumentId(visibleArtifact)
+    : visibleCanvas ? canvasEditorDocumentId(visibleCanvas) : null;
+  const activeEditorBaseline = visibleArtifact?.content ?? visibleCanvas?.content;
+  const activeEditorDraftContent = activeEditorDocumentId ? readEditorBuffer(editorBuffers, activeEditorDocumentId) : undefined;
+  const onActiveEditorDraftChange = activeEditorDocumentId && activeEditorBaseline !== undefined ? (content: string) => {
+    setEditorBuffers((current) => content === activeEditorBaseline
+      ? removeEditorBuffer(current, activeEditorDocumentId)
+      : writeEditorBuffer(current, activeEditorDocumentId, content));
+  } : undefined;
+
   return <div className="studio-application">
     <Toasts toasts={toasts} execute={dispatchOperation} retry={(operationId) => toastCoordinator.current!.retry(operationId)} />
     <TitleBar title={title} availability={commandAvailability} onCommand={runCommand} actions={<>
@@ -1569,20 +1569,15 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       />}
       editorContent={<EditorPane
         onClose={() => { void dispatchOperation({ action: "layout.editor.close", payload: {} }); }}
-        documentId={editorArtifact
-          ? artifactModeDocumentId(editorArtifact)
-          : canvas?.chatId === navigation.selectedChatId ? canvasModeDocumentId(canvas) : null}
-        mode={editorArtifact || canvas?.chatId === navigation.selectedChatId ? editorMode : "edit"}
+        documentId={activeEditorDocumentId}
+        mode={visibleArtifact || visibleCanvas ? editorMode : "edit"}
         onExecute={dispatchOperation}
-        artifact={editorArtifact}
+        artifact={visibleArtifact}
         admissionRevision={editorAdmissionRevision}
-        draftContent={editorArtifact ? artifactDrafts[artifactDraftKey(editorArtifact)] : undefined}
-        onDraftChange={editorArtifact ? (content) => {
-          const key = artifactDraftKey(editorArtifact);
-          setArtifactDrafts((current) => Object.freeze({ ...current, [key]: content }));
-        } : undefined}
+        draftContent={activeEditorDraftContent}
+        onDraftChange={onActiveEditorDraftChange}
         unsupportedReason="Open an identity-bound candidate from Harness Outputs, Sources, Activity, or a subagent file list."
-        canvas={canvas?.chatId === navigation.selectedChatId ? canvas : null}
+        canvas={visibleCanvas}
       />}
     />
     <RuntimeStatusBar

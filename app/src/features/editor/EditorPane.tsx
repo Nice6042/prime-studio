@@ -5,8 +5,10 @@ import type { ArtifactDocument } from "../../entities/editor/types";
 import "./editor.css";
 
 export interface CanvasDocument {
+  readonly sessionId: string;
   readonly chatId: string;
   readonly messageId: string;
+  readonly sourceVersion: number;
   readonly displayRevision: number;
   readonly content: string;
 }
@@ -54,7 +56,7 @@ export function EditorPane({
 }) {
   const [displayArtifact, setDisplayArtifact] = useState<ArtifactDocument | null>(artifact ?? null);
   const document = displayArtifact ?? canvas ?? null;
-  const [content, setContent] = useState(artifact ? (draftContent ?? artifact.content) : (canvas?.content ?? ""));
+  const [content, setContent] = useState(draftContent ?? artifact?.content ?? canvas?.content ?? "");
   const [saving, setSaving] = useState(false);
   const [recovering, setRecovering] = useState(false);
   const [conflict, setConflict] = useState(false);
@@ -81,7 +83,7 @@ export function EditorPane({
 
   useEffect(() => {
     setDisplayArtifact(artifact ?? null);
-    setContent(artifact ? (draftContent ?? artifact.content) : (canvas?.content ?? ""));
+    setContent(draftContent ?? artifact?.content ?? canvas?.content ?? "");
     setSaving(false);
     setRecovering(false);
     setConflict(false);
@@ -89,7 +91,7 @@ export function EditorPane({
     setSavedRevision(artifact?.ref.revision ?? 0);
     setSavedIdentity(artifact?.identity ?? "");
     setBaseline(artifact?.content ?? canvas?.content ?? "");
-  }, [admissionRevision, artifact?.ref.brokerId, artifact?.ref.rootSessionId, artifact?.ref.artifactId, artifact?.ref.revision, artifact?.identity, artifact?.content, canvas?.chatId, canvas?.messageId, canvas?.displayRevision]);
+  }, [admissionRevision, artifact?.ref.brokerId, artifact?.ref.rootSessionId, artifact?.ref.artifactId, artifact?.ref.revision, artifact?.identity, artifact?.content, canvas?.sessionId, canvas?.chatId, canvas?.messageId, canvas?.sourceVersion, canvas?.displayRevision]);
 
   const dirty = Boolean(document && content !== baseline);
   const counts = useMemo(() => displayArtifact?.diff.reduce(

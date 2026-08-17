@@ -185,6 +185,52 @@ test("editor covers empty, Canvas edit, and conflict-safe authority-unavailable 
   await expect(editor.getByText(/does not rewrite Harness history/)).toBeVisible();
 });
 
+
+test("file and Canvas drafts persist without crossing editor identities", async ({ shellPage }) => {
+  await shellPage.getByRole("button", { name: "Edit answer in Canvas" }).click();
+  const editor = shellPage.getByRole("region", { name: "Editor" });
+  await editor.getByRole("textbox", { name: "Canvas content" }).fill("Unapplied Canvas draft.");
+  await editor.getByRole("button", { name: "Close editor" }).click();
+
+  const sidebar = shellPage.getByRole("navigation", { name: "Projects and chats" });
+  await sidebar.getByRole("button", { name: /Inactive planning notes.*status: Idle/i }).click();
+  await expect(shellPage.getByRole("region", { name: "Inactive planning notes" })).toBeVisible();
+  await sidebar.getByRole("button", { name: /Prime Harness architecture.*status: Working/i }).first().click();
+  await expect(shellPage.getByRole("main", { name: "Prime Harness architecture" })).toBeVisible();
+  await shellPage.getByRole("button", { name: "Edit answer in Canvas" }).click();
+  await expect(editor.getByRole("textbox", { name: "Canvas content" })).toHaveValue("Unapplied Canvas draft.");
+  await editor.getByRole("button", { name: "Close editor" }).click();
+
+  const harness = shellPage.getByRole("complementary", { name: "Harness" });
+  await harness.locator("summary").filter({ hasText: /^Outputs/u }).click();
+  await harness.getByRole("button", { name: /Harness report/ }).click();
+  await editor.getByRole("tab", { name: "Edit" }).click();
+  await editor.getByRole("textbox", { name: "File content" }).fill("Unapplied file draft.");
+  await editor.getByRole("button", { name: "Close editor" }).click();
+
+  await sidebar.getByRole("button", { name: /Inactive planning notes.*status: Idle/i }).click();
+  await expect(shellPage.getByRole("region", { name: "Inactive planning notes" })).toBeVisible();
+  await shellPage.getByRole("button", { name: "Open editor" }).click();
+  await expect(editor.getByText("No verified file or Canvas revision")).toBeVisible();
+  await editor.getByRole("button", { name: "Close editor" }).click();
+  await sidebar.getByRole("button", { name: /Prime Harness architecture.*status: Working/i }).first().click();
+  await expect(shellPage.getByRole("main", { name: "Prime Harness architecture" })).toBeVisible();
+  await shellPage.getByRole("button", { name: "Open editor" }).click();
+  await expect(editor.getByRole("textbox", { name: "File content" })).toHaveValue("Unapplied file draft.");
+  await editor.getByRole("button", { name: "Close editor" }).click();
+
+  await harness.locator("summary").filter({ hasText: /^Sources/u }).click();
+  await harness.getByRole("button", { name: /Harness contract/ }).click();
+  await editor.getByRole("tab", { name: "Edit" }).click();
+  await expect(editor.getByRole("textbox", { name: "File content" })).not.toHaveValue("Unapplied file draft.");
+  await editor.getByRole("button", { name: "Close editor" }).click();
+
+  await harness.getByRole("button", { name: /Harness report/ }).click();
+  await editor.getByRole("tab", { name: "Edit" }).click();
+  await expect(editor.getByRole("textbox", { name: "File content" })).toHaveValue("Unapplied file draft.");
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-editor-buffer-persistence");
+});
+
 test("Canvas editor metadata meets the strict contrast gate", async ({ shellPage }) => {
   await shellPage.getByRole("button", { name: "Edit answer in Canvas" }).click();
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-editor-authority-matrix");
