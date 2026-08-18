@@ -1,0 +1,290 @@
+name: Final continuation cleanup after verified serial merges
+
+on:
+  push:
+    branches:
+      - audit/final-continuation-cleanup-20260818
+    paths:
+      - .github/workflows/final-continuation-cleanup.yml
+
+permissions:
+  actions: read
+  contents: write
+  issues: write
+  pull-requests: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Wait for completion proof, publish final snapshot, and delete only known audit branches
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          repo = "Nice6042/prime-studio"
+          token = os.environ["GH_TOKEN"]
+          api = "https://api.github.com"
+          own_branch = "audit/final-continuation-cleanup-20260818"
+          exact_title = "Select and implement the next bounded source-owned Prime Studio acceptance gap"
+          deadline = time.time() + 335 * 60
+          active_states = {"queued", "in_progress", "requested", "waiting", "pending"}
+
+          known_audit_branches = [
+              "audit/pr20-finalize-20260818",
+              "audit/ed06-native-drafts-20260818",
+              "audit/ed06-native-drafts-controller-20260818",
+              "audit/ed06-controller-supervisor-20260818",
+              "audit/ed06-status-projection-20260818",
+              "audit/ed06-status-projection-v2-20260818",
+              "audit/post-ed06-next-slice-20260818",
+              "audit/next-source-slice-controller-20260818",
+              "audit/cleanup-orchestration-20260818",
+              "audit/reconcile-continuation-20260818",
+              "audit/second-source-slice-queue-20260818",
+              "audit/third-source-slice-queue-20260818",
+          ]
+          known_status_branches = [
+              "audit/status-ed06-controller-running",
+              "audit/status-ed06-controller-blocked",
+              "audit/status-ed06-controller-completed",
+              "audit/status-ed06-pr-missing",
+              "audit/status-ed06-pr-open",
+              "audit/status-ed06-snapshot",
+              "audit/status-next-source-slice",
+          ]
+
+          def request(method, path, payload=None, *, missing_ok=False, accept="application/vnd.github+json"):
+              data = None if payload is None else json.dumps(payload).encode("utf-8")
+              headers = {
+                  "Accept": accept,
+                  "Authorization": f"Bearer {token}",
+                  "X-GitHub-Api-Version": "2022-11-28",
+                  "User-Agent": "prime-studio-final-continuation-cleaner",
+              }
+              if data is not None:
+                  headers["Content-Type"] = "application/json"
+              req = urllib.request.Request(api + path, data=data, headers=headers, method=method)
+              try:
+                  with urllib.request.urlopen(req, timeout=45) as response:
+                      body = response.read()
+                      return None if not body else json.loads(body.decode("utf-8"))
+              except urllib.error.HTTPError as exc:
+                  if missing_ok and exc.code == 404:
+                      return None
+                  detail = exc.read().decode("utf-8", "replace")
+                  raise RuntimeError(f"{method} {path}: HTTP {exc.code}: {detail[:3000]}") from exc
+
+          def exact_issues(state):
+              query = urllib.parse.quote(
+                  f'repo:{repo} is:issue is:{state} in:title "{exact_title}"',
+                  safe="",
+              )
+              items = request("GET", f"/search/issues?q={query}&per_page=100").get("items", [])
+              return [item for item in items if item.get("title") == exact_title]
+
+          def linked_merged_pulls(issue_number):
+              timeline = request(
+                  "GET",
+                  f"/repos/{repo}/issues/{issue_number}/timeline?per_page=100",
+                  accept="application/vnd.github+json",
+              )
+              pulls = []
+              for event in timeline:
+                  if event.get("event") != "cross-referenced":
+                      continue
+                  source = ((event.get("source") or {}).get("issue") or {})
+                  if "pull_request" not in source or not source.get("number"):
+                      continue
+                  pull = request("GET", f"/repos/{repo}/pulls/{int(source['number'])}", missing_ok=True)
+                  if pull and pull.get("merged"):
+                      pulls.append(pull)
+              return pulls
+
+          def all_runs():
+              output = []
+              page = 1
+              while page <= 10:
+                  response = request("GET", f"/repos/{repo}/actions/runs?per_page=100&page={page}")
+                  batch = response.get("workflow_runs", [])
+                  output.extend(batch)
+                  if len(batch) < 100:
+                      break
+                  page += 1
+              return output
+
+          def branch_exists(branch):
+              encoded = urllib.parse.quote(branch, safe="")
+              return request("GET", f"/repos/{repo}/branches/{encoded}", missing_ok=True) is not None
+
+          def delete_branch(branch):
+              encoded = urllib.parse.quote(branch, safe="/")
+              request("DELETE", f"/repos/{repo}/git/refs/heads/{encoded}", missing_ok=True)
+
+          terminal_snapshot = None
+          while time.time() < deadline:
+              pr20 = request("GET", f"/repos/{repo}/pulls/20", missing_ok=True)
+              pr22 = request("GET", f"/repos/{repo}/pulls/22", missing_ok=True)
+              open_exact = exact_issues("open")
+              closed_exact = exact_issues("closed")
+              completed = []
+              for item in closed_exact:
+                  pulls = linked_merged_pulls(int(item["number"]))
+                  if pulls:
+                      completed.append({
+                          "issue": int(item["number"]),
+                          "pulls": [
+                              {
+                                  "number": int(pull["number"]),
+                                  "head": (pull.get("head") or {}).get("sha"),
+                                  "mergeCommit": pull.get("merge_commit_sha"),
+                                  "mergedAt": pull.get("merged_at"),
+                              }
+                              for pull in pulls
+                          ],
+                      })
+
+              runs = all_runs()
+              active = []
+              latest_by_branch_and_path = {}
+              watched = set(known_audit_branches + [own_branch])
+              for run in runs:
+                  branch = run.get("head_branch")
+                  if branch not in watched:
+                      continue
+                  key = (branch, run.get("path") or "unknown")
+                  if key not in latest_by_branch_and_path or int(run["id"]) > int(latest_by_branch_and_path[key]["id"]):
+                      latest_by_branch_and_path[key] = run
+              for run in latest_by_branch_and_path.values():
+                  if run.get("head_branch") == own_branch:
+                      continue
+                  if run.get("status") in active_states:
+                      active.append({
+                          "branch": run.get("head_branch"),
+                          "path": run.get("path"),
+                          "status": run.get("status"),
+                          "url": run.get("html_url"),
+                      })
+
+              completion = bool(
+                  pr20
+                  and pr20.get("merged")
+                  and pr22
+                  and pr22.get("merged")
+                  and len(open_exact) == 0
+                  and len(completed) >= 3
+                  and not active
+              )
+              terminal_snapshot = {
+                  "capturedAtUtc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                  "completion": completion,
+                  "pull20": None if pr20 is None else {
+                      "state": pr20.get("state"),
+                      "merged": pr20.get("merged"),
+                      "head": (pr20.get("head") or {}).get("sha"),
+                      "mergeCommit": pr20.get("merge_commit_sha"),
+                  },
+                  "pull22": None if pr22 is None else {
+                      "state": pr22.get("state"),
+                      "merged": pr22.get("merged"),
+                      "head": (pr22.get("head") or {}).get("sha"),
+                      "mergeCommit": pr22.get("merge_commit_sha"),
+                  },
+                  "openExactTitleIssues": [int(item["number"]) for item in open_exact],
+                  "completedSerialSlices": sorted(completed, key=lambda item: item["issue"]),
+                  "activeAuditRuns": active,
+                  "latestAuditRuns": [
+                      {
+                          "branch": run.get("head_branch"),
+                          "path": run.get("path"),
+                          "status": run.get("status"),
+                          "conclusion": run.get("conclusion"),
+                          "attempt": run.get("run_attempt"),
+                          "headSha": run.get("head_sha"),
+                          "url": run.get("html_url"),
+                          "updatedAt": run.get("updated_at"),
+                      }
+                      for run in sorted(
+                          latest_by_branch_and_path.values(),
+                          key=lambda item: ((item.get("head_branch") or ""), (item.get("path") or "")),
+                      )
+                  ],
+              }
+              if completion:
+                  break
+              print(json.dumps(terminal_snapshot, indent=2, sort_keys=True))
+              time.sleep(60)
+          else:
+              if terminal_snapshot is not None:
+                  targets = [21] + terminal_snapshot.get("openExactTitleIssues", [])
+                  for number in sorted(set(targets)):
+                      try:
+                          request(
+                              "POST",
+                              f"/repos/{repo}/issues/{number}/comments",
+                              {
+                                  "body": (
+                                      "### Final continuation cleanup deferred\n\n"
+                                      f"```json\n{json.dumps(terminal_snapshot, indent=2, sort_keys=True)[:44000]}\n```\n\n"
+                                      "The required serial merge proof was incomplete or an audit run remained active. "
+                                      "No controller, status, product, or coding-agent branch was deleted."
+                                  )
+                              },
+                          )
+                      except Exception:
+                          pass
+              raise SystemExit(2)
+
+          main = request("GET", f"/repos/{repo}/branches/main")
+          open_pulls = request("GET", f"/repos/{repo}/pulls?state=open&per_page=100")
+          terminal_snapshot["main"] = main["commit"]["sha"]
+          terminal_snapshot["remainingOpenPullRequests"] = [
+              {
+                  "number": int(pull["number"]),
+                  "title": pull.get("title"),
+                  "draft": pull.get("draft"),
+                  "head": (pull.get("head") or {}).get("sha"),
+                  "headRef": (pull.get("head") or {}).get("ref"),
+              }
+              for pull in open_pulls
+          ]
+          body = json.dumps(terminal_snapshot, indent=2, sort_keys=True)
+          if len(body) > 44000:
+              body = body[:43800] + "\n... <TRUNCATED> ..."
+
+          targets = [21] + [item["issue"] for item in terminal_snapshot["completedSerialSlices"][-3:]]
+          for number in sorted(set(targets)):
+              try:
+                  request(
+                      "POST",
+                      f"/repos/{repo}/issues/{number}/comments",
+                      {
+                          "body": (
+                              "### Final serial continuation snapshot\n\n"
+                              f"```json\n{body}\n```\n\n"
+                              "PR #20, ED-06, and three bounded source-owned slices have merged through linked PRs. "
+                              "All watched audit runs were terminal before cleanup. Only known disposable audit/status "
+                              "branches are being removed; product history, coding-agent PRs, issues, comments, and "
+                              "Action logs remain durable."
+                          )
+                      },
+                  )
+              except Exception:
+                  pass
+
+          for branch in known_audit_branches + known_status_branches:
+              if branch_exists(branch):
+                  delete_branch(branch)
+
+          print(body)
+          delete_branch(own_branch)
+          PY
