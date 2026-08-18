@@ -1,0 +1,45 @@
+name: Reconcile Prime Studio continuation gates
+
+on:
+  push:
+    branches:
+      - audit/reconcile-continuation-20260818
+    paths:
+      - .github/reconcile-prime-studio-continuation.py
+      - .github/workflows/reconcile-prime-studio-continuation.yml
+
+permissions:
+  actions: write
+  checks: read
+  contents: write
+  issues: write
+  pull-requests: write
+  statuses: read
+
+concurrency:
+  group: prime-studio-continuation-reconciler
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPOSITORY: Nice6042/prime-studio
+      RECONCILE_SECONDS: "18000"
+    steps:
+      - name: Check out disposable reconciler branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: audit/reconcile-continuation-20260818
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Compile reconciler
+        shell: bash
+        run: python -m py_compile .github/reconcile-prime-studio-continuation.py
+
+      - name: Reconcile exact state, rerun only advanced evidence, and continue serially
+        shell: bash
+        run: python .github/reconcile-prime-studio-continuation.py
