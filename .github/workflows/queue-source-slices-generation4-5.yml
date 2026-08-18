@@ -1,0 +1,69 @@
+name: Queue source-slice generations four and five
+
+on:
+  push:
+    branches:
+      - audit/source-slices-generation4-5-20260818
+    paths:
+      - .github/queue-serial-source-generation.py
+      - .github/workflows/queue-source-slices-generation4-5.yml
+
+permissions:
+  actions: write
+  contents: write
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: source-slices-generation4-5
+  cancel-in-progress: false
+
+jobs:
+  generation-four:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPOSITORY: Nice6042/prime-studio
+      GENERATION: "4"
+      REQUIRED_COMPLETED: "3"
+      QUEUE_SECONDS: "18000"
+      DELETE_OWN_BRANCH: "false"
+    steps:
+      - name: Check out serial queue source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: audit/source-slices-generation4-5-20260818
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Compile queue controller
+        run: python -m py_compile .github/queue-serial-source-generation.py
+
+      - name: Queue and supervise generation four
+        run: python .github/queue-serial-source-generation.py
+
+  generation-five:
+    needs: generation-four
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPOSITORY: Nice6042/prime-studio
+      GENERATION: "5"
+      REQUIRED_COMPLETED: "4"
+      QUEUE_SECONDS: "18000"
+      DELETE_OWN_BRANCH: "true"
+    steps:
+      - name: Check out serial queue source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: audit/source-slices-generation4-5-20260818
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Compile queue controller
+        run: python -m py_compile .github/queue-serial-source-generation.py
+
+      - name: Queue and supervise generation five
+        run: python .github/queue-serial-source-generation.py
