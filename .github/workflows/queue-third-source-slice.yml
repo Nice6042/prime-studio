@@ -1,0 +1,263 @@
+name: Queue a third serial source-owned slice
+
+on:
+  push:
+    branches:
+      - audit/third-source-slice-queue-20260818
+    paths:
+      - .github/workflows/queue-third-source-slice.yml
+
+permissions:
+  actions: write
+  contents: write
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: third-source-slice-queue
+  cancel-in-progress: false
+
+jobs:
+  queue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Wait for two post-ED06 source slices to merge, then create generation three
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          repo = "Nice6042/prime-studio"
+          token = os.environ["GH_TOKEN"]
+          api = "https://api.github.com"
+          own_branch = "audit/third-source-slice-queue-20260818"
+          controller_branch = "audit/next-source-slice-controller-20260818"
+          controller_workflow = ".github/workflows/audit-next-source-slice-controller.yml"
+          title = "Select and implement the next bounded source-owned Prime Studio acceptance gap"
+          deadline = time.time() + 335 * 60
+
+          def request(method, path, payload=None, *, missing_ok=False, accept="application/vnd.github+json"):
+              data = None if payload is None else json.dumps(payload).encode("utf-8")
+              headers = {
+                  "Accept": accept,
+                  "Authorization": f"Bearer {token}",
+                  "X-GitHub-Api-Version": "2022-11-28",
+                  "User-Agent": "prime-studio-third-source-slice-queue",
+              }
+              if data is not None:
+                  headers["Content-Type"] = "application/json"
+              req = urllib.request.Request(api + path, data=data, headers=headers, method=method)
+              try:
+                  with urllib.request.urlopen(req, timeout=45) as response:
+                      body = response.read()
+                      return None if not body else json.loads(body.decode("utf-8"))
+              except urllib.error.HTTPError as exc:
+                  if missing_ok and exc.code == 404:
+                      return None
+                  detail = exc.read().decode("utf-8", "replace")
+                  raise RuntimeError(f"{method} {path}: HTTP {exc.code}: {detail[:3000]}") from exc
+
+          def exact_issues(state):
+              query = urllib.parse.quote(
+                  f'repo:{repo} is:issue is:{state} in:title "{title}"',
+                  safe="",
+              )
+              items = request("GET", f"/search/issues?q={query}&per_page=100").get("items", [])
+              return [item for item in items if item.get("title") == title]
+
+          def linked_merged_pull(issue_number):
+              timeline = request(
+                  "GET",
+                  f"/repos/{repo}/issues/{issue_number}/timeline?per_page=100",
+                  accept="application/vnd.github+json",
+              )
+              merged = []
+              for event in timeline:
+                  if event.get("event") != "cross-referenced":
+                      continue
+                  source = ((event.get("source") or {}).get("issue") or {})
+                  if "pull_request" not in source or not source.get("number"):
+                      continue
+                  pull = request("GET", f"/repos/{repo}/pulls/{int(source['number'])}", missing_ok=True)
+                  if pull and pull.get("merged"):
+                      merged.append(pull)
+              return merged
+
+          completed = []
+          while time.time() < deadline:
+              open_matches = exact_issues("open")
+              if len(open_matches) > 1:
+                  raise SystemExit(f"Multiple open exact-title issues exist: {[item['number'] for item in open_matches]}")
+              if open_matches:
+                  time.sleep(45)
+                  continue
+              completed = []
+              closed_matches = sorted(exact_issues("closed"), key=lambda item: int(item["number"]))
+              for item in closed_matches:
+                  merged = linked_merged_pull(int(item["number"]))
+                  if merged:
+                      completed.append((
+                          request("GET", f"/repos/{repo}/issues/{int(item['number'])}"),
+                          max(merged, key=lambda pull: pull.get("merged_at") or ""),
+                      ))
+              if len(completed) >= 2:
+                  completed = completed[-2:]
+                  break
+              time.sleep(45)
+          else:
+              raise SystemExit("Two closed exact-title issues with merged linked PRs did not appear before the queue deadline.")
+
+          main = request("GET", f"/repos/{repo}/branches/main")
+          main_sha = main["commit"]["sha"]
+          lineage = ", ".join(
+              f"issue #{issue['number']} / PR #{pull['number']}"
+              for issue, pull in completed
+          )
+          body = f"""## Continuation generation 3
+
+Two bounded post-ED06 source slices have been independently completed: {lineage}. Start this new selection only from current `main` `{main_sha}`.
+
+## Mission
+
+Inspect the current acceptance catalog, design documentation, source, tests, open issues, and open pull requests. Select exactly one remaining acceptance gap that is fully source-owned and can be closed with checked-in behavior plus deterministic CI.
+
+Before changing code, comment with the exact acceptance row/identifier and source; the missing behavior; why it is source-owned; what remains unproven; proposed files/tests/commit sequence; and confirmation that no equivalent issue or PR exists.
+
+Then implement only that selected slice and open a draft PR linked with `Fixes #<this issue>`.
+
+## Selection priority
+
+Prefer crash/restart recovery or authoritative reconciliation; project/chat/document identity and data integrity; local approval/containment/cancellation/replay safety; honest local usage where authoritative data already exists; accessibility/keyboard/deterministic interaction behavior; or bounded performance/resource-control work with executable limits.
+
+## Forbidden authority and drift
+
+Do not select or claim closure for a real user Windows-host run, provider/account authentication or credentials, exact installed Prime closure, a production browser/computer-use worker, installer/signing/updater/release/publication authority, or economic validation. Do not add dependencies, lockfile changes, CI/security changes, package identity changes, or installer/Tauri config changes without stopping for independent re-scope.
+
+Reuse typed boundaries and opaque identities. Preserve stale/replay/cancellation/late-response protections. Keep private content, credentials, full host paths, and environment dumps out of logs, fixtures, comments, and evidence. Use deterministic limits and fail closed on malformed, stale, oversized, unsupported, or unavailable inputs. No browser-storage or permissive fallback. No unrelated redesign or refactor.
+
+Add happy-path and adversarial tests. Run locked frontend tests, frontend build, Rust formatting, locked Clippy with warnings denied, locked all-target Rust tests with `test-support-bin`, and all existing dependency/publication/browser/accessibility/acceptance gates. Preserve original failures and exact repairs.
+
+Keep the PR draft, use coherent commits, state the exact head, and never merge or promote authority based only on the coding agent's own report.
+"""
+
+          try:
+              issue = request(
+                  "POST",
+                  f"/repos/{repo}/issues",
+                  {"title": title, "body": body, "assignees": ["copilot-swe-agent"]},
+              )
+          except Exception:
+              issue = request("POST", f"/repos/{repo}/issues", {"title": title, "body": body})
+              try:
+                  issue = request(
+                      "POST",
+                      f"/repos/{repo}/issues/{int(issue['number'])}/assignees",
+                      {"assignees": ["copilot-swe-agent"]},
+                  )
+              except Exception:
+                  request(
+                      "POST",
+                      f"/repos/{repo}/issues/{int(issue['number'])}/comments",
+                      {
+                          "body": (
+                              "@copilot Please select and implement the bounded source-owned slice described above, "
+                              "starting from current `main` and leaving the linked PR in draft."
+                          )
+                      },
+                  )
+
+          all_runs = []
+          page = 1
+          while page <= 10:
+              response = request("GET", f"/repos/{repo}/actions/runs?per_page=100&page={page}")
+              batch = response.get("workflow_runs", [])
+              all_runs.extend(batch)
+              if len(batch) < 100:
+                  break
+              page += 1
+          candidates = [run for run in all_runs if run.get("path") == controller_workflow]
+          if not candidates:
+              request(
+                  "POST",
+                  f"/repos/{repo}/issues/{int(issue['number'])}/comments",
+                  {
+                      "body": (
+                          "### Exact-head controller unavailable\n\n"
+                          "The generic source-slice controller has no recorded workflow run to restore. "
+                          "No implementation or merge state was invented."
+                      )
+                  },
+              )
+              raise SystemExit(2)
+
+          latest = max(candidates, key=lambda run: int(run["id"]))
+          encoded_branch = urllib.parse.quote(controller_branch, safe="")
+          branch = request("GET", f"/repos/{repo}/branches/{encoded_branch}", missing_ok=True)
+          if branch is None:
+              request(
+                  "POST",
+                  f"/repos/{repo}/git/refs",
+                  {"ref": f"refs/heads/{controller_branch}", "sha": latest["head_sha"]},
+              )
+          elif (branch.get("commit") or {}).get("sha") != latest["head_sha"]:
+              raise SystemExit("Generic controller branch exists at a different commit; refusing to overwrite it.")
+
+          request(
+              "POST",
+              f"/repos/{repo}/issues/{int(issue['number'])}/comments",
+              {
+                  "body": (
+                      "### Exact-head controller queued for continuation generation 3\n\n"
+                      f"The generic controller run {latest.get('html_url')} is being rerun because a new, "
+                      "independently created source-slice issue now exists. This is a new repository state, "
+                      "not a blind retry of an unchanged failed head."
+                  )
+              },
+          )
+          request("POST", f"/repos/{repo}/actions/runs/{int(latest['id'])}/rerun", {})
+
+          terminal = None
+          while time.time() < deadline:
+              time.sleep(45)
+              terminal = request("GET", f"/repos/{repo}/actions/runs/{int(latest['id'])}")
+              if terminal.get("status") not in {"queued", "in_progress", "requested", "waiting", "pending"}:
+                  break
+          if terminal is None or terminal.get("status") in {"queued", "in_progress", "requested", "waiting", "pending"}:
+              raise SystemExit("Generation-three controller rerun remained active at the queue deadline.")
+          if terminal.get("conclusion") != "success":
+              request(
+                  "POST",
+                  f"/repos/{repo}/issues/{int(issue['number'])}/comments",
+                  {
+                      "body": (
+                          "### Generation-three exact-head controller blocked\n\n"
+                          f"Controller conclusion: `{terminal.get('conclusion')}`\n\n"
+                          f"Controller run: {terminal.get('html_url')}\n\n"
+                          "No merge or unsupported acceptance/authority promotion occurred."
+                      )
+                  },
+              )
+              raise SystemExit(1)
+
+          print(json.dumps({
+              "result": "generation-three-controller-completed",
+              "completedLineage": [
+                  {"issue": issue_item["number"], "pull": pull_item["number"]}
+                  for issue_item, pull_item in completed
+              ],
+              "newIssue": issue["number"],
+              "main": main_sha,
+              "controllerRun": terminal.get("html_url"),
+          }, indent=2, sort_keys=True))
+
+          encoded_own = urllib.parse.quote(own_branch, safe="/")
+          request("DELETE", f"/repos/{repo}/git/refs/heads/{encoded_own}", missing_ok=True)
+          PY
