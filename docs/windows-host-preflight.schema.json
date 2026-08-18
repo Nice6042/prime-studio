@@ -1,0 +1,318 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:prime-studio:windows-host-preflight:1",
+  "title": "Prime Studio Windows host preflight record",
+  "description": "Credential-free, host-collected preflight evidence. This record is unreviewed and cannot authorize activation, provider use, interaction effects, signing, or release.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "collectorVersion",
+    "classification",
+    "releaseEligible",
+    "reviewState",
+    "collectedAtUtc",
+    "sourceIdentity",
+    "host",
+    "tools",
+    "sourceChecks",
+    "claims"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "1" },
+    "collectorVersion": { "type": "string", "const": "1" },
+    "classification": { "type": "string", "const": "HOST_COLLECTED_UNREVIEWED" },
+    "releaseEligible": { "type": "boolean", "const": false },
+    "reviewState": { "type": "string", "const": "HOST_COLLECTED_UNREVIEWED" },
+    "collectedAtUtc": { "type": "string", "format": "date-time" },
+    "sourceIdentity": { "$ref": "#/$defs/sourceIdentity" },
+    "host": { "$ref": "#/$defs/host" },
+    "tools": { "$ref": "#/$defs/tools" },
+    "sourceChecks": { "$ref": "#/$defs/sourceChecks" },
+    "claims": { "$ref": "#/$defs/claims" }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "nullableSha256": {
+      "oneOf": [
+        { "$ref": "#/$defs/sha256" },
+        { "type": "null" }
+      ]
+    },
+    "nullableString": {
+      "type": ["string", "null"]
+    },
+    "nullableSafeText": {
+      "oneOf": [
+        { "$ref": "#/$defs/safeText" },
+        { "type": "null" }
+      ]
+    },
+    "nullableInteger": {
+      "type": ["integer", "null"]
+    },
+    "safeText": {
+      "type": "string",
+      "maxLength": 4096,
+      "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]*(?:\\n[^\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f-\\u009f]*)*$"
+    },
+    "sourceIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit", "branch", "isClean", "changedEntryCount", "identityFiles"],
+      "properties": {
+        "commit": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "branch": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$"
+        },
+        "isClean": { "type": "boolean" },
+        "changedEntryCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "identityFiles": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/identityFile" }
+        }
+      }
+    },
+    "identityFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "size", "sha256"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "enum": [
+            "app/package.json",
+            "app/package-lock.json",
+            "app/src-tauri/Cargo.toml",
+            "app/src-tauri/Cargo.lock",
+            "app/src-tauri/tauri.conf.json",
+            "rust-toolchain.toml"
+          ]
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["windows", "powerShell", "webView2"],
+      "properties": {
+        "windows": { "$ref": "#/$defs/windows" },
+        "powerShell": { "$ref": "#/$defs/powerShell" },
+        "webView2": { "$ref": "#/$defs/webView2" }
+      }
+    },
+    "windows": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["productName", "version", "build", "architecture"],
+      "properties": {
+        "productName": { "$ref": "#/$defs/safeText" },
+        "version": { "$ref": "#/$defs/safeText" },
+        "build": { "$ref": "#/$defs/safeText" },
+        "architecture": {
+          "type": "string",
+          "enum": ["X86", "X64", "Arm", "Arm64", "Wasm", "S390x", "Unknown"]
+        }
+      }
+    },
+    "powerShell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "version", "edition", "path", "sha256"],
+      "properties": {
+        "status": { "type": "string", "const": "available" },
+        "version": { "$ref": "#/$defs/safeText" },
+        "edition": { "$ref": "#/$defs/safeText" },
+        "path": { "$ref": "#/$defs/nullableSafeText" },
+        "sha256": { "$ref": "#/$defs/nullableSha256" }
+      }
+    },
+    "webView2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "version", "path", "sha256"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["available", "unavailable"]
+        },
+        "version": { "$ref": "#/$defs/nullableSafeText" },
+        "path": { "$ref": "#/$defs/nullableSafeText" },
+        "sha256": { "$ref": "#/$defs/nullableSha256" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "unavailable" } }, "required": ["status"] },
+          "then": {
+            "properties": {
+              "version": { "type": "null" },
+              "path": { "type": "null" },
+              "sha256": { "type": "null" }
+            }
+          }
+        }
+      ]
+    },
+    "tools": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node", "npm", "rustc", "cargo", "git", "prime"],
+      "properties": {
+        "node": { "$ref": "#/$defs/toolObservation" },
+        "npm": { "$ref": "#/$defs/toolObservation" },
+        "rustc": { "$ref": "#/$defs/toolObservation" },
+        "cargo": { "$ref": "#/$defs/toolObservation" },
+        "git": { "$ref": "#/$defs/toolObservation" },
+        "prime": { "$ref": "#/$defs/toolObservation" }
+      }
+    },
+    "toolObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "command", "version", "path", "sha256", "exitCode", "candidates"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["available", "unavailable", "failed", "timed_out"]
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "version": { "$ref": "#/$defs/nullableSafeText" },
+        "path": { "$ref": "#/$defs/nullableSafeText" },
+        "sha256": { "$ref": "#/$defs/nullableSha256" },
+        "exitCode": { "$ref": "#/$defs/nullableInteger" },
+        "candidates": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "unavailable" } }, "required": ["status"] },
+          "then": {
+            "properties": {
+              "version": { "type": "null" },
+              "path": { "type": "null" },
+              "sha256": { "type": "null" },
+              "exitCode": { "type": "null" }
+            }
+          }
+        }
+      ]
+    },
+    "sourceChecks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["overall", "commands"],
+      "properties": {
+        "overall": {
+          "type": "string",
+          "enum": ["NOT_RUN", "PASSED", "FAILED"]
+        },
+        "commands": {
+          "type": "array",
+          "maxItems": 7,
+          "items": { "$ref": "#/$defs/sourceCheck" }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "overall": { "const": "NOT_RUN" } }, "required": ["overall"] },
+          "then": { "properties": { "commands": { "maxItems": 0 } } }
+        },
+        {
+          "if": { "properties": { "overall": { "enum": ["PASSED", "FAILED"] } }, "required": ["overall"] },
+          "then": { "properties": { "commands": { "minItems": 7, "maxItems": 7 } } }
+        }
+      ]
+    },
+    "sourceCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status", "command", "exitCode", "durationMs", "logPath", "logSha256"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "enum": [
+            "npm-ci",
+            "frontend-tests",
+            "frontend-build",
+            "rust-format",
+            "rust-clippy",
+            "rust-tests",
+            "rust-build"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["passed", "failed", "timed_out", "unavailable"]
+        },
+        "command": { "$ref": "#/$defs/safeText" },
+        "exitCode": { "$ref": "#/$defs/nullableInteger" },
+        "durationMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "logPath": {
+          "type": "string",
+          "pattern": "^logs/source-check-[0-9]{2}-[a-z0-9-]+\\.log$"
+        },
+        "logSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceBuild",
+        "exactPrimeClosure",
+        "activation",
+        "providerSession",
+        "interactionWorker",
+        "installerSigning",
+        "releaseAuthority"
+      ],
+      "properties": {
+        "sourceBuild": {
+          "type": "string",
+          "enum": ["NOT_RUN", "PASSED", "FAILED"]
+        },
+        "exactPrimeClosure": { "type": "string", "const": "NOT_ATTESTED" },
+        "activation": { "type": "string", "const": "NOT_ATTESTED" },
+        "providerSession": { "type": "string", "const": "NOT_ATTESTED" },
+        "interactionWorker": { "type": "string", "const": "NOT_ATTESTED" },
+        "installerSigning": { "type": "string", "const": "NOT_ATTESTED" },
+        "releaseAuthority": { "type": "string", "const": "NOT_ATTESTED" }
+      }
+    }
+  }
+}

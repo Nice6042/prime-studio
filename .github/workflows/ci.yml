@@ -43,6 +43,9 @@ jobs:
       - name: Test GitHub publication controls validator
         run: node --test tests/github-publication-controls.test.mjs
 
+      - name: Test Windows host verification source contract
+        run: node --test tests/windows-host-verification-kit.test.mjs
+
   frontend:
     name: Frontend checks
     runs-on: ubuntu-latest
@@ -145,6 +148,9 @@ jobs:
         with:
           toolchain: 1.97.0
           components: rustfmt, clippy
+
+      - name: Test Windows host verification kit
+        run: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File app/scripts/windows-host-verification/Test-WindowsHostVerificationKit.ps1
 
       - name: Cache Rust build outputs
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
