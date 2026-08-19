@@ -1,0 +1,682 @@
+name: Exact-head ED-06 native draft audit
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/audit-pr23-editor-drafts.yml
+
+permissions:
+  actions: read
+  checks: read
+  contents: write
+  pull-requests: write
+  statuses: read
+
+concurrency:
+  group: exact-head-ed06-pr23
+  cancel-in-progress: false
+
+env:
+  REPOSITORY: Nice6042/prime-studio
+  TARGET_PR: "23"
+  TARGET_BRANCH: work/native-editor-restart-persistence-v2
+
+jobs:
+  preflight:
+    name: Exact diff and authority preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      head_sha: ${{ steps.audit.outputs.head_sha }}
+      main_sha: ${{ steps.audit.outputs.main_sha }}
+    steps:
+      - name: Pin target head and reject unrelated diff
+        id: audit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          target = int(os.environ["TARGET_PR"])
+          expected_branch = os.environ["TARGET_BRANCH"]
+          token = os.environ["GH_TOKEN"]
+          api = "https://api.github.com"
+          expected_files = {
+              "app/src-tauri/src/commands/editor_drafts.rs",
+              "app/src-tauri/src/commands/mod.rs",
+              "app/src-tauri/src/lib.rs",
+              "app/src-tauri/src/authority.rs",
+              "app/src-tauri/tests/execution_authority_gate.rs",
+              "app/src/features/editor/editorDraftClient.ts",
+              "app/src/features/editor/editorDraftPersistence.ts",
+              "app/src/features/editor/editorDraftClient.test.ts",
+              "app/src/features/editor/editorDraftPersistence.test.ts",
+              "app/src/features/editor/editorDraftRestart.integration.test.tsx",
+              "app/src/features/editor/editorBufferStore.ts",
+              "app/src/features/editor/editorBufferStore.test.ts",
+              "app/src/app/StudioApp.tsx",
+              "docs/editor-restart-draft-persistence.md",
+          }
+
+          def request(path):
+              req = urllib.request.Request(
+                  f"{api}{path}",
+                  headers={
+                      "Accept": "application/vnd.github+json",
+                      "Authorization": f"Bearer {token}",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                      "User-Agent": "prime-studio-ed06-audit",
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=45) as response:
+                      return json.loads(response.read().decode("utf-8"))
+              except urllib.error.HTTPError as exc:
+                  detail = exc.read().decode("utf-8", "replace")
+                  raise RuntimeError(f"GET {path} failed: HTTP {exc.code}: {detail}") from exc
+
+          pr = request(f"/repos/{repo}/pulls/{target}")
+          if pr["state"] != "open":
+              raise SystemExit("Target PR is not open.")
+          if pr["base"]["ref"] != "main":
+              raise SystemExit("Target PR base is not main.")
+          if pr["head"]["ref"] != expected_branch:
+              raise SystemExit("Target PR head branch is not the dedicated ED-06 branch.")
+          if pr["head"]["repo"]["full_name"] != repo:
+              raise SystemExit("Target PR head is not repository-owned.")
+
+          main = request(f"/repos/{repo}/branches/main")
+          main_sha = main["commit"]["sha"]
+          head_sha = pr["head"]["sha"]
+          comparison = request(
+              f"/repos/{repo}/compare/{urllib.parse.quote('main', safe='')}..."
+              f"{urllib.parse.quote(expected_branch, safe='')}"
+          )
+          if comparison.get("behind_by") != 0:
+              raise SystemExit("Target head is behind current main.")
+          if head_sha == main_sha or comparison.get("ahead_by", 0) <= 0:
+              raise SystemExit("Target PR has no source change.")
+
+          files = []
+          page = 1
+          while True:
+              batch = request(f"/repos/{repo}/pulls/{target}/files?per_page=100&page={page}")
+              files.extend(item["filename"] for item in batch)
+              if len(batch) < 100:
+                  break
+              page += 1
+          actual = set(files)
+          if actual != expected_files or len(files) != len(expected_files):
+              payload = {
+                  "missing": sorted(expected_files - actual),
+                  "unexpected": sorted(actual - expected_files),
+                  "actual": sorted(actual),
+              }
+              raise SystemExit("Target diff is not exact: " + json.dumps(payload, sort_keys=True))
+          forbidden = [
+              path for path in files
+              if path.startswith(".github/")
+              or path.endswith("package-lock.json")
+              or path.endswith("Cargo.lock")
+              or "README_DO_NOT_CREATE_TEST" in path
+          ]
+          if forbidden:
+              raise SystemExit("Forbidden audit/dependency residue: " + json.dumps(forbidden))
+
+          output = os.environ["GITHUB_OUTPUT"]
+          with open(output, "a", encoding="utf-8") as handle:
+              handle.write(f"head_sha={head_sha}\n")
+              handle.write(f"main_sha={main_sha}\n")
+          print(json.dumps({
+              "target": target,
+              "head": head_sha,
+              "main": main_sha,
+              "files": sorted(actual),
+              "draft": pr["draft"],
+          }, indent=2))
+          PY
+
+  source:
+    name: Independent frontend, Rust, and source gates
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - name: Check out exact target head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.preflight.outputs.head_sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.12.0
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # pinned 2026-08-10
+        with:
+          toolchain: 1.97.0
+          components: rustfmt, clippy
+
+      - name: Reject browser storage, renderer paths, and acceptance promotion
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -RInE 'localStorage|sessionStorage|indexedDB|document\.cookie' \
+            app/src/features/editor/editorDraftClient.ts \
+            app/src/features/editor/editorDraftPersistence.ts \
+            app/src/app/StudioApp.tsx
+          ! grep -RInE 'destinationPath|filesystemPath|storagePath|selectedPath' \
+            app/src/features/editor/editorDraftClient.ts \
+            app/src/features/editor/editorDraftPersistence.ts
+          grep -F 'row("ED-06"' app/src/contracts/packageAcceptance.ts | grep -F '"partial"'
+          grep -F 'remains **partial**' docs/editor-restart-draft-persistence.md
+          grep -Fi 'does not attest' docs/editor-restart-draft-persistence.md
+          git diff --check "${{ needs.preflight.outputs.main_sha }}...${{ needs.preflight.outputs.head_sha }}"
+
+      - name: Install locked npm dependencies
+        working-directory: app
+        run: npm ci
+
+      - name: Run targeted editor-draft tests
+        working-directory: app
+        run: >-
+          npm exec -- vitest run
+          src/features/editor/editorBufferStore.test.ts
+          src/features/editor/editorDraftClient.test.ts
+          src/features/editor/editorDraftPersistence.test.ts
+          src/features/editor/editorDraftRestart.integration.test.tsx
+          --maxWorkers=1 --no-file-parallelism
+
+      - name: Run full frontend tests
+        working-directory: app
+        run: npm test -- --maxWorkers=2 --no-file-parallelism
+
+      - name: Test dependency policy
+        working-directory: app
+        run: npm run test:dependency-policy
+
+      - name: Check reducer replay
+        working-directory: app
+        run: npm run check
+
+      - name: Test bundle measurement
+        working-directory: app
+        run: npm run test:bundle
+
+      - name: Build frontend
+        working-directory: app
+        run: npm run build
+
+      - name: Enforce typed Harness boundaries
+        working-directory: app
+        run: npm run check:harness-boundaries
+
+      - name: Enforce bundle budgets
+        working-directory: app
+        run: npm run measure:bundle
+
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path app/src-tauri/Cargo.toml --all -- --check
+
+      - name: Lint locked Rust targets
+        run: cargo clippy --manifest-path app/src-tauri/Cargo.toml --locked --all-targets --features test-support-bin -- -D warnings
+
+      - name: Test locked Rust targets
+        run: cargo test --manifest-path app/src-tauri/Cargo.toml --locked --all-targets --features test-support-bin
+
+      - name: Build locked Rust targets
+        run: cargo build --manifest-path app/src-tauri/Cargo.toml --locked
+
+      - name: Validate source policy and acceptance contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test tests/open-source-release-readiness.check.mjs
+          node --test tests/design-provenance.check.mjs
+          node --test tests/public-package-identity.check.mjs
+          node --test tests/public-fixtures-privacy.check.mjs
+          node --test tests/github-publication-controls.test.mjs
+          node --test tests/windows-host-verification-kit.test.mjs
+
+  browser:
+    name: Independent strict browser and accessibility gate
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PRIME_STUDIO_BROWSER_PORT: "43183"
+    steps:
+      - name: Check out exact target head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.preflight.outputs.head_sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22.12.0
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install locked npm dependencies
+        working-directory: app
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        working-directory: app
+        run: npx playwright install --with-deps chromium
+
+      - name: Run zero-retry strict browser and accessibility coverage
+        working-directory: app
+        run: npm run test:browser-shell:strict
+
+  windows:
+    name: Independent Windows Rust and packaging-source gate
+    needs: preflight
+    runs-on: windows-latest
+    timeout-minutes: 55
+    steps:
+      - name: Check out exact target head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.preflight.outputs.head_sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22.12.0
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          toolchain: 1.97.0
+          components: rustfmt, clippy
+
+      - name: Test Windows host-verification source kit
+        run: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File app/scripts/windows-host-verification/Test-WindowsHostVerificationKit.ps1
+
+      - name: Install locked npm dependencies
+        working-directory: app
+        run: npm ci
+
+      - name: Verify Windows installer source policy
+        working-directory: app
+        run: npm exec -- vitest run scripts/windows-installer-policy.test.mjs --maxWorkers=1 --no-file-parallelism
+
+      - name: Build frontend for Tauri
+        working-directory: app
+        run: npm run build
+
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path app/src-tauri/Cargo.toml --all -- --check
+
+      - name: Lint locked Windows Rust targets
+        run: cargo clippy --manifest-path app/src-tauri/Cargo.toml --locked --all-targets --features test-support-bin -- -D warnings
+
+      - name: Test locked Windows Rust targets
+        run: cargo test --manifest-path app/src-tauri/Cargo.toml --locked --all-targets --features test-support-bin
+
+      - name: Verify deterministic notices and Windows SBOM
+        run: node --test tests/third-party-artifacts.test.mjs
+
+      - name: Build locked Windows Rust targets
+        run: cargo build --manifest-path app/src-tauri/Cargo.toml --locked
+
+  security:
+    name: Independent dependency and publication-security gate
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact target head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.preflight.outputs.head_sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22.12.0
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install locked npm dependencies
+        working-directory: app
+        run: npm ci
+
+      - name: Run npm audit
+        working-directory: app
+        run: npm audit --audit-level=high
+
+      - name: Re-run locked dependency policy
+        working-directory: app
+        run: npm run test:dependency-policy
+
+      - name: Validate release readiness remains fail closed
+        run: node --test tests/open-source-release-readiness.check.mjs
+
+  finalize:
+    name: Exact-head review, hosted-check, and merge decision
+    needs:
+      - preflight
+      - source
+      - browser
+      - windows
+      - security
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      GH_TOKEN: ${{ github.token }}
+      HEAD_SHA: ${{ needs.preflight.outputs.head_sha }}
+      MAIN_SHA: ${{ needs.preflight.outputs.main_sha }}
+    steps:
+      - name: Wait for repository CI/Security and reject review blockers
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          owner, name = repo.split("/", 1)
+          target = int(os.environ["TARGET_PR"])
+          expected_head = os.environ["HEAD_SHA"]
+          expected_main = os.environ["MAIN_SHA"]
+          token = os.environ["GH_TOKEN"]
+          api = "https://api.github.com"
+          allowed = {"success", "neutral", "skipped"}
+          expected_checks = {
+              "Source policy and acceptance",
+              "Frontend checks",
+              "Strict browser shell",
+              "Rust checks (Windows)",
+              "Dependency review",
+              "npm audit",
+              "Locked dependency policy",
+          }
+
+          def request(method, path, payload=None):
+              data = None if payload is None else json.dumps(payload).encode("utf-8")
+              headers = {
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {token}",
+                  "X-GitHub-Api-Version": "2022-11-28",
+                  "User-Agent": "prime-studio-ed06-finalizer",
+              }
+              if data is not None:
+                  headers["Content-Type"] = "application/json"
+              req = urllib.request.Request(f"{api}{path}", data=data, headers=headers, method=method)
+              try:
+                  with urllib.request.urlopen(req, timeout=45) as response:
+                      body = response.read()
+                      return None if not body else json.loads(body.decode("utf-8"))
+              except urllib.error.HTTPError as exc:
+                  detail = exc.read().decode("utf-8", "replace")
+                  raise RuntimeError(f"{method} {path} failed: HTTP {exc.code}: {detail}") from exc
+
+          def graphql(query, variables):
+              result = request("POST", "/graphql", {"query": query, "variables": variables})
+              if result.get("errors"):
+                  raise RuntimeError(json.dumps(result["errors"], sort_keys=True))
+              return result["data"]
+
+          pr = request("GET", f"/repos/{repo}/pulls/{target}")
+          main = request("GET", f"/repos/{repo}/branches/main")
+          if pr["state"] != "open" or pr["head"]["sha"] != expected_head:
+              raise SystemExit("Target PR moved or closed after audit.")
+          if main["commit"]["sha"] != expected_main:
+              raise SystemExit("Main advanced after audit; rebase and re-audit are required.")
+          comparison = request(
+              "GET",
+              f"/repos/{repo}/compare/{urllib.parse.quote('main', safe='')}..."
+              f"{urllib.parse.quote(pr['head']['ref'], safe='')}"
+          )
+          if comparison.get("behind_by") != 0:
+              raise SystemExit("Target head became behind main.")
+
+          query = """
+          query($owner:String!, $name:String!, $number:Int!, $after:String) {
+            repository(owner:$owner, name:$name) {
+              pullRequest(number:$number) {
+                id
+                isDraft
+                reviewDecision
+                reviews(first:100) { nodes { id state author { login } } }
+                reviewThreads(first:100, after:$after) {
+                  nodes { isResolved }
+                  pageInfo { hasNextPage endCursor }
+                }
+              }
+            }
+          }
+          """
+          after = None
+          unresolved = 0
+          review_decision = None
+          pull_id = None
+          changes_requested = []
+          while True:
+              node = graphql(query, {
+                  "owner": owner,
+                  "name": name,
+                  "number": target,
+                  "after": after,
+              })["repository"]["pullRequest"]
+              pull_id = node["id"]
+              review_decision = node["reviewDecision"]
+              changes_requested.extend(
+                  review for review in node["reviews"]["nodes"]
+                  if review["state"] == "CHANGES_REQUESTED"
+              )
+              unresolved += sum(1 for thread in node["reviewThreads"]["nodes"] if not thread["isResolved"])
+              page = node["reviewThreads"]["pageInfo"]
+              if not page["hasNextPage"]:
+                  break
+              after = page["endCursor"]
+          if unresolved:
+              raise SystemExit(f"There are {unresolved} unresolved review threads.")
+          if review_decision == "CHANGES_REQUESTED" or changes_requested:
+              raise SystemExit("A submitted review requests changes.")
+
+          deadline = time.time() + 45 * 60
+          snapshot = {}
+          while time.time() < deadline:
+              runs = []
+              page = 1
+              while True:
+                  response = request(
+                      "GET",
+                      f"/repos/{repo}/commits/{expected_head}/check-runs?per_page=100&page={page}",
+                  )
+                  batch = response.get("check_runs", [])
+                  runs.extend(batch)
+                  if len(batch) < 100:
+                      break
+                  page += 1
+              latest = {}
+              for run in runs:
+                  prior = latest.get(run["name"])
+                  if prior is None or run["id"] > prior["id"]:
+                      latest[run["name"]] = run
+              missing = sorted(expected_checks - set(latest))
+              bad = {
+                  check: {
+                      "status": latest[check].get("status"),
+                      "conclusion": latest[check].get("conclusion"),
+                      "url": latest[check].get("html_url"),
+                  }
+                  for check in expected_checks & set(latest)
+                  if latest[check].get("status") != "completed"
+                  or latest[check].get("conclusion") not in allowed
+              }
+              snapshot = {"missing": missing, "notPassing": bad}
+              failed = {
+                  name: detail for name, detail in bad.items()
+                  if detail["status"] == "completed" and detail["conclusion"] not in allowed
+              }
+              if failed:
+                  raise SystemExit("Hosted checks failed: " + json.dumps(failed, sort_keys=True))
+              if not missing and not bad:
+                  break
+              time.sleep(20)
+          else:
+              raise SystemExit("Timed out waiting for hosted checks: " + json.dumps(snapshot, sort_keys=True))
+
+          marker = "## Final exact-head validation"
+          body = pr.get("body") or ""
+          validation = (
+              f"{marker}\n\n"
+              f"- Exact head: `{expected_head}`\n"
+              f"- Exact base main: `{expected_main}`\n"
+              "- Independent source, strict browser/accessibility, Windows Rust, packaging-source, dependency, and publication-security audit jobs passed.\n"
+              "- Repository CI and Security contexts passed on the exact head.\n"
+              "- Exact intended fourteen-file diff; no dependencies, lockfiles, workflows, provider/session authority, worker authority, installer, signing, credential, or release change.\n"
+              "- Unresolved review threads: 0; changes-requested reviews: 0.\n"
+              "- `ED-06` remains partial because real disposable-Windows-host/WebView2 process-restart evidence is separate and unattested.\n"
+          )
+          if marker in body:
+              body = body.split(marker, 1)[0].rstrip() + "\n\n" + validation
+          else:
+              body = body.rstrip() + "\n\n" + validation
+          request("PATCH", f"/repos/{repo}/pulls/{target}", {"body": body})
+
+          if pr.get("draft"):
+              mutation = """
+              mutation($id:ID!) {
+                markPullRequestReadyForReview(input:{pullRequestId:$id}) {
+                  pullRequest { id isDraft }
+                }
+              }
+              """
+              ready = graphql(mutation, {"id": pull_id})["markPullRequestReadyForReview"]["pullRequest"]
+              if ready["isDraft"]:
+                  raise SystemExit("Ready-for-review transition failed.")
+
+          merge = request("PUT", f"/repos/{repo}/pulls/{target}/merge", {
+              "sha": expected_head,
+              "merge_method": "squash",
+              "commit_title": "Persist identity-bound editor drafts across restart (#23)",
+              "commit_message": (
+                  "Add a Rust-owned, versioned, integrity-checked, bounded editor draft store; "
+                  "typed renderer hydration and CAS persistence; exact Save/Reload/Apply cleanup; "
+                  "and restart/remount tests while preserving ED-06's real-host evidence boundary."
+              ),
+          })
+          if not merge.get("merged"):
+              raise SystemExit("Merge API rejected the exact head: " + json.dumps(merge, sort_keys=True))
+          print(json.dumps({
+              "result": "MERGED",
+              "target": target,
+              "head": expected_head,
+              "mergeSha": merge.get("sha"),
+          }, indent=2))
+          PY
+
+      - name: Close and clean disposable audit pull request
+        if: success()
+        env:
+          AUDIT_PR: ${{ github.event.pull_request.number }}
+          AUDIT_BRANCH: ${{ github.head_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          repo = os.environ["REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+          audit_pr = int(os.environ["AUDIT_PR"])
+          branch = os.environ["AUDIT_BRANCH"]
+          api = "https://api.github.com"
+
+          def request(method, path, payload=None):
+              data = None if payload is None else json.dumps(payload).encode("utf-8")
+              req = urllib.request.Request(
+                  f"{api}{path}",
+                  data=data,
+                  method=method,
+                  headers={
+                      "Accept": "application/vnd.github+json",
+                      "Authorization": f"Bearer {token}",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                      "User-Agent": "prime-studio-ed06-audit-cleanup",
+                      **({"Content-Type": "application/json"} if data is not None else {}),
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=45) as response:
+                      return response.read()
+              except urllib.error.HTTPError as exc:
+                  if method == "DELETE" and exc.code == 404:
+                      return b""
+                  raise
+
+          request("PATCH", f"/repos/{repo}/pulls/{audit_pr}", {
+              "state": "closed",
+              "body": (
+                  "Disposable exact-head audit controller for target PR #23. "
+                  "The target exact head passed all independent and repository gates and was merged. "
+                  "This audit PR contains no product source and is closed without merge."
+              ),
+          })
+          request("DELETE", f"/repos/{repo}/git/refs/heads/{urllib.parse.quote(branch, safe='')}")
+          PY
+
+  report-blocker:
+    name: Preserve exact audit failure
+    if: ${{ always() && (needs.preflight.result == 'failure' || needs.source.result == 'failure' || needs.browser.result == 'failure' || needs.windows.result == 'failure' || needs.security.result == 'failure' || needs.finalize.result == 'failure') }}
+    needs:
+      - preflight
+      - source
+      - browser
+      - windows
+      - security
+      - finalize
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Comment content-free blocker state
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUDIT_PR: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          body=$(cat <<'EOF'
+          ### Exact-head ED-06 audit blocked
+
+          One or more independent preflight, source, browser/accessibility, Windows, security, hosted-check, or review-thread gates failed. Target PR #23 remains unmerged; its draft/source state and every failure are preserved. No Windows-host restart, provider/session, interaction-worker, installer, signing, credential, publication, or release claim was promoted.
+          EOF
+          )
+          gh pr comment "$TARGET_PR" --repo "$REPOSITORY" --body "$body" || true
+          gh pr comment "$AUDIT_PR" --repo "$REPOSITORY" --body "$body" || true
