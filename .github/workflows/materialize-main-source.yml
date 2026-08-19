@@ -1,0 +1,40 @@
+name: Materialize exact main source
+
+on:
+  push:
+    branches:
+      - audit/materialize-main-20260819
+    paths:
+      - .github/workflows/materialize-main-source.yml
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact main head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 2012e7cb12aa40cf39db0f2465b2eeef5d742f90
+          persist-credentials: false
+          path: prime-studio
+
+      - name: Record exact identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C prime-studio rev-parse HEAD)" = "2012e7cb12aa40cf39db0f2465b2eeef5d742f90"
+          printf '%s\n' "2012e7cb12aa40cf39db0f2465b2eeef5d742f90" > prime-studio/.materialized-main-sha
+          rm -rf prime-studio/.git
+
+      - name: Upload exact source tree
+        uses: actions/upload-artifact@v4
+        with:
+          name: prime-studio-main-2012e7c
+          path: prime-studio
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 6
