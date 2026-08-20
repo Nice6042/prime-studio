@@ -1,0 +1,166 @@
+name: Wire ED-06 native authority
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/wire-ed06-native-authority.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wire-ed06-native-authority
+  cancel-in-progress: false
+
+jobs:
+  wire:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out exact product branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: work/native-editor-restart-persistence-v2
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Wire commands into the sole authority boundary
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path: str, before: str, after: str, label: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              count = text.count(before)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected one anchor, found {count}")
+              file.write_text(text.replace(before, after), encoding="utf-8", newline="\n")
+
+          replace_once(
+              "app/src-tauri/src/commands/mod.rs",
+              "pub mod editor;\npub mod harness;",
+              "pub mod editor;\npub mod editor_drafts;\npub mod harness;",
+              "commands module",
+          )
+
+          authority = "app/src-tauri/src/authority.rs"
+          replace_once(
+              authority,
+              "    EditorArtifactSaveCopy,\n    KernelStatus,",
+              "    EditorArtifactSaveCopy,\n    EditorDraftsLoad,\n    EditorDraftPut,\n    EditorDraftDelete,\n    KernelStatus,",
+              "authority enum",
+          )
+          replace_once(
+              authority,
+              "pub const ALL_TAURI_COMMANDS: [TauriCommand; 69] = [",
+              "pub const ALL_TAURI_COMMANDS: [TauriCommand; 72] = [",
+              "authority inventory count",
+          )
+          replace_once(
+              authority,
+              "    TauriCommand::EditorArtifactSaveCopy,\n    TauriCommand::KernelStatus,",
+              "    TauriCommand::EditorArtifactSaveCopy,\n    TauriCommand::EditorDraftsLoad,\n    TauriCommand::EditorDraftPut,\n    TauriCommand::EditorDraftDelete,\n    TauriCommand::KernelStatus,",
+              "authority inventory",
+          )
+          replace_once(
+              authority,
+              '            Self::EditorArtifactSaveCopy => "editor_artifact_save_copy",\n            Self::KernelStatus => "kernel_status",',
+              '            Self::EditorArtifactSaveCopy => "editor_artifact_save_copy",\n            Self::EditorDraftsLoad => "editor_drafts_load",\n            Self::EditorDraftPut => "editor_draft_put",\n            Self::EditorDraftDelete => "editor_draft_delete",\n            Self::KernelStatus => "kernel_status",',
+              "authority names",
+          )
+          replace_once(
+              authority,
+              "            Self::NoteAgent\n            | Self::ProjectCatalogApply\n            | Self::ChatDisplayApply\n            | Self::AttentionMarkSeen => CommandAuthority::LocalBookkeeping,",
+              "            Self::NoteAgent\n            | Self::ProjectCatalogApply\n            | Self::ChatDisplayApply\n            | Self::AttentionMarkSeen\n            | Self::EditorDraftPut\n            | Self::EditorDraftDelete => CommandAuthority::LocalBookkeeping,",
+              "local bookkeeping classification",
+          )
+          replace_once(
+              authority,
+              "            | Self::GetLayoutPreferences\n            | Self::ComputerUseReadiness => CommandAuthority::OfflineRead,",
+              "            | Self::GetLayoutPreferences\n            | Self::EditorDraftsLoad\n            | Self::ComputerUseReadiness => CommandAuthority::OfflineRead,",
+              "offline read classification",
+          )
+
+          lib = "app/src-tauri/src/lib.rs"
+          replace_once(
+              lib,
+              "use commands::editor::{\n    editor_artifact_open, editor_artifact_reload, editor_artifact_save, editor_artifact_save_copy,\n    ArtifactAuthority,\n};",
+              "use commands::editor::{\n    editor_artifact_open, editor_artifact_reload, editor_artifact_save, editor_artifact_save_copy,\n    ArtifactAuthority,\n};\nuse commands::editor_drafts::{editor_draft_delete, editor_draft_put, editor_drafts_load};",
+              "native imports",
+          )
+          replace_once(
+              lib,
+              "            editor_artifact_save,\n            editor_artifact_save_copy,\n            kernel_status,",
+              "            editor_artifact_save,\n            editor_artifact_save_copy,\n            editor_drafts_load,\n            editor_draft_put,\n            editor_draft_delete,\n            kernel_status,",
+              "Tauri handler registration",
+          )
+
+          tests = "app/src-tauri/tests/execution_authority_gate.rs"
+          replace_once(
+              tests,
+              "const EXPECTED_TAURI_COMMANDS: [&str; 69] = [",
+              "const EXPECTED_TAURI_COMMANDS: [&str; 72] = [",
+              "authority test count",
+          )
+          replace_once(
+              tests,
+              '    "editor_artifact_save",\n    "editor_artifact_save_copy",\n    "kernel_status",',
+              '    "editor_artifact_save",\n    "editor_artifact_save_copy",\n    "editor_drafts_load",\n    "editor_draft_put",\n    "editor_draft_delete",\n    "kernel_status",',
+              "authority test inventory",
+          )
+          replace_once(
+              tests,
+              "        (TauriCommand::EditorArtifactSave, VerifiedBroker),\n        (TauriCommand::EditorArtifactSaveCopy, VerifiedBroker),\n        (TauriCommand::ComputerUseReadiness, OfflineRead),",
+              "        (TauriCommand::EditorArtifactSave, VerifiedBroker),\n        (TauriCommand::EditorArtifactSaveCopy, VerifiedBroker),\n        (TauriCommand::EditorDraftsLoad, OfflineRead),\n        (TauriCommand::EditorDraftPut, LocalBookkeeping),\n        (TauriCommand::EditorDraftDelete, LocalBookkeeping),\n        (TauriCommand::ComputerUseReadiness, OfflineRead),",
+              "authority test classifications",
+          )
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.12.0
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # pinned 2026-08-10
+        with:
+          toolchain: 1.97.0
+          components: rustfmt, clippy
+
+      - name: Build frontend required by Tauri
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
+      - name: Format and validate native draft authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --manifest-path app/src-tauri/Cargo.toml --all
+          cargo clippy --manifest-path app/src-tauri/Cargo.toml --locked --all-targets --features test-support-bin -- -D warnings
+          cargo test --manifest-path app/src-tauri/Cargo.toml --locked --all-targets --features test-support-bin commands::editor_drafts
+          cargo test --manifest-path app/src-tauri/Cargo.toml --locked --test execution_authority_gate
+          git diff --check
+
+      - name: Commit exact native wiring to product branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app/src-tauri/src/commands/editor_drafts.rs \
+            app/src-tauri/src/commands/mod.rs \
+            app/src-tauri/src/authority.rs \
+            app/src-tauri/src/lib.rs \
+            app/src-tauri/tests/execution_authority_gate.rs
+          git commit --amend --no-edit
+          test -z "$(git status --porcelain)"
+          git push --force-with-lease origin HEAD:work/native-editor-restart-persistence-v2
