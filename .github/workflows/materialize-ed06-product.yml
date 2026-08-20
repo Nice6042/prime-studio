@@ -1,0 +1,150 @@
+name: Materialize ED-06 product branch
+
+on:
+  push:
+    branches:
+      - work/native-editor-restart-persistence
+    paths:
+      - .github/workflows/materialize-ed06-product.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: materialize-ed06-product-v2
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out payload branch with main history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: work/native-editor-restart-persistence
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Decode and apply the reviewed source payload
+        shell: python
+        run: |
+          from pathlib import Path
+          import base64
+
+          chunks = sorted(Path('.github/ed06-payload').glob('chunk-*.b64'))
+          if len(chunks) != 9:
+              raise SystemExit(f'expected nine payload chunks, found {len(chunks)}')
+          texts = [path.read_text(encoding='utf-8').strip() for path in chunks]
+          candidates = []
+          try:
+              candidates.append(base64.b64decode(''.join(texts), validate=True))
+          except Exception:
+              pass
+          try:
+              candidates.append(b''.join(base64.b64decode(text, validate=True) for text in texts))
+          except Exception:
+              pass
+          script = next((candidate for candidate in candidates if candidate.startswith(b'from pathlib import Path') and b'NEW_FILES_PAYLOAD' in candidate), None)
+          if script is None:
+              raise SystemExit('payload did not decode to the expected materializer')
+          target = Path('/tmp/materialize-ed06.py')
+          target.write_bytes(script)
+          compile(script, str(target), 'exec')
+
+      - name: Execute materializer and verify exact generated file set
+        shell: bash
+        run: |
+          set -euo pipefail
+          python /tmp/materialize-ed06.py
+          expected=$(cat <<'EOF'
+          app/src-tauri/src/authority.rs
+          app/src-tauri/src/commands/editor_drafts.rs
+          app/src-tauri/src/commands/mod.rs
+          app/src-tauri/src/lib.rs
+          app/src-tauri/tests/execution_authority_gate.rs
+          app/src/app/StudioApp.tsx
+          app/src/features/editor/editorBufferStore.test.ts
+          app/src/features/editor/editorBufferStore.ts
+          app/src/features/editor/editorDraftClient.test.ts
+          app/src/features/editor/editorDraftClient.ts
+          app/src/features/editor/editorDraftPersistence.test.ts
+          app/src/features/editor/editorDraftPersistence.ts
+          app/src/features/editor/editorDraftRestart.integration.test.tsx
+          docs/editor-restart-draft-persistence.md
+          EOF
+          )
+          actual=$(git status --porcelain=v1 | sed -E 's/^.. //' | grep -v '^\.github/ed06-payload/' | grep -v '^\.github/workflows/materialize-ed06-product.yml$' | sort)
+          if [ "$actual" != "$(printf '%s\n' "$expected" | sort)" ]; then
+            printf 'Expected files:\n%s\n\nActual files:\n%s\n' "$expected" "$actual"
+            exit 1
+          fi
+          while IFS= read -r path; do
+            test -f "$path"
+          done <<< "$expected"
+          tar -czf /tmp/ed06-product-files.tar.gz $expected
+
+      - name: Rebuild a clean product branch from current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git checkout -B work/native-editor-restart-persistence-v2 origin/main
+          tar -xzf /tmp/ed06-product-files.tar.gz
+          git diff --check
+          actual=$(git status --porcelain=v1 | sed -E 's/^.. //' | sort)
+          expected=$(cat <<'EOF'
+          app/src-tauri/src/authority.rs
+          app/src-tauri/src/commands/editor_drafts.rs
+          app/src-tauri/src/commands/mod.rs
+          app/src-tauri/src/lib.rs
+          app/src-tauri/tests/execution_authority_gate.rs
+          app/src/app/StudioApp.tsx
+          app/src/features/editor/editorBufferStore.test.ts
+          app/src/features/editor/editorBufferStore.ts
+          app/src/features/editor/editorDraftClient.test.ts
+          app/src/features/editor/editorDraftClient.ts
+          app/src/features/editor/editorDraftPersistence.test.ts
+          app/src/features/editor/editorDraftPersistence.ts
+          app/src/features/editor/editorDraftRestart.integration.test.tsx
+          docs/editor-restart-draft-persistence.md
+          EOF
+          )
+          if [ "$actual" != "$(printf '%s\n' "$expected" | sort)" ]; then
+            printf 'Clean-branch file mismatch.\nExpected:\n%s\nActual:\n%s\n' "$expected" "$actual"
+            exit 1
+          fi
+
+      - name: Commit coherent implementation layers
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add \
+            app/src-tauri/src/commands/editor_drafts.rs \
+            app/src-tauri/src/commands/mod.rs \
+            app/src-tauri/src/lib.rs \
+            app/src-tauri/src/authority.rs \
+            app/src-tauri/tests/execution_authority_gate.rs
+          git commit -m "feat(editor): add native restart-safe draft authority"
+
+          git add \
+            app/src/features/editor/editorDraftClient.ts \
+            app/src/features/editor/editorDraftPersistence.ts \
+            app/src/features/editor/editorBufferStore.ts \
+            app/src/app/StudioApp.tsx
+          git commit -m "feat(editor): hydrate and persist identity-bound drafts"
+
+          git add \
+            app/src/features/editor/editorDraftClient.test.ts \
+            app/src/features/editor/editorDraftPersistence.test.ts \
+            app/src/features/editor/editorDraftRestart.integration.test.tsx \
+            app/src/features/editor/editorBufferStore.test.ts \
+            docs/editor-restart-draft-persistence.md
+          git commit -m "test(editor): prove bounded restart draft semantics"
+
+          test -z "$(git status --porcelain)"
+          git push --force-with-lease origin HEAD:work/native-editor-restart-persistence-v2
+          git log --oneline --decorate -4
