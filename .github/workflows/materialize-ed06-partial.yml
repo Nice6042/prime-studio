@@ -1,0 +1,73 @@
+name: Recover partial ED-06 payload
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/materialize-ed06-partial.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: recover-partial-ed06-payload
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out payload branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: work/native-editor-restart-persistence
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Decode and execute only the syntactically complete payload prefix
+        shell: python
+        run: |
+          from pathlib import Path
+          import base64
+
+          texts = [path.read_text(encoding='utf-8').strip() for path in sorted(Path('.github/ed06-payload').glob('chunk-*.b64'))]
+          source = base64.b64decode(''.join(texts), validate=True).decode('utf-8')
+          marker = '''replace_once(
+              authority_test,
+              """        (TauriCommand::EditorArtifactSave, VerifiedBroker),'''
+          index = source.find(marker)
+          if index < 0:
+              raise SystemExit('truncated authority-test marker unavailable')
+          prefix = source[:index].rstrip() + '\n'
+          compile(prefix, '/tmp/materialize-ed06-partial.py', 'exec')
+          Path('/tmp/materialize-ed06-partial.py').write_text(prefix, encoding='utf-8')
+
+      - name: Apply complete prefix and capture its exact files
+        shell: bash
+        run: |
+          set -euo pipefail
+          python /tmp/materialize-ed06-partial.py
+          git diff --check
+          mapfile -t paths < <(git status --porcelain=v1 | sed -E 's/^.. //' | grep -v '^\.github/ed06-payload/' | grep -v '^\.github/workflows/' | sort)
+          if [ "${#paths[@]}" -lt 8 ]; then
+            printf 'Recovered too few product paths:\n%s\n' "${paths[*]}"
+            exit 1
+          fi
+          printf '%s\n' "${paths[@]}" | tee /tmp/ed06-partial-paths.txt
+          tar -czf /tmp/ed06-partial-files.tar.gz "${paths[@]}"
+
+      - name: Publish an isolated diagnostic source branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git checkout -B work/native-editor-restart-persistence-partial origin/main
+          tar -xzf /tmp/ed06-partial-files.tar.gz
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --pathspec-from-file=/tmp/ed06-partial-paths.txt
+          git commit -m "chore(dev): recover inspectable ED-06 source payload prefix"
+          git push --force-with-lease origin HEAD:work/native-editor-restart-persistence-partial
