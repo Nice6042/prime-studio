@@ -1,0 +1,55 @@
+name: Diagnose ED-06 payload
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/diagnose-ed06-payload.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out payload branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: work/native-editor-restart-persistence
+          persist-credentials: false
+
+      - name: Decode and print bounded materializer structure
+        shell: python
+        run: |
+          from pathlib import Path
+          import base64
+          import hashlib
+
+          chunks = sorted(Path('.github/ed06-payload').glob('chunk-*.b64'))
+          texts = [path.read_text(encoding='utf-8').strip() for path in chunks]
+          candidates = []
+          for mode in ('joined', 'separate'):
+              try:
+                  candidate = base64.b64decode(''.join(texts), validate=True) if mode == 'joined' else b''.join(base64.b64decode(text, validate=True) for text in texts)
+                  candidates.append((mode, candidate))
+              except Exception as error:
+                  print(f'{mode}: decode failed: {type(error).__name__}')
+          for mode, candidate in candidates:
+              print(f'{mode}: bytes={len(candidate)} sha256={hashlib.sha256(candidate).hexdigest()}')
+              try:
+                  source = candidate.decode('utf-8')
+              except UnicodeDecodeError:
+                  print(f'{mode}: not UTF-8')
+                  continue
+              lines = source.splitlines()
+              print(f'{mode}: lines={len(lines)}')
+              for number, line in list(enumerate(lines, 1))[-80:]:
+                  print(f'{number:04d}: {line}')
+              try:
+                  compile(source, '<decoded-ed06>', 'exec')
+                  print(f'{mode}: compile=success')
+              except SyntaxError as error:
+                  print(f'{mode}: compile=SyntaxError line={error.lineno} offset={error.offset} message={error.msg}')
