@@ -152,6 +152,16 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   const [settings, setSettings] = useState<AppSettings>({});
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [settingsLoadFailed, setSettingsLoadFailed] = useState(false);
+  const settingsPersistenceTail = useRef<Promise<void>>(Promise.resolve());
+  const persistAppSetting = (key: keyof AppSettings, value: string | null) => {
+    const operation = settingsPersistenceTail.current.then(async () => {
+      const next = await rpc.setAppSetting(key, value);
+      setSettings(next);
+      return next;
+    });
+    settingsPersistenceTail.current = operation.then(() => undefined, () => undefined);
+    return operation;
+  };
   const [accounts, setAccounts] = useState<readonly Account[]>([]);
   const [codexQuota, setCodexQuota] = useState<CodexQuotaState>({ status: "loading", snapshot: null });
   const codexQuotaRef = useRef(codexQuota);
@@ -695,13 +705,11 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
       case "workspace.sign-out":
         return { status: "unavailable", reason: "Workspace sign-out is unavailable because configured folders do not own an authenticated session." };
       case "settings.preference.set": {
-        const next = await rpc.setAppSetting(operation.payload.key as keyof AppSettings, String(operation.payload.value));
-        setSettings(next);
+        const next = await persistAppSetting(operation.payload.key as keyof AppSettings, String(operation.payload.value));
         return { status: "updated", revision: JSON.stringify(next) };
       }
       case "settings.preference.reset": {
-        const next = await rpc.setAppSetting(operation.payload.key as keyof AppSettings, null);
-        setSettings(next);
+        const next = await persistAppSetting(operation.payload.key as keyof AppSettings, null);
         return { status: "updated", revision: JSON.stringify(next) };
       }
       default:
@@ -1257,7 +1265,7 @@ export function StudioApp({ harnessAdapter = unavailableHarnessInspectorAdapter 
   }, [activeSheet, layout.sidebarOpen, workspaceFooterHost]);
   const executeSettingOperation = (operation: StudioOperation, key: keyof AppSettings, value: string | null) => {
     void harnessAdapter.execute(operation).then((outcome) => {
-      if (operationAccepted(outcome.status)) void rpc.setAppSetting(key, value).then(setSettings).catch(() => undefined);
+      if (operationAccepted(outcome.status)) void persistAppSetting(key, value).catch(() => undefined);
     }).catch(() => undefined);
   };
   const writeHarnessSetting = adapterConnected && harnessAdapter.settings?.harnessPolicy ? (key: keyof AppSettings, value: string | null) => {
