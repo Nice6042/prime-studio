@@ -13,6 +13,7 @@ import type { HarnessInspectorAdapter } from "../features/harness/adapter";
 import * as rpc from "../rpc";
 import * as projectCatalogClient from "../features/navigation/projectCatalogClient";
 import * as chatDisplayClient from "../features/editor/chatDisplayClient";
+import type { AppSettings } from "../types";
 
 const nativeDocs = vi.hoisted(() => ({ getVersion: vi.fn(async () => "0.1.0") }));
 
@@ -598,6 +599,48 @@ describe("Studio application state", () => {
     expect(await screen.findByRole("heading", { name: "General", level: 1 })).toBeVisible();
     settingsSpy.mockRestore();
   }, 15_000);
+
+  it("serializes preference writes so rapid independent changes cannot lose persisted settings", async () => {
+    const initial: AppSettings = { accent: "prime-violet", fontSize: "medium" };
+    let durable: AppSettings = { ...initial };
+    let writes = 0;
+    const firstStarted = deferred<void>();
+    const releaseFirst = deferred<void>();
+    const loadSettings = vi.spyOn(rpc, "getAppSettings").mockResolvedValue(initial);
+    const persistSetting = vi.spyOn(rpc, "setAppSetting").mockImplementation(async (key, value) => {
+      const snapshot = { ...durable };
+      writes += 1;
+      if (writes === 1) {
+        firstStarted.resolve();
+        await releaseFirst.promise;
+      }
+      if (value === null) delete snapshot[key];
+      else snapshot[key] = value;
+      durable = snapshot;
+      return snapshot;
+    });
+    const store = createStudioStore(initialStudioState());
+    store.dispatch({ type: "route/settings", section: "appearance" });
+    render(<AppProviders store={store}><StudioApp /></AppProviders>);
+
+    const accent = await screen.findByRole("combobox", { name: "Accent" });
+    const fontSize = screen.getByRole("combobox", { name: "Font size" });
+    fireEvent.change(accent, { target: { value: "ember" } });
+    await firstStarted.promise;
+    fireEvent.change(fontSize, { target: { value: "large" } });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    releaseFirst.resolve();
+
+    await waitFor(() => expect(persistSetting).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(durable).toMatchObject({ accent: "ember", fontSize: "large" }));
+    expect(accent).toHaveValue("ember");
+    expect(fontSize).toHaveValue("large");
+    loadSettings.mockRestore();
+    persistSetting.mockRestore();
+  });
 
   it("routes Harness-owned settings through the verified adapter before persistence", async () => {
     const operations: StudioOperation[] = [];
