@@ -28,6 +28,28 @@ test("topmost menus own global shortcuts without leaking workspace commands", as
   await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-topmost-shortcut-ownership");
 });
 
+test("application menus support directional navigation and restore the active trigger", async ({ shellPage }) => {
+  const file = shellPage.getByRole("button", { name: "File", exact: true });
+  await file.focus();
+  await shellPage.keyboard.press("ArrowDown");
+
+  const newChat = shellPage.getByRole("menuitem", { name: "New chat" });
+  await expect(newChat).toBeDisabled();
+  await expect(shellPage.getByRole("menuitem", { name: "Settings" })).toBeFocused();
+
+  await shellPage.keyboard.press("ArrowRight");
+  await expect(shellPage.getByRole("menu", { name: "Edit menu" })).toBeVisible();
+  await expect(shellPage.getByRole("menuitem", { name: "Undo" })).toBeFocused();
+  await shellPage.keyboard.press("ArrowRight");
+  await expect(shellPage.getByRole("menuitem", { name: "Toggle sidebar" })).toBeFocused();
+  await shellPage.keyboard.press("ArrowLeft");
+  await expect(shellPage.getByRole("menuitem", { name: "Undo" })).toBeFocused();
+
+  await shellPage.keyboard.press("Escape");
+  await expect(shellPage.getByRole("button", { name: "Edit", exact: true })).toBeFocused();
+  await expectNoSeriousOrCriticalAxeViolations(shellPage, "studio-title-menu-keyboard-navigation");
+});
+
 test("composer and title popovers dismiss outside without stealing the clicked target", async ({ shellPage }) => {
   const composer = shellPage.getByRole("textbox", { name: "Message Prime Studio" });
   const file = shellPage.getByRole("button", { name: "File", exact: true });
