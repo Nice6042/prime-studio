@@ -38,6 +38,50 @@ test("the offline Windows SBOM check runs after Cargo has populated its locked g
   assert.ok(rust.indexOf("cargo test") < rust.indexOf("third-party-artifacts"));
 });
 
+test("frontend CI enforces generated Harness parity and sidecar behavior", async () => {
+  const workflow = await readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+  const frontendStart = workflow.indexOf("  frontend:");
+  const browserShellStart = workflow.indexOf("  browser-shell:", frontendStart);
+  assert.ok(frontendStart >= 0, "CI workflow is missing the frontend job");
+  assert.ok(browserShellStart > frontendStart, "CI workflow is missing the browser-shell job after frontend");
+
+  const frontend = workflow.slice(frontendStart, browserShellStart);
+  const steps = frontend
+    .split(/^      - name: /mu)
+    .slice(1)
+    .map((block) => {
+      const [name, ...lines] = block.split("\n");
+      const value = (field) => lines
+        .find((line) => line.startsWith(`        ${field}: `))
+        ?.slice(`        ${field}: `.length)
+        .trim();
+      return {
+        name: name.trim(),
+        run: value("run"),
+        workingDirectory: value("working-directory"),
+        condition: value("if"),
+      };
+    });
+
+  const requiredStep = (name, run) => {
+    const index = steps.findIndex((step) => step.name === name);
+    assert.ok(index >= 0, `frontend CI is missing the ${name} step`);
+    assert.equal(steps[index].run, run, `${name} must run the exact checked command`);
+    assert.equal(steps[index].workingDirectory, "app", `${name} must run from app`);
+    assert.equal(steps[index].condition, undefined, `${name} must be unconditional`);
+    return index;
+  };
+
+  const contractCheck = requiredStep("Check generated Harness contract", "npm run check:harness-contract");
+  const sidecarTests = requiredStep("Run Harness sidecar tests", "npm run test:harness-sidecar");
+  const build = requiredStep("Build frontend", "npm run build");
+  const boundaryCheck = requiredStep("Enforce typed Harness boundaries", "npm run check:harness-boundaries");
+
+  assert.ok(contractCheck < build, "generated contract parity must be checked before the build");
+  assert.ok(sidecarTests < build, "sidecar behavior must be tested before the build");
+  assert.ok(build < boundaryCheck, "built Harness boundaries must be checked after the build");
+});
+
 test("workflow validation rejects publication and artifact upload steps", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "prime-studio-workflow-policy-"));
   try {
