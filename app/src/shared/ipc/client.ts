@@ -465,6 +465,7 @@ export async function bootstrapHarness(): Promise<BootProjection> {
   const projection = decodeBootProjection(await invoke("harness_bootstrap"));
   lastSequence = 0;
   eventStreamClosed = false;
+  nextRefreshIndex = 0;
   sessionCursors.clear();
   retiredGenerations.clear();
   childOwners.clear();
@@ -1108,12 +1109,16 @@ export async function executeHarnessStudioOperation(
 }
 
 type Listener = (event: HarnessProjectionEvent) => void;
+// Native refreshes share one broker lock and can wait up to ten seconds each.
+// Keep a timer tick from queueing the full 256-session protocol maximum.
+const MAX_REFRESHES_PER_PASS = 8;
 const listeners = new Set<Listener>();
 let unlisten: Promise<UnlistenFn> | null = null;
 let lastSequence = 0;
 let eventStreamClosed = false;
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 let refreshRunning = false;
+let nextRefreshIndex = 0;
 const sessionCursors = new Map<string, HarnessCursor>();
 const retiredGenerations = new Map<string, Set<string>>();
 const childOwners = new Map<string, string>();
@@ -1234,8 +1239,16 @@ export async function refreshHarnessSubscriptionsNow(): Promise<void> {
   if (refreshRunning || eventStreamClosed || listeners.size === 0) return;
   refreshRunning = true;
   try {
-    for (const [sessionId, knownCursor] of [...sessionCursors]) {
+    const registered = [...sessionCursors];
+    let attempted = 0;
+    while (attempted < MAX_REFRESHES_PER_PASS && attempted < registered.length) {
       if (eventStreamClosed || listeners.size === 0) break;
+      const index = nextRefreshIndex % registered.length;
+      const candidate = registered[index];
+      if (!candidate) break;
+      nextRefreshIndex = (index + 1) % registered.length;
+      attempted += 1;
+      const [sessionId, knownCursor] = candidate;
       try {
         const projected = await refreshHarnessSession(sessionId, knownCursor);
         const current = sessionCursors.get(sessionId);

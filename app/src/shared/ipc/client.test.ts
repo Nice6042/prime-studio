@@ -65,6 +65,44 @@ function sessionAt(cursor: { runtimeGeneration: string; sequence: number }, patc
   return { ...session, ...patch, cursor, performance: { ...session.performance, cursor: { ...cursor } } };
 }
 
+function distinctSessions(count: number, prefix: string) {
+  const width = Math.max(2, String(count - 1).length);
+  return Array.from({ length: count }, (_, index) => {
+    const suffix = index.toString().padStart(width, "0");
+    const sessionId = `${prefix}-${suffix}`;
+    const cursor = { runtimeGeneration: "generation", sequence: 1 };
+    return structuredClone({
+      ...session,
+      sessionId,
+      chatId: `${prefix}-chat-${suffix}`,
+      cursor,
+      performance: { ...session.performance, sessionId, cursor: { ...cursor } },
+    });
+  });
+}
+
+function mockHarnessRefresh(sessions: ReturnType<typeof distinctSessions>) {
+  const byId = new Map(sessions.map((projected) => [projected.sessionId, projected]));
+  const refreshed: string[] = [];
+  mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+    if (command === "harness_bootstrap") return {
+      compatibility: { status: "ready", profile: "profile", capabilities: [...readyCapabilities] },
+      runtime: { ...verifiedRuntime, capabilities: [...readyCapabilities] },
+      sessions,
+    };
+    if (command === "harness_refresh_session") {
+      const request = args?.request as { sessionId: string; knownCursor: { runtimeGeneration: string; sequence: number } };
+      const projected = byId.get(request.sessionId);
+      if (!projected) throw new Error(`Unknown session: ${request.sessionId}`);
+      refreshed.push(request.sessionId);
+      const cursor = { ...request.knownCursor, sequence: request.knownCursor.sequence + 1 };
+      return { ...projected, cursor, performance: { ...projected.performance, cursor } };
+    }
+    throw new Error(`Unexpected command: ${command}`);
+  });
+  return refreshed;
+}
+
 describe("Harness IPC client", () => {
   beforeEach(() => {
     mocks.invoke.mockReset();
@@ -812,5 +850,32 @@ describe("Harness IPC client", () => {
 
     expect(refreshCursors).toEqual([1, 2]);
     expect(received).toEqual([3]);
+  });
+
+  it("caps one fallback refresh pass at eight IPC requests for the maximum bootstrap", async () => {
+    const sessions = distinctSessions(256, "session");
+    const refreshed = mockHarnessRefresh(sessions);
+
+    await bootstrapHarness();
+    const unsubscribe = subscribeHarnessEvents(() => undefined);
+    await refreshHarnessSubscriptionsNow();
+    unsubscribe();
+
+    expect(refreshed).toEqual(sessions.slice(0, 8).map((projected) => projected.sessionId));
+  });
+
+  it("round-robins bounded fallback refresh batches without starving later sessions", async () => {
+    const sessions = distinctSessions(17, "round-robin");
+    const refreshed = mockHarnessRefresh(sessions);
+
+    await bootstrapHarness();
+    const unsubscribe = subscribeHarnessEvents(() => undefined);
+    await refreshHarnessSubscriptionsNow();
+    await refreshHarnessSubscriptionsNow();
+    await refreshHarnessSubscriptionsNow();
+    unsubscribe();
+
+    const ids = sessions.map((projected) => projected.sessionId);
+    expect(refreshed).toEqual([...ids.slice(0, 8), ...ids.slice(8, 16), ids[16], ...ids.slice(0, 7)]);
   });
 });
