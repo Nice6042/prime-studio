@@ -67,9 +67,17 @@ jobs:
         working-directory: app
         run: npm ci
 
+      - name: Check generated Harness contract
+        working-directory: app
+        run: npm run check:harness-contract
+
       - name: Run frontend tests
         working-directory: app
         run: npm test -- --maxWorkers=2 --no-file-parallelism
+
+      - name: Run Harness sidecar tests
+        working-directory: app
+        run: npm run test:harness-sidecar
 
       - name: Test dependency policy
         working-directory: app
