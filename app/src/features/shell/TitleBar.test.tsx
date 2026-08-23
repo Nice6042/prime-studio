@@ -34,6 +34,97 @@ describe("TitleBar", () => {
     }
   });
 
+  it("opens and navigates enabled menu items with directional keys", async () => {
+    const onCommand = vi.fn();
+    render(<TitleBar title="Harness architecture" availability={{ admissionConnected: true }} onCommand={onCommand} />);
+    const file = screen.getByRole("button", { name: "File" });
+
+    file.focus();
+    await userEvent.keyboard("{ArrowDown}");
+    expect(screen.getByRole("menu", { name: "File menu" })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "New chat" })).toHaveFocus();
+
+    await userEvent.keyboard("{ArrowDown}");
+    expect(screen.getByRole("menuitem", { name: "Settings" })).toHaveFocus();
+    await userEvent.keyboard("{ArrowDown}");
+    expect(screen.getByRole("menuitem", { name: "New chat" })).toHaveFocus();
+    await userEvent.keyboard("{End}");
+    expect(screen.getByRole("menuitem", { name: "Settings" })).toHaveFocus();
+    await userEvent.keyboard("{Home}");
+    expect(screen.getByRole("menuitem", { name: "New chat" })).toHaveFocus();
+    await userEvent.keyboard("{ArrowUp}{Enter}");
+
+    expect(onCommand).toHaveBeenCalledWith("settings.open");
+    expect(screen.queryByRole("menu", { name: "File menu" })).not.toBeInTheDocument();
+  });
+
+  it("focuses the first enabled item when keyboard activation opens a menu", async () => {
+    render(<TitleBar
+      title="Harness architecture"
+      availability={{ admissionConnected: true, disabledActions: { "catalog.chat.create": "Choose a default account first." } }}
+      onCommand={vi.fn()}
+    />);
+    const file = screen.getByRole("button", { name: "File" });
+
+    file.focus();
+    await userEvent.keyboard("{Enter}");
+
+    expect(screen.getByRole("menuitem", { name: "New chat" })).toBeDisabled();
+    expect(screen.getByRole("menuitem", { name: "Settings" })).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    expect(file).toHaveFocus();
+  });
+
+  it("moves keyboard focus into a menu that pointer activation already opened", async () => {
+    render(<TitleBar title="Harness architecture" availability={{ admissionConnected: true }} onCommand={vi.fn()} />);
+    const file = screen.getByRole("button", { name: "File" });
+
+    await userEvent.click(file);
+    expect(file).toHaveFocus();
+    await userEvent.keyboard("{ArrowDown}");
+
+    expect(screen.getByRole("menuitem", { name: "New chat" })).toHaveFocus();
+  });
+
+  it("switches sibling menus with Left and Right and restores the active trigger", async () => {
+    render(<TitleBar title="Harness architecture" availability={{ admissionConnected: true }} onCommand={vi.fn()} />);
+    const file = screen.getByRole("button", { name: "File" });
+
+    file.focus();
+    await userEvent.keyboard("{ArrowDown}{ArrowRight}");
+    expect(screen.queryByRole("menu", { name: "File menu" })).not.toBeInTheDocument();
+    expect(screen.getByRole("menu", { name: "Edit menu" })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "Undo" })).toHaveFocus();
+
+    await userEvent.keyboard("{ArrowRight}");
+    expect(screen.getByRole("menu", { name: "View menu" })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "Toggle sidebar" })).toHaveFocus();
+    await userEvent.keyboard("{ArrowLeft}");
+    expect(screen.getByRole("menu", { name: "Edit menu" })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "Undo" })).toHaveFocus();
+
+    await userEvent.keyboard("{Escape}");
+    expect(screen.getByRole("button", { name: "Edit" })).toHaveFocus();
+  });
+
+  it("keeps keyboard focus when pointer hover switches an open sibling menu", async () => {
+    render(<TitleBar title="Harness architecture" availability={{ admissionConnected: true }} onCommand={vi.fn()} />);
+    const file = screen.getByRole("button", { name: "File" });
+    const view = screen.getByRole("button", { name: "View" });
+
+    file.focus();
+    await userEvent.keyboard("{ArrowDown}");
+    expect(screen.getByRole("menuitem", { name: "New chat" })).toHaveFocus();
+    await userEvent.hover(view);
+
+    expect(screen.getByRole("menu", { name: "View menu" })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "Toggle sidebar" })).toHaveFocus();
+    await userEvent.keyboard("{ArrowDown}");
+    expect(screen.getByRole("menuitem", { name: "Toggle Harness" })).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    expect(view).toHaveFocus();
+  });
+
   it("uses one capability result to disable unavailable placements without dispatching", async () => {
     const onCommand = vi.fn();
     render(<TitleBar title="Harness architecture" availability={{ admissionConnected: true, disabledActions: { "route.external-docs.open": "Documentation is unavailable." } }} onCommand={onCommand} />);
